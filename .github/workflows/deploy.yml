@@ -3,8 +3,7 @@ name: Build & Deploy OptiBoard
 on:
   push:
     branches:
-      - main        # → Production
-      - develop     # → Staging (optionnel)
+      - main
   pull_request:
     branches:
       - main
@@ -17,16 +16,15 @@ env:
 jobs:
   # ─────────────────────────────────────────
   # JOB 1 : Build & Push Docker images
+  # (tourne sur GitHub, pas sur ton serveur)
   # ─────────────────────────────────────────
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
 
     steps:
       - name: Checkout code
@@ -39,50 +37,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.IMAGE_BACKEND }}
-            ${{ env.IMAGE_FRONTEND }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      # ── Backend ──
       - name: Build & Push Backend
         uses: docker/build-push-action@v5
         with:
           context: ./reporting-commercial/backend
           file: ./reporting-commercial/backend/Dockerfile.backend
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ${{ env.IMAGE_BACKEND }}:latest
             ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
-          labels: ${{ steps.meta.outputs.labels }}
 
-      # ── Frontend ──
       - name: Build & Push Frontend
         uses: docker/build-push-action@v5
         with:
           context: ./reporting-commercial/frontend
           file: ./reporting-commercial/frontend/Dockerfile.frontend
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ${{ env.IMAGE_FRONTEND }}:latest
             ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
-          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VITE_API_URL=${{ secrets.PROD_API_URL }}
 
   # ─────────────────────────────────────────
-  # JOB 2 : Deploy sur le serveur (SSH)
+  # JOB 2 : Deploy sur le serveur Windows
+  # via Self-hosted Runner installé sur le serveur
   # ─────────────────────────────────────────
   deploy:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
+    name: Deploy to Windows Server
+    runs-on: self-hosted          # ← tourne directement sur ton serveur
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
@@ -91,49 +74,45 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_SSH_PORT || 22 }}
-          script: |
-            cd /opt/optiboard
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Pull latest docker-compose config
-            git pull origin main
+      - name: Pull latest Docker images
+        run: |
+          docker compose -f docker-compose.prod.yml pull
 
-            # Login to GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Deploy containers
+        run: |
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            # Pull new images
-            docker compose -f docker-compose.prod.yml pull
+      - name: Cleanup old images
+        run: |
+          docker image prune -f
 
-            # Restart services with zero-downtime (rolling update)
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-
-            # Cleanup old images
-            docker image prune -f
-
-            echo "✅ Deployment done — $(date)"
+      - name: Health check
+        run: |
+          Start-Sleep -Seconds 15
+          $response = Invoke-WebRequest -Uri "http://localhost:8080/api/docs" -UseBasicParsing -TimeoutSec 30
+          if ($response.StatusCode -eq 200) {
+            Write-Host "Backend OK"
+          } else {
+            Write-Error "Backend health check failed"
+            exit 1
+          }
+        shell: powershell
 
   # ─────────────────────────────────────────
-  # JOB 3 : Notification résultat
+  # JOB 3 : PR check (sans déploiement)
   # ─────────────────────────────────────────
-  notify:
-    name: Notify Result
+  check:
+    name: PR Validation
     runs-on: ubuntu-latest
-    needs: [build, deploy]
-    if: always() && github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request'
 
     steps:
-      - name: Deployment Success
-        if: needs.deploy.result == 'success'
-        run: echo "🚀 OptiBoard déployé avec succès sur prod !"
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Deployment Failed
-        if: needs.deploy.result == 'failure'
-        run: |
-          echo "❌ Échec du déploiement — voir les logs ci-dessus"
-          exit 1
+      - name: Validate docker-compose syntax
+        run: docker compose -f docker-compose.prod.yml config --quiet
