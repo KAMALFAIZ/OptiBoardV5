@@ -1,4 +1,4 @@
-name: Build & Deploy OptiBoard
+name: Deploy OptiBoard
 
 on:
   push:
@@ -8,111 +8,107 @@ on:
     branches:
       - main
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_BACKEND: ghcr.io/kamalfaiz/optiboard-backend
-  IMAGE_FRONTEND: ghcr.io/kamalfaiz/optiboard-frontend
-
 jobs:
-  # ─────────────────────────────────────────
-  # JOB 1 : Build & Push Docker images
-  # (tourne sur GitHub, pas sur ton serveur)
-  # ─────────────────────────────────────────
-  build:
-    name: Build Docker Images
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build & Push Backend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./reporting-commercial/backend
-          file: ./reporting-commercial/backend/Dockerfile.backend
-          push: true
-          tags: |
-            ${{ env.IMAGE_BACKEND }}:latest
-            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
-
-      - name: Build & Push Frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./reporting-commercial/frontend
-          file: ./reporting-commercial/frontend/Dockerfile.frontend
-          push: true
-          tags: |
-            ${{ env.IMAGE_FRONTEND }}:latest
-            ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
-          build-args: |
-            VITE_API_URL=${{ secrets.PROD_API_URL }}
-
-  # ─────────────────────────────────────────
-  # JOB 2 : Deploy sur le serveur Windows
-  # via Self-hosted Runner installé sur le serveur
-  # ─────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────
+  # DEPLOY : tourne directement sur le serveur Windows
+  # Python + Node deja installes, IIS actif
+  # ─────────────────────────────────────────────────────────
   deploy:
     name: Deploy to Windows Server
-    runs-on: self-hosted          # ← tourne directement sur ton serveur
-    needs: build
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: true
 
-      - name: Login to GitHub Container Registry
+      # ── Backend : installer les dependances Python ──────
+      - name: Install Python dependencies
+        working-directory: reporting-commercial/backend
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+        shell: powershell
 
-      - name: Pull latest Docker images
-        run: |
-          docker compose -f docker-compose.prod.yml pull
+      # ── Frontend : build React ───────────────────────────
+      - name: Install Node dependencies
+        working-directory: reporting-commercial/frontend
+        run: npm ci
+        shell: powershell
 
-      - name: Deploy containers
-        run: |
-          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+      - name: Build React frontend
+        working-directory: reporting-commercial/frontend
+        run: npm run build
+        shell: powershell
+        env:
+          VITE_API_URL: ${{ secrets.PROD_API_URL }}
 
-      - name: Cleanup old images
+      # ── Copier le frontend dans IIS ──────────────────────
+      - name: Deploy frontend to IIS
         run: |
-          docker image prune -f
+          $dest = "C:\inetpub\wwwroot\optiboard"
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Copy-Item -Path "reporting-commercial\frontend\dist\*" -Destination $dest -Recurse -Force
+          Write-Host "Frontend deploye dans $dest"
+        shell: powershell
 
-      - name: Health check
+      # ── Copier le backend ────────────────────────────────
+      - name: Deploy backend files
         run: |
-          Start-Sleep -Seconds 15
-          $response = Invoke-WebRequest -Uri "http://localhost:8080/api/docs" -UseBasicParsing -TimeoutSec 30
-          if ($response.StatusCode -eq 200) {
-            Write-Host "Backend OK"
+          $dest = "C:\optiboard\backend"
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Copy-Item -Path "reporting-commercial\backend\*" -Destination $dest -Recurse -Force
+          Write-Host "Backend deploye dans $dest"
+        shell: powershell
+
+      # ── Redemarrer le backend ────────────────────────────
+      - name: Restart backend service
+        run: |
+          $task = "OptiBoard-Backend"
+          $existing = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+          if ($existing) {
+            Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            Start-ScheduledTask -TaskName $task
+            Write-Host "Backend redémarre"
           } else {
-            Write-Error "Backend health check failed"
+            Write-Host "Service backend non trouve - lancer setup-prod.ps1 d'abord"
             exit 1
           }
         shell: powershell
 
-  # ─────────────────────────────────────────
-  # JOB 3 : PR check (sans déploiement)
-  # ─────────────────────────────────────────
+      # ── Health check ─────────────────────────────────────
+      - name: Health check
+        run: |
+          Start-Sleep -Seconds 15
+          try {
+            $r = Invoke-WebRequest -Uri "http://localhost:8080/api/docs" -UseBasicParsing -TimeoutSec 30
+            if ($r.StatusCode -eq 200) { Write-Host "Backend OK" }
+          } catch {
+            Write-Error "Backend ne repond pas"
+            Get-Content "C:\optiboard\logs\backend.log" -Tail 30 -ErrorAction SilentlyContinue
+            exit 1
+          }
+        shell: powershell
+
+      # ── Reload IIS ───────────────────────────────────────
+      - name: Reload IIS
+        run: iisreset /noforce
+        shell: cmd
+
+  # ─────────────────────────────────────────────────────────
+  # PR CHECK : validation syntaxe seulement
+  # ─────────────────────────────────────────────────────────
   check:
     name: PR Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate docker-compose syntax
-        run: docker compose -f docker-compose.prod.yml config --quiet
+      - uses: actions/checkout@v4
+      - name: Check Python syntax
+        run: find reporting-commercial/backend -name "*.py" -exec python3 -m py_compile {} \;
+      - name: Check package.json
+        run: node -e "JSON.parse(require('fs').readFileSync('reporting-commercial/frontend/package.json'))"
