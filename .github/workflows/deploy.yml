@@ -1,0 +1,139 @@
+name: Build & Deploy OptiBoard
+
+on:
+  push:
+    branches:
+      - main        # → Production
+      - develop     # → Staging (optionnel)
+  pull_request:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ghcr.io/kamalfaiz/optiboard-backend
+  IMAGE_FRONTEND: ghcr.io/kamalfaiz/optiboard-frontend
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1 : Build & Push Docker images
+  # ─────────────────────────────────────────
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.IMAGE_BACKEND }}
+            ${{ env.IMAGE_FRONTEND }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      # ── Backend ──
+      - name: Build & Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./reporting-commercial/backend
+          file: ./reporting-commercial/backend/Dockerfile.backend
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:latest
+            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # ── Frontend ──
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./reporting-commercial/frontend
+          file: ./reporting-commercial/frontend/Dockerfile.frontend
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:latest
+            ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_API_URL=${{ secrets.PROD_API_URL }}
+
+  # ─────────────────────────────────────────
+  # JOB 2 : Deploy sur le serveur (SSH)
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: ${{ secrets.PROD_SSH_PORT || 22 }}
+          script: |
+            cd /opt/optiboard
+
+            # Pull latest docker-compose config
+            git pull origin main
+
+            # Login to GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull new images
+            docker compose -f docker-compose.prod.yml pull
+
+            # Restart services with zero-downtime (rolling update)
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Cleanup old images
+            docker image prune -f
+
+            echo "✅ Deployment done — $(date)"
+
+  # ─────────────────────────────────────────
+  # JOB 3 : Notification résultat
+  # ─────────────────────────────────────────
+  notify:
+    name: Notify Result
+    runs-on: ubuntu-latest
+    needs: [build, deploy]
+    if: always() && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deployment Success
+        if: needs.deploy.result == 'success'
+        run: echo "🚀 OptiBoard déployé avec succès sur prod !"
+
+      - name: Deployment Failed
+        if: needs.deploy.result == 'failure'
+        run: |
+          echo "❌ Échec du déploiement — voir les logs ci-dessus"
+          exit 1

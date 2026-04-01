@@ -1,0 +1,153 @@
+version: '3.8'
+
+# ============================================================
+# OptiBoard - Client Autonome (Standalone)
+# SQL Server Developer 2022 + Backend + Frontend
+# Tout-en-un, zéro dépendance externe
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # SQL Server Developer 2022
+  # ----------------------------------------------------------
+  sqlserver:
+    build:
+      context: .
+      dockerfile: sqlserver/Dockerfile
+    container_name: optiboard-sqlserver
+    restart: unless-stopped
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_PID=Developer
+      - SA_PASSWORD=${SA_PASSWORD}
+      - MSSQL_AGENT_ENABLED=false
+      - DB_NAME=${DB_NAME:-OptiBoard_Client}
+      - DWH_DB_NAME=${DWH_DB_NAME:-DWH_Client}
+      - DWH_CODE=${DWH_CODE:-CLIENT01}
+    ports:
+      - "${SQL_PORT:-1433}:1433"
+    volumes:
+      - optiboard-sqldata:/var/opt/mssql
+    networks:
+      - optiboard-network
+    deploy:
+      resources:
+        limits:
+          memory: ${SQLSERVER_MEM_LIMIT:-3g}
+          cpus: '${SQLSERVER_CPU_LIMIT:-2.0}'
+    healthcheck:
+      test: ["CMD", "sqlcmd", "-S", "localhost", "-U", "sa", "-P", "${SA_PASSWORD}", "-Q", "SELECT 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # ----------------------------------------------------------
+  # Backend FastAPI
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: optiboard-backend
+    restart: unless-stopped
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      # Base principale (app + central = même base en mode standalone)
+      - DB_SERVER=sqlserver
+      - DB_NAME=${DB_NAME:-OptiBoard_Client}
+      - DB_USER=sa
+      - DB_PASSWORD=${SA_PASSWORD}
+      - DB_DRIVER={ODBC Driver 18 for SQL Server}
+      - DB_TRUST_CERT=yes
+      # Base centrale = même serveur/base (standalone)
+      - CENTRAL_DB_SERVER=sqlserver
+      - CENTRAL_DB_NAME=${DB_NAME:-OptiBoard_Client}
+      - CENTRAL_DB_USER=sa
+      - CENTRAL_DB_PASSWORD=${SA_PASSWORD}
+      # Application
+      - DEBUG=False
+      - CACHE_TTL=${CACHE_TTL:-300}
+      - MAX_ROWS=${MAX_ROWS:-10000}
+      - QUERY_TIMEOUT=${QUERY_TIMEOUT:-30}
+      # Licence (optionnel)
+      - LICENSE_KEY=${LICENSE_KEY:-}
+      - LICENSE_SERVER_URL=${LICENSE_SERVER_URL:-}
+      # Standalone
+      - STANDALONE_MODE=true
+      - DWH_CODE=${DWH_CODE:-CLIENT01}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - optiboard-logs:/app/logs
+    networks:
+      - optiboard-network
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEM_LIMIT:-512m}
+          cpus: '${BACKEND_CPU_LIMIT:-1.0}'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----------------------------------------------------------
+  # Frontend React / Nginx
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: optiboard-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks:
+      - optiboard-network
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEM_LIMIT:-128m}
+          cpus: '${FRONTEND_CPU_LIMIT:-0.5}'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# ----------------------------------------------------------
+# Réseaux
+# ----------------------------------------------------------
+networks:
+  optiboard-network:
+    driver: bridge
+
+# ----------------------------------------------------------
+# Volumes persistants
+# ----------------------------------------------------------
+volumes:
+  optiboard-sqldata:
+    driver: local
+    name: optiboard-sqldata
+  optiboard-logs:
+    driver: local
+    name: optiboard-logs

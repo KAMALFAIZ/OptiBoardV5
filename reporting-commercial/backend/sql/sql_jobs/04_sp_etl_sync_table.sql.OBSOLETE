@@ -1,0 +1,546 @@
+-- =====================================================================
+-- 04_sp_etl_sync_table.sql
+-- LA PROCÉDURE GÉNÉRIQUE UNIQUE : SP_ETL_Sync_Table
+-- Gère les 35 tables dynamiquement selon la config
+-- Supporte Scénario A (même serveur) et B (Linked Server)
+-- =====================================================================
+
+SET NOCOUNT ON;
+
+IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'SP_ETL_Sync_Table')
+    DROP PROCEDURE SP_ETL_Sync_Table;
+GO
+
+CREATE PROCEDURE dbo.SP_ETL_Sync_Table
+    @SourceCode    NVARCHAR(50),          -- Ex: 'CASHPLUS_2026'
+    @TableName     NVARCHAR(100),         -- Ex: 'Les écritures comptables'
+    @ForceFullSync BIT = 0                -- 1 = forcer sync complet
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT OFF;
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- VARIABLES
+    -- ═══════════════════════════════════════════════════════════════
+    DECLARE @StartTime       DATETIME2 = GETDATE();
+    DECLARE @LogId           BIGINT;
+    DECLARE @LastSyncDate    DATETIME2;
+    DECLARE @CurrentSync     DATETIME2 = GETDATE();
+
+    -- Config table
+    DECLARE @SourceQuery     NVARCHAR(MAX);
+    DECLARE @TargetTable     NVARCHAR(100);
+    DECLARE @PKColumns       NVARCHAR(500);
+    DECLARE @SyncType        NVARCHAR(20);
+    DECLARE @TimestampCol    NVARCHAR(100);
+    DECLARE @DeleteDetection BIT;
+    DECLARE @DeleteBatchSize INT;
+    DECLARE @BatchSize       INT;
+
+    -- Config source
+    DECLARE @ServerName      VARCHAR(200);
+    DECLARE @DatabaseName    VARCHAR(100);
+    DECLARE @IsLinkedServer  BIT;
+    DECLARE @LinkedServerName VARCHAR(200);
+    DECLARE @DbId            INT;
+    DECLARE @SourceCaption   NVARCHAR(200);
+
+    -- Compteurs
+    DECLARE @RowsInserted    INT = 0;
+    DECLARE @RowsUpdated     INT = 0;
+    DECLARE @RowsDeleted     INT = 0;
+    DECLARE @RowsExtracted   INT = 0;
+
+    DECLARE @ErrorMsg        NVARCHAR(MAX);
+    DECLARE @SQL             NVARCHAR(MAX);
+    DECLARE @ActualSyncType  NVARCHAR(20);
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- 1. LECTURE DE LA CONFIGURATION TABLE
+    -- ═══════════════════════════════════════════════════════════════
+    SELECT
+        @SourceQuery     = source_query,
+        @TargetTable     = target_table,
+        @PKColumns       = primary_key_columns,
+        @SyncType        = sync_type,
+        @TimestampCol    = timestamp_column,
+        @DeleteDetection = ISNULL(delete_detection, 0),
+        @DeleteBatchSize = ISNULL(delete_batch_size, 10000),
+        @BatchSize       = ISNULL(batch_size, 10000)
+    FROM ETL_Tables_Config
+    WHERE table_name = @TableName
+      AND is_active = 1;
+
+    IF @SourceQuery IS NULL
+    BEGIN
+        PRINT 'ERREUR: Table "' + @TableName + '" non trouvée ou inactive dans ETL_Tables_Config';
+        RETURN -1;
+    END
+
+    IF @SourceQuery LIKE 'TODO%'
+    BEGIN
+        PRINT 'ERREUR: La requête source pour "' + @TableName + '" n''est pas encore configurée (TODO)';
+        RETURN -2;
+    END
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- 2. LECTURE DE LA CONFIGURATION SOURCE
+    -- ═══════════════════════════════════════════════════════════════
+    SELECT
+        @ServerName       = server_name,
+        @DatabaseName     = database_name,
+        @IsLinkedServer   = ISNULL(is_linked_server, 0),
+        @LinkedServerName = linked_server_name,
+        @DbId             = db_id,
+        @SourceCaption    = source_caption
+    FROM ETL_Sources
+    WHERE source_code = @SourceCode
+      AND is_active = 1;
+
+    IF @DatabaseName IS NULL
+    BEGIN
+        PRINT 'ERREUR: Source "' + @SourceCode + '" non trouvée ou inactive dans ETL_Sources';
+        RETURN -3;
+    END
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- 3. VÉRIFICATION DU VERROU ANTI-CONCURRENCE
+    -- ═══════════════════════════════════════════════════════════════
+    IF EXISTS (
+        SELECT 1 FROM ETL_Sync_State
+        WHERE source_code = @SourceCode
+          AND table_name = @TableName
+          AND is_syncing = 1
+    )
+    BEGIN
+        PRINT 'SKIP: "' + @TableName + '" pour "' + @SourceCode + '" est déjà en cours de synchronisation';
+        RETURN 0;
+    END
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- 4. POSE DU VERROU + RÉCUPÉRATION DU WATERMARK
+    -- ═══════════════════════════════════════════════════════════════
+    -- Créer l'entrée si elle n'existe pas
+    IF NOT EXISTS (SELECT 1 FROM ETL_Sync_State WHERE source_code = @SourceCode AND table_name = @TableName)
+    BEGIN
+        INSERT INTO ETL_Sync_State (source_code, table_name, is_syncing)
+        VALUES (@SourceCode, @TableName, 1);
+    END
+    ELSE
+    BEGIN
+        UPDATE ETL_Sync_State
+        SET is_syncing = 1, updated_at = GETDATE()
+        WHERE source_code = @SourceCode AND table_name = @TableName;
+    END
+
+    SELECT @LastSyncDate = last_sync_timestamp
+    FROM ETL_Sync_State
+    WHERE source_code = @SourceCode AND table_name = @TableName;
+
+    -- Déterminer le type de sync effectif
+    SET @ActualSyncType = CASE
+        WHEN @ForceFullSync = 1 THEN 'full'
+        WHEN @SyncType = 'incremental' AND @LastSyncDate IS NOT NULL THEN 'incremental'
+        ELSE 'full'
+    END;
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- 5. LOG DÉBUT
+    -- ═══════════════════════════════════════════════════════════════
+    INSERT INTO ETL_Sync_Log (source_code, table_name, sync_type, started_at, status, watermark_before)
+    VALUES (@SourceCode, @TableName, @ActualSyncType, @StartTime, 'running',
+            CONVERT(NVARCHAR(100), @LastSyncDate, 126));
+
+    SET @LogId = SCOPE_IDENTITY();
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- DÉBUT TRY/CATCH
+    -- ═══════════════════════════════════════════════════════════════
+    BEGIN TRY
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 6. CONSTRUCTION DE LA REQUÊTE SOURCE (SQL dynamique)
+        -- ═══════════════════════════════════════════════════════════
+
+        -- Préfixer les tables Sage selon le scénario
+        DECLARE @DBPrefix NVARCHAR(500);
+
+        IF @IsLinkedServer = 1
+            -- Scénario B : [LinkedServer].[Database].dbo.
+            SET @DBPrefix = QUOTENAME(@LinkedServerName) + '.' + QUOTENAME(@DatabaseName) + '.dbo.';
+        ELSE
+            -- Scénario A : [Database].dbo.
+            SET @DBPrefix = QUOTENAME(@DatabaseName) + '.dbo.';
+
+        -- Remplacer les noms de tables Sage par leur version qualifiée
+        -- Liste des tables Sage courantes à préfixer
+        SET @SQL = @SourceQuery;
+
+        -- Tables principales Sage 100
+        DECLARE @SageTables TABLE (tbl VARCHAR(100));
+        INSERT INTO @SageTables VALUES
+            ('F_COLLABORATEUR'),('F_ARTICLE'),('F_COMPTET'),('F_LIVRAISON'),
+            ('F_DOCENTETE'),('F_DOCENTETO'),('F_DOCLIGNE'),('F_CREGLEMENT'),('F_REGLECH'),
+            ('F_ARTSTOCK'),('F_DEPOT'),('F_FAMILLE'),('F_CATALOGUE'),
+            ('F_COMPTEG'),('F_COMPTER'),('F_ECRITUREC'),('F_ECRITUREA'),
+            ('F_JOURNAUX'),('F_COMPTEA'),('F_DOCREGL'),('F_REGLEMENTT'),
+            ('F_MOUVSTOCK'),('F_DRECOUVREMENTEC'),
+            -- Tables paramètres
+            ('P_GAMME'),('P_UNITE'),('P_CONDITIONNEMENT'),('P_CATTARIF'),
+            ('P_CRISQUE'),('P_DEVISE'),('P_EXPEDITION'),('P_CONDLIVR'),
+            ('P_REGLEMENT'),('P_CATCOMPTA'),('P_SOUCHEVENTE'),('P_SOUCHE'),
+            ('P_ANALYTIQUE'),('P_ANALYSE'),
+            -- Tables système
+            ('cbSysLibre'),
+            -- Tables RH (Sage Paie)
+            ('T_HST_CONGE'),('T_HST_CONTRAT'),('T_HST_SALAIRE'),('T_HST_AFFECTATION'),
+            ('T_SAL'),('T_BULLETIN'),('T_NATUREDECONTRAT');
+
+        DECLARE @tbl VARCHAR(100);
+        DECLARE cur CURSOR LOCAL FAST_FORWARD FOR SELECT tbl FROM @SageTables;
+        OPEN cur;
+        FETCH NEXT FROM cur INTO @tbl;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            -- Remplacer [Table] par [Prefix][Table]
+            SET @SQL = REPLACE(@SQL, '[' + @tbl + ']', @DBPrefix + '[' + @tbl + ']');
+            -- Remplacer Table (sans crochets, mot entier) — attention aux faux positifs
+            -- On remplace FROM/JOIN Table par FROM/JOIN [Prefix]Table
+            SET @SQL = REPLACE(@SQL, 'FROM ' + @tbl + ' ', 'FROM ' + @DBPrefix + @tbl + ' ');
+            SET @SQL = REPLACE(@SQL, 'FROM ' + @tbl + CHAR(13), 'FROM ' + @DBPrefix + @tbl + CHAR(13));
+            SET @SQL = REPLACE(@SQL, 'JOIN ' + @tbl + ' ', 'JOIN ' + @DBPrefix + @tbl + ' ');
+            SET @SQL = REPLACE(@SQL, 'JOIN ' + @tbl + CHAR(13), 'JOIN ' + @DBPrefix + @tbl + CHAR(13));
+            SET @SQL = REPLACE(@SQL, 'from ' + @tbl + ' ', 'from ' + @DBPrefix + @tbl + ' ');
+            SET @SQL = REPLACE(@SQL, 'join ' + @tbl + ' ', 'join ' + @DBPrefix + @tbl + ' ');
+            -- Alias patterns (ex: FROM F_ARTICLE AS FART)
+            SET @SQL = REPLACE(@SQL, 'JOIN ' + @tbl + ' AS ', 'JOIN ' + @DBPrefix + @tbl + ' AS ');
+            SET @SQL = REPLACE(@SQL, 'join ' + @tbl + ' AS ', 'join ' + @DBPrefix + @tbl + ' AS ');
+            SET @SQL = REPLACE(@SQL, 'JOIN ' + @tbl + ' ON ', 'JOIN ' + @DBPrefix + @tbl + ' ON ');
+            SET @SQL = REPLACE(@SQL, 'join ' + @tbl + ' ON ', 'join ' + @DBPrefix + @tbl + ' ON ');
+            -- dbo.Table patterns
+            SET @SQL = REPLACE(@SQL, 'dbo.' + @tbl, @DBPrefix + @tbl);
+
+            FETCH NEXT FROM cur INTO @tbl;
+        END
+        CLOSE cur;
+        DEALLOCATE cur;
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 7. AJOUT DU FILTRE INCRÉMENTAL (si applicable)
+        -- ═══════════════════════════════════════════════════════════
+        IF @ActualSyncType = 'incremental' AND @LastSyncDate IS NOT NULL AND @TimestampCol IS NOT NULL
+        BEGIN
+            DECLARE @FilterDate NVARCHAR(50) = CONVERT(NVARCHAR(50), DATEADD(SECOND, -5, @LastSyncDate), 126);
+
+            -- Vérifier si la requête a déjà un WHERE
+            IF @SQL LIKE '%WHERE%'
+            BEGIN
+                -- Trouver le dernier WHERE et ajouter AND
+                -- Approche sécurisée : encapsuler dans un sous-SELECT
+                SET @SQL = N'SELECT * FROM (' + @SQL + N') AS _src WHERE _src.[' + @TimestampCol + N'] > ''' + @FilterDate + N'''
+                            OR _src.cbCreation > ''' + @FilterDate + N'''';
+            END
+            ELSE
+            BEGIN
+                SET @SQL = @SQL + N' WHERE [' + @TimestampCol + N'] > ''' + @FilterDate + N'''
+                            OR cbCreation > ''' + @FilterDate + N'''';
+            END
+        END
+
+        -- Ajouter NOLOCK hint si pas déjà présent
+        -- (Les requêtes source n'ont généralement pas de WITH (NOLOCK))
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 8. EXTRACTION DANS TABLE TEMPORAIRE #staging
+        -- ═══════════════════════════════════════════════════════════
+        DECLARE @StagingTable NVARCHAR(200) = N'#stg_' + REPLACE(REPLACE(@TargetTable, ' ', '_'), N'''', '');
+
+        -- Créer la staging table dynamiquement via SELECT INTO
+        DECLARE @ExtractSQL NVARCHAR(MAX) = N'
+            SELECT
+                ' + CAST(@DbId AS NVARCHAR(10)) + N' AS [DB_Id],
+                ''' + @SourceCode + N''' AS [DB],
+                N''' + REPLACE(@SourceCaption, '''', '''''') + N''' AS [DB_Caption],
+                src.*,
+                GETDATE() AS [SyncDate]
+            INTO ' + @StagingTable + N'
+            FROM (' + @SQL + N') AS src';
+
+        EXEC sp_executesql @ExtractSQL;
+
+        SET @RowsExtracted = @@ROWCOUNT;
+
+        PRINT CONVERT(VARCHAR, GETDATE(), 120) + ' | ' + @SourceCode + '.' + @TableName
+            + ' | Extracted: ' + CAST(@RowsExtracted AS VARCHAR) + ' rows';
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 9. MERGE OU DELETE+INSERT
+        -- ═══════════════════════════════════════════════════════════
+        IF @RowsExtracted > 0
+        BEGIN
+            DECLARE @MergeLog TABLE (MergeAction VARCHAR(10));
+
+            IF @PKColumns IS NOT NULL AND LEN(@PKColumns) > 0 AND @ActualSyncType = 'incremental'
+            BEGIN
+                -- ─── STRATÉGIE MERGE (incrémental avec PKs) ───
+                DECLARE @PKList TABLE (pk NVARCHAR(200));
+                INSERT INTO @PKList
+                SELECT LTRIM(RTRIM(value))
+                FROM STRING_SPLIT(@PKColumns, ',');
+
+                -- Construire la clause ON
+                DECLARE @OnClause NVARCHAR(MAX) = '';
+                DECLARE @UpdateSet NVARCHAR(MAX) = '';
+                DECLARE @InsertCols NVARCHAR(MAX) = '';
+                DECLARE @InsertVals NVARCHAR(MAX) = '';
+
+                -- ON clause basée sur PKs + DB
+                SELECT @OnClause = @OnClause +
+                    CASE WHEN @OnClause = '' THEN '' ELSE ' AND ' END +
+                    'target.[' + pk + '] = source.[' + pk + ']'
+                FROM @PKList;
+
+                SET @OnClause = @OnClause + ' AND target.[DB] = source.[DB]';
+
+                -- Récupérer toutes les colonnes de la staging table
+                DECLARE @ColList NVARCHAR(MAX) = '';
+                DECLARE @ColSQL NVARCHAR(MAX) = N'
+                    SELECT @cols = @cols +
+                        CASE WHEN @cols = '''' THEN '''' ELSE '', '' END +
+                        ''['' + c.name + '']''
+                    FROM tempdb.sys.columns c
+                    WHERE c.object_id = OBJECT_ID(''tempdb..' + @StagingTable + N''')
+                    ORDER BY c.column_id';
+
+                EXEC sp_executesql @ColSQL, N'@cols NVARCHAR(MAX) OUTPUT', @cols = @ColList OUTPUT;
+
+                -- UPDATE SET (toutes les colonnes sauf PKs et DB)
+                DECLARE @UpdateSQL NVARCHAR(MAX) = N'
+                    SELECT @upd = @upd +
+                        CASE WHEN @upd = '''' THEN '''' ELSE '', '' END +
+                        ''target.['' + c.name + ''] = source.['' + c.name + '']''
+                    FROM tempdb.sys.columns c
+                    WHERE c.object_id = OBJECT_ID(''tempdb..' + @StagingTable + N''')
+                      AND c.name NOT IN (SELECT pk FROM @pks)
+                      AND c.name <> ''DB''
+                    ORDER BY c.column_id';
+
+                EXEC sp_executesql @UpdateSQL,
+                    N'@upd NVARCHAR(MAX) OUTPUT, @pks dbo.PKListType READONLY',
+                    @upd = @UpdateSet OUTPUT, @pks = @PKList;
+
+                -- Si le type PKListType n'existe pas, fallback sans type
+                IF @UpdateSet IS NULL OR @UpdateSet = ''
+                BEGIN
+                    -- Fallback : construire manuellement sans type table
+                    SET @UpdateSet = '';
+                    SET @InsertCols = @ColList;
+
+                    DECLARE @MergeSQL NVARCHAR(MAX) = N'
+                        DECLARE @ml TABLE (MergeAction VARCHAR(10));
+
+                        MERGE INTO [' + @TargetTable + N'] AS target
+                        USING ' + @StagingTable + N' AS source
+                        ON ' + @OnClause + N'
+                        WHEN MATCHED THEN
+                            UPDATE SET target.[SyncDate] = GETDATE()
+                        WHEN NOT MATCHED BY TARGET THEN
+                            INSERT (' + @ColList + N')
+                            VALUES (' + REPLACE(@ColList, '[', 'source.[') + N')
+                        OUTPUT $action INTO @ml;
+
+                        SELECT
+                            @ins = SUM(CASE WHEN MergeAction = ''INSERT'' THEN 1 ELSE 0 END),
+                            @upd = SUM(CASE WHEN MergeAction = ''UPDATE'' THEN 1 ELSE 0 END)
+                        FROM @ml;';
+
+                    DECLARE @ins INT = 0, @upd INT = 0;
+                    EXEC sp_executesql @MergeSQL,
+                        N'@ins INT OUTPUT, @upd INT OUTPUT',
+                        @ins = @RowsInserted OUTPUT, @upd = @RowsUpdated OUTPUT;
+                END
+            END
+            ELSE
+            BEGIN
+                -- ─── STRATÉGIE DELETE + INSERT (full sync ou pas de PKs) ───
+
+                -- Supprimer les données existantes pour cette source
+                SET @SQL = N'DELETE FROM [' + @TargetTable + N'] WHERE [DB] = @src';
+                EXEC sp_executesql @SQL, N'@src VARCHAR(100)', @src = @SourceCode;
+
+                -- Insérer toutes les lignes de la staging
+                DECLARE @InsSQL NVARCHAR(MAX);
+
+                -- Récupérer la liste des colonnes
+                SET @ColList = '';
+                SET @ColSQL = N'
+                    SELECT @cols = @cols +
+                        CASE WHEN @cols = '''' THEN '''' ELSE '', '' END +
+                        ''['' + c.name + '']''
+                    FROM tempdb.sys.columns c
+                    WHERE c.object_id = OBJECT_ID(''tempdb..' + @StagingTable + N''')
+                    ORDER BY c.column_id';
+
+                EXEC sp_executesql @ColSQL, N'@cols NVARCHAR(MAX) OUTPUT', @cols = @ColList OUTPUT;
+
+                SET @InsSQL = N'INSERT INTO [' + @TargetTable + N'] (' + @ColList + N')
+                               SELECT ' + @ColList + N' FROM ' + @StagingTable;
+
+                EXEC sp_executesql @InsSQL;
+                SET @RowsInserted = @@ROWCOUNT;
+            END
+        END
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 10. DÉTECTION DES SUPPRESSIONS
+        -- ═══════════════════════════════════════════════════════════
+        IF @DeleteDetection = 1 AND @PKColumns IS NOT NULL AND LEN(@PKColumns) > 0
+        BEGIN
+            -- Construire la requête source COMPLÈTE (sans filtre incrémental)
+            DECLARE @FullSourceSQL NVARCHAR(MAX) = @SourceQuery;
+            -- Appliquer le même préfixage de tables
+            -- (réutiliser la logique de préfixage ci-dessus)
+
+            DECLARE @pkCol NVARCHAR(200);
+            DECLARE @FirstPK NVARCHAR(200);
+
+            -- Prendre la première PK pour la comparaison simple
+            SELECT TOP 1 @FirstPK = LTRIM(RTRIM(value)) FROM STRING_SPLIT(@PKColumns, ',');
+
+            -- Suppression par batch comme dans l'exemple utilisateur
+            DECLARE @Del INT = 1;
+            WHILE @Del > 0
+            BEGIN
+                SET @SQL = N'
+                    DELETE TOP (' + CAST(@DeleteBatchSize AS NVARCHAR(10)) + N') target
+                    FROM [' + @TargetTable + N'] target
+                    WHERE target.[DB] = @src
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ' + @StagingTable + N' source
+                          WHERE source.[' + @FirstPK + N'] = target.[' + @FirstPK + N']
+                            AND source.[DB] = target.[DB]
+                      )';
+
+                EXEC sp_executesql @SQL, N'@src VARCHAR(100)', @src = @SourceCode;
+                SET @Del = @@ROWCOUNT;
+                SET @RowsDeleted = @RowsDeleted + @Del;
+
+                IF @Del > 0 WAITFOR DELAY '00:00:00.200';
+            END
+        END
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 11. NETTOYAGE STAGING
+        -- ═══════════════════════════════════════════════════════════
+        BEGIN TRY
+            SET @SQL = N'DROP TABLE IF EXISTS ' + @StagingTable;
+            EXEC sp_executesql @SQL;
+        END TRY
+        BEGIN CATCH
+            -- Ignore - la table temp sera nettoyée à la fin de session
+        END CATCH
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 12. MISE À JOUR ETL_Sync_State (SUCCÈS)
+        -- ═══════════════════════════════════════════════════════════
+        UPDATE ETL_Sync_State
+        SET
+            last_sync_timestamp  = @CurrentSync,
+            last_successful_sync = GETDATE(),
+            total_rows_synced    = total_rows_synced + @RowsInserted + @RowsUpdated,
+            total_inserted       = total_inserted + @RowsInserted,
+            total_updated        = total_updated + @RowsUpdated,
+            total_deleted        = total_deleted + @RowsDeleted,
+            consecutive_failures = 0,
+            is_syncing           = 0,
+            last_error           = NULL,
+            updated_at           = GETDATE()
+        WHERE source_code = @SourceCode AND table_name = @TableName;
+
+        -- ═══════════════════════════════════════════════════════════
+        -- 13. LOG FIN (SUCCÈS)
+        -- ═══════════════════════════════════════════════════════════
+        UPDATE ETL_Sync_Log
+        SET
+            completed_at     = GETDATE(),
+            status           = 'success',
+            rows_extracted   = @RowsExtracted,
+            rows_inserted    = @RowsInserted,
+            rows_updated     = @RowsUpdated,
+            rows_deleted     = @RowsDeleted,
+            watermark_after  = CONVERT(NVARCHAR(100), @CurrentSync, 126)
+        WHERE id = @LogId;
+
+        -- Résumé
+        IF @RowsInserted + @RowsUpdated + @RowsDeleted > 0
+            PRINT CONVERT(VARCHAR, GETDATE(), 120)
+                + ' | ✓ ' + @SourceCode + '.' + @TableName
+                + ' | INSERT: '  + CAST(@RowsInserted AS VARCHAR)
+                + ' | UPDATE: '  + CAST(@RowsUpdated  AS VARCHAR)
+                + ' | DELETE: '  + CAST(@RowsDeleted   AS VARCHAR)
+                + ' | Durée: '   + CAST(DATEDIFF(SECOND, @StartTime, GETDATE()) AS VARCHAR) + 's';
+        ELSE
+            PRINT CONVERT(VARCHAR, GETDATE(), 120)
+                + ' | ✓ ' + @SourceCode + '.' + @TableName
+                + ' | Aucune modification'
+                + ' | Durée: '   + CAST(DATEDIFF(SECOND, @StartTime, GETDATE()) AS VARCHAR) + 's';
+
+    END TRY
+    BEGIN CATCH
+        -- ═══════════════════════════════════════════════════════════
+        -- GESTION DES ERREURS
+        -- ═══════════════════════════════════════════════════════════
+        SET @ErrorMsg = ERROR_MESSAGE() + ' (Ligne: ' + CAST(ERROR_LINE() AS VARCHAR) + ')';
+
+        -- Nettoyage staging en cas d'erreur
+        BEGIN TRY
+            SET @SQL = N'DROP TABLE IF EXISTS ' + @StagingTable;
+            EXEC sp_executesql @SQL;
+        END TRY
+        BEGIN CATCH END CATCH
+
+        -- Libérer le verrou + incrémenter échecs
+        UPDATE ETL_Sync_State
+        SET
+            is_syncing           = 0,
+            consecutive_failures = consecutive_failures + 1,
+            last_error           = @ErrorMsg,
+            updated_at           = GETDATE()
+        WHERE source_code = @SourceCode AND table_name = @TableName;
+
+        -- Log échec
+        UPDATE ETL_Sync_Log
+        SET
+            completed_at   = GETDATE(),
+            status         = 'failed',
+            rows_extracted = @RowsExtracted,
+            error_message  = @ErrorMsg
+        WHERE id = @LogId;
+
+        -- Alerte si 3+ échecs consécutifs
+        DECLARE @Failures INT;
+        SELECT @Failures = consecutive_failures
+        FROM ETL_Sync_State
+        WHERE source_code = @SourceCode AND table_name = @TableName;
+
+        IF @Failures >= 3
+        BEGIN
+            INSERT INTO ETL_Alerts (alert_type, severity, source_code, table_name, message)
+            VALUES (
+                'SYNC_FAILURE', 'HIGH', @SourceCode, @TableName,
+                @SourceCode + '.' + @TableName + ' a échoué ' + CAST(@Failures AS VARCHAR)
+                + ' fois consécutives: ' + @ErrorMsg
+            );
+        END
+
+        PRINT CONVERT(VARCHAR, GETDATE(), 120)
+            + ' | ✗ ' + @SourceCode + '.' + @TableName
+            + ' | ERREUR: ' + @ErrorMsg;
+
+    END CATCH
+END;
+GO
+
+PRINT '✓ Procédure SP_ETL_Sync_Table créée';
+GO

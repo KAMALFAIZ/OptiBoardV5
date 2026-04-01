@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Reporting - Frontend (Vite/React)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3003,
+      "cwd": "reporting-commercial/frontend"
+    },
+    {
+      "name": "Reporting - Backend API (FastAPI)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["run.py"],
+      "port": 8082,
+      "cwd": "reporting-commercial/backend"
+    },
+    {
+      "name": "License Server (FastAPI)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py"],
+      "port": 44100,
+      "cwd": "reporting-commercial/license-server"
+    },
+    {
+      "name": "License Admin Panel (Vite/React)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3100,
+      "cwd": "reporting-commercial/license-server/admin-panel"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "sources": [],
+  "target_dwh": {
+    "name": "DWH_CLIENT",
+    "server": "localhost",
+    "database": "DWH_CLIENT",
+    "username": "sa",
+    "password": ""
+  }
+}

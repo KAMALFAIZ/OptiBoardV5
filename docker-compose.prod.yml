@@ -1,0 +1,79 @@
+version: '3.8'
+
+# ============================================================
+# OptiBoard v5 — Production Docker Compose
+# Utilise les images pre-buildées depuis GitHub Container Registry
+# ============================================================
+
+services:
+
+  # ── Backend FastAPI ──────────────────────────────────────
+  backend:
+    image: ghcr.io/kamalfaiz/optiboard-backend:latest
+    container_name: optiboard-backend
+    restart: always
+    env_file: .env
+    environment:
+      - DB_SERVER=${DB_SERVER}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DRIVER=ODBC Driver 17 for SQL Server
+      - DEBUG=False
+      - CACHE_TTL=${CACHE_TTL:-300}
+      - MAX_ROWS=${MAX_ROWS:-10000}
+      - QUERY_TIMEOUT=${QUERY_TIMEOUT:-30}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+    ports:
+      - "8080:8080"
+    volumes:
+      - backend_logs:/app/logs
+    networks:
+      - optiboard-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Frontend React/Nginx ─────────────────────────────────
+  frontend:
+    image: ghcr.io/kamalfaiz/optiboard-frontend:latest
+    container_name: optiboard-frontend
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/ssl:/etc/nginx/ssl:ro          # Certificats SSL
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - optiboard-net
+
+  # ── Watchtower : mise à jour auto des images ─────────────
+  watchtower:
+    image: containrrr/watchtower
+    container_name: optiboard-watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json:ro
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=300        # vérifie toutes les 5 min
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_LABEL_ENABLE=true        # uniquement les containers labelisés
+    command: --interval 300
+
+volumes:
+  backend_logs:
+    driver: local
+
+networks:
+  optiboard-net:
+    driver: bridge

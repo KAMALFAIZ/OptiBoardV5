@@ -1,0 +1,141 @@
+global:
+  timestamp_column: cbModification
+  creation_column: cbCreation
+  sync_interval_seconds: 300
+  batch_size: 10000
+  staging_threshold: 100000
+  source_label_column: Societe
+tables:
+- name: Collaborateurs
+  source:
+    query: "SELECT CO_No, CO_Nom, CO_Prenom, CO_EMail, CO_Fonction,\n       CO_Telephone,\
+      \ CO_Portable, CO_Fax, CO_Adresse,\n       cbModification, cbCreation, cbMarq\n\
+      FROM F_COLLABORATEUR\n"
+  target:
+    table: Collaborateurs
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: full
+  priority: normal
+  enabled: true
+- name: Articles
+  source:
+    query: "SELECT AR_Ref, AR_Design, FA_CodeFamille, AR_PrixVen,\n       AR_UnitePoids,\
+      \ AR_PoidsNet, AR_PoidsBrut,\n       cbModification, cbCreation, cbMarq\nFROM\
+      \ F_ARTICLE\nWHERE AR_Sommeil = 0\n"
+  target:
+    table: Articles
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: full
+  priority: normal
+  enabled: true
+- name: Clients
+  source:
+    query: "SELECT CT_Num, CT_Intitule, CT_Type, CT_Adresse,\n       CT_Ville, CT_CodePostal,\
+      \ CT_Pays, CT_Contact,\n       CT_Telephone, CT_EMail, N_Risque,\n       cbModification,\
+      \ cbCreation, cbMarq\nFROM F_COMPTET\nWHERE CT_Type = 0\n"
+  target:
+    table: Clients
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: full
+  priority: normal
+  enabled: true
+- name: Fournisseurs
+  source:
+    query: "SELECT CT_Num, CT_Intitule, CT_Type, CT_Adresse,\n       CT_Ville, CT_CodePostal,\
+      \ CT_Pays, CT_Contact,\n       CT_Telephone, CT_EMail,\n       cbModification,\
+      \ cbCreation, cbMarq\nFROM F_COMPTET\nWHERE CT_Type = 1\n"
+  target:
+    table: Fournisseurs
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: full
+  priority: normal
+  enabled: true
+- name: Entete_Ventes
+  source:
+    query: "SELECT DO_Domaine, DO_Type, DO_Piece, DO_Date, DO_Ref,\n       DO_Tiers,\
+      \ DO_TotalHT, DO_TotalTTC, DO_NetAPayer,\n       CO_No, CA_Num, DO_Statut,\n\
+      \       cbModification, cbCreation, cbMarq\nFROM F_DOCENTETE\nWHERE DO_Domaine\
+      \ = 0\n"
+  target:
+    table: Entete_Ventes
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: incremental
+  timestamp_column: cbModification
+  priority: high
+  enabled: true
+- name: Lignes_Ventes
+  source:
+    query: "SELECT DO_Domaine, DO_Type, CT_Num, DO_Piece, DO_Date,\n       DL_Ligne,\
+      \ AR_Ref, DL_Design, DL_Qte, DL_PrixUnitaire,\n       DL_MontantHT, DL_MontantTTC,\
+      \ DE_No,\n       cbModification, cbCreation, cbMarq\nFROM F_DOCLIGNE\nWHERE\
+      \ DO_Domaine = 0\n"
+  target:
+    table: Lignes_Ventes
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: incremental
+  timestamp_column: cbModification
+  priority: high
+  enabled: true
+- name: Familles
+  source:
+    query: "SELECT FA_CodeFamille, FA_Intitule, FA_Type,\n       cbModification, cbCreation,\
+      \ cbMarq\nFROM F_FAMILLE\n"
+  target:
+    table: Familles
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: full
+  priority: low
+  enabled: true
+- name: Depots
+  source:
+    query: "SELECT DE_No, DE_Intitule, DE_Adresse, DE_Ville,\n       DE_CodePostal,\
+      \ DE_Principal,\n       cbModification, cbCreation, cbMarq\nFROM F_DEPOT\n"
+  target:
+    table: Depots
+    primary_key:
+    - Societe
+    - cbMarq
+  sync_type: full
+  priority: low
+  enabled: true
+- name: test_table
+  source:
+    table: test_src
+  target:
+    table: test_tgt
+    primary_key: []
+  sync_type: incremental
+  priority: normal
+  enabled: true
+- name: dss
+  source:
+    table: dss
+  target:
+    table: ddd
+    primary_key: []
+  sync_type: incremental
+  priority: normal
+  enabled: true
+- name: ddd
+  source:
+    table: ddd
+  target:
+    table: ddd
+    primary_key: []
+  sync_type: incremental
+  priority: normal
+  enabled: true

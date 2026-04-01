@@ -1,0 +1,69 @@
+# ===========================
+# OptiBoard v5 - .gitignore
+# ===========================
+
+# Environment files (NEVER commit secrets)
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+*.log
+
+# Node / React
+node_modules/
+dist/
+build/
+.cache/
+*.local
+reporting-commercial/frontend/dist/
+reporting-commercial/frontend/build/
+
+# .NET / C#
+SageETLAgent_MultiAgent/**/bin/
+SageETLAgent_MultiAgent/**/obj/
+SageETLAgent_MultiAgent/publish/
+*.user
+*.suo
+.vs/
+
+# Docker
+*.pid
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# SQL Server data (never commit DB data)
+sqlserver/data/
+sqlserver/*.bak

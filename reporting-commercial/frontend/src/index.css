@@ -1,0 +1,566 @@
+/* AG Grid - imports must precede @tailwind */
+@import 'ag-grid-community/styles/ag-grid.css';
+@import 'ag-grid-community/styles/ag-theme-quartz.css';
+@import './styles/ag-grid-theme.css';
+@import './styles/pivot-quartz-theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Couleurs primaires par défaut (Bleu) */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+
+  /* Couleur accent */
+  --color-accent: #10b981;
+
+  /* Sidebar */
+  --sidebar-bg: #2563eb;
+  --sidebar-text: #ffffff;
+  --sidebar-hover: #1d4ed8;
+}
+
+@layer base {
+  html {
+    font-size: 13px;
+  }
+  html.compact {
+    font-size: 12px;
+  }
+  body {
+    @apply bg-slate-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
+  }
+}
+
+/* Mode Compact - réduction des espacements */
+.compact .card {
+  @apply p-2;
+}
+.compact .p-3 {
+  padding: 0.5rem !important;
+}
+.compact .p-4 {
+  padding: 0.625rem !important;
+}
+.compact .p-6 {
+  padding: 1rem !important;
+}
+.compact .py-1\.5 {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+}
+.compact .px-2\.5 {
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+.compact .gap-4 {
+  gap: 0.5rem !important;
+}
+.compact .gap-6 {
+  gap: 0.75rem !important;
+}
+.compact .mb-4 {
+  margin-bottom: 0.5rem !important;
+}
+.compact .mb-6 {
+  margin-bottom: 0.75rem !important;
+}
+.compact .mt-4 {
+  margin-top: 0.5rem !important;
+}
+.compact .space-y-4 > * + * {
+  margin-top: 0.5rem !important;
+}
+.compact .text-lg {
+  font-size: 0.9375rem !important;
+}
+.compact .text-xl {
+  font-size: 1rem !important;
+}
+.compact .text-2xl {
+  font-size: 1.125rem !important;
+}
+/* Tables compactes */
+.compact table th,
+.compact table td {
+  padding: 0.375rem 0.5rem !important;
+}
+/* Input compacts */
+.compact .input {
+  padding: 0.25rem 0.5rem !important;
+}
+.compact select {
+  padding: 0.25rem 0.5rem !important;
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* SCROLLBAR GLOBALE - suit le thème sélectionné              */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-primary-300) transparent;
+}
+.dark * {
+  scrollbar-color: var(--color-primary-800) transparent;
+}
+
+/* Webkit (Chrome, Edge, Safari) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-primary-300);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-primary-500);
+}
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-primary-600);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dark mode scrollbar */
+.dark *::-webkit-scrollbar-thumb {
+  background-color: var(--color-primary-800);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-primary-600);
+}
+.dark *::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-primary-500);
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* CONTRÔLES DE FORMULAIRE - thème unifié                     */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Tous les inputs, selects, textareas */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"],
+input[type="time"],
+textarea,
+select {
+  border: 1px solid var(--color-primary-300);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+textarea {
+  min-height: 2.5rem;
+  max-height: 4rem;
+}
+textarea.textarea-expand {
+  min-height: unset;
+  max-height: unset;
+}
+select {
+  height: 2.25rem;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="tel"]:focus,
+input[type="date"]:focus,
+input[type="datetime-local"]:focus,
+input[type="month"]:focus,
+input[type="week"]:focus,
+input[type="time"]:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary-500) 25%, transparent);
+}
+
+/* Dark mode inputs */
+.dark input[type="text"],
+.dark input[type="number"],
+.dark input[type="email"],
+.dark input[type="password"],
+.dark input[type="search"],
+.dark input[type="url"],
+.dark input[type="tel"],
+.dark input[type="date"],
+.dark input[type="datetime-local"],
+.dark input[type="month"],
+.dark input[type="week"],
+.dark input[type="time"],
+.dark textarea,
+.dark select {
+  border-color: var(--color-primary-800);
+}
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary-500) 20%, transparent);
+}
+
+/* Checkbox & Radio - couleur primaire */
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  accent-color: var(--color-primary-600);
+}
+
+/* Range slider */
+input[type="range"] {
+  accent-color: var(--color-primary-600);
+}
+
+/* Placeholder color */
+::placeholder {
+  color: var(--color-primary-300);
+  opacity: 0.7;
+}
+.dark ::placeholder {
+  color: var(--color-primary-700);
+  opacity: 0.5;
+}
+
+/* Selection highlight */
+::selection {
+  background-color: var(--color-primary-200);
+  color: var(--color-primary-900);
+}
+.dark ::selection {
+  background-color: var(--color-primary-800);
+  color: var(--color-primary-100);
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* ICÔNES LUCIDE - couleur thème automatique                  */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Remplacer les couleurs blue-* par le thème sur les icônes */
+svg.text-blue-400, .text-blue-400 > svg { color: var(--color-primary-400) !important; }
+svg.text-blue-500, .text-blue-500 > svg { color: var(--color-primary-500) !important; }
+svg.text-blue-600, .text-blue-600 > svg { color: var(--color-primary-600) !important; }
+svg.text-blue-700, .text-blue-700 > svg { color: var(--color-primary-700) !important; }
+
+/* Remplacer text-blue-* sur les textes aussi */
+.text-blue-400 { color: var(--color-primary-400) !important; }
+.text-blue-500 { color: var(--color-primary-500) !important; }
+.text-blue-600 { color: var(--color-primary-600) !important; }
+.text-blue-700 { color: var(--color-primary-700) !important; }
+.text-blue-800 { color: var(--color-primary-800) !important; }
+
+/* Remplacer bg-blue-* par le thème */
+.bg-blue-50 { background-color: var(--color-primary-50) !important; }
+.bg-blue-100 { background-color: var(--color-primary-100) !important; }
+.bg-blue-500 { background-color: var(--color-primary-500) !important; }
+.bg-blue-600 { background-color: var(--color-primary-600) !important; }
+.bg-blue-700 { background-color: var(--color-primary-700) !important; }
+
+/* Remplacer border-blue-* par le thème */
+.border-blue-200 { border-color: var(--color-primary-200) !important; }
+.border-blue-300 { border-color: var(--color-primary-300) !important; }
+.border-blue-500 { border-color: var(--color-primary-500) !important; }
+
+/* Remplacer purple-* par le thème */
+.text-purple-400 { color: var(--color-primary-400) !important; }
+.text-purple-500 { color: var(--color-primary-500) !important; }
+.text-purple-600 { color: var(--color-primary-600) !important; }
+.text-purple-700 { color: var(--color-primary-700) !important; }
+.bg-purple-50 { background-color: var(--color-primary-50) !important; }
+.bg-purple-100 { background-color: var(--color-primary-100) !important; }
+.bg-purple-600 { background-color: var(--color-primary-600) !important; }
+.border-purple-200 { border-color: var(--color-primary-200) !important; }
+
+/* Dark mode variantes */
+.dark .dark\:text-blue-300 { color: var(--color-primary-300) !important; }
+.dark .dark\:text-blue-400 { color: var(--color-primary-400) !important; }
+.dark .dark\:bg-blue-900\/20 { background-color: color-mix(in srgb, var(--color-primary-900) 20%, transparent) !important; }
+.dark .dark\:bg-blue-900\/30 { background-color: color-mix(in srgb, var(--color-primary-900) 30%, transparent) !important; }
+.dark .dark\:border-blue-800 { border-color: var(--color-primary-800) !important; }
+.dark .dark\:text-purple-300 { color: var(--color-primary-300) !important; }
+.dark .dark\:text-purple-400 { color: var(--color-primary-400) !important; }
+.dark .dark\:bg-purple-900\/20 { background-color: color-mix(in srgb, var(--color-primary-900) 20%, transparent) !important; }
+.dark .dark\:bg-purple-900\/30 { background-color: color-mix(in srgb, var(--color-primary-900) 30%, transparent) !important; }
+
+/* hover variantes */
+.hover\:bg-blue-50:hover { background-color: var(--color-primary-50) !important; }
+.hover\:bg-blue-100:hover { background-color: var(--color-primary-100) !important; }
+.hover\:bg-blue-200:hover { background-color: var(--color-primary-200) !important; }
+.hover\:bg-blue-700:hover { background-color: var(--color-primary-700) !important; }
+.hover\:bg-purple-200:hover { background-color: var(--color-primary-200) !important; }
+.dark .dark\:hover\:bg-blue-900\/30:hover { background-color: color-mix(in srgb, var(--color-primary-900) 30%, transparent) !important; }
+.dark .dark\:hover\:bg-purple-900\/50:hover { background-color: color-mix(in srgb, var(--color-primary-900) 50%, transparent) !important; }
+
+/* Remplacer orange-* par le thème */
+.text-orange-400 { color: var(--color-primary-400) !important; }
+.text-orange-500 { color: var(--color-primary-500) !important; }
+.text-orange-600 { color: var(--color-primary-600) !important; }
+.text-orange-700 { color: var(--color-primary-700) !important; }
+.bg-orange-50 { background-color: var(--color-primary-50) !important; }
+.bg-orange-100 { background-color: var(--color-primary-100) !important; }
+.border-orange-200 { border-color: var(--color-primary-200) !important; }
+.hover\:bg-orange-200:hover { background-color: var(--color-primary-200) !important; }
+.dark .dark\:text-orange-300 { color: var(--color-primary-300) !important; }
+.dark .dark\:text-orange-400 { color: var(--color-primary-400) !important; }
+.dark .dark\:bg-orange-900\/30 { background-color: color-mix(in srgb, var(--color-primary-900) 30%, transparent) !important; }
+
+/* Remplacer amber-* par le thème */
+.text-amber-700 { color: var(--color-primary-700) !important; }
+.bg-amber-100 { background-color: var(--color-primary-100) !important; }
+.hover\:bg-amber-200:hover { background-color: var(--color-primary-200) !important; }
+.dark .dark\:text-amber-300 { color: var(--color-primary-300) !important; }
+.dark .dark\:bg-amber-900\/30 { background-color: color-mix(in srgb, var(--color-primary-900) 30%, transparent) !important; }
+.dark .dark\:hover\:bg-amber-900\/50:hover { background-color: color-mix(in srgb, var(--color-primary-900) 50%, transparent) !important; }
+
+/* Remplacer indigo/teal/cyan par le thème */
+.text-indigo-500 { color: var(--color-primary-500) !important; }
+.text-indigo-600 { color: var(--color-primary-600) !important; }
+.bg-indigo-50 { background-color: var(--color-primary-50) !important; }
+.bg-indigo-100 { background-color: var(--color-primary-100) !important; }
+.text-teal-500 { color: var(--color-primary-500) !important; }
+.text-teal-600 { color: var(--color-primary-600) !important; }
+.text-cyan-500 { color: var(--color-primary-500) !important; }
+.text-cyan-600 { color: var(--color-primary-600) !important; }
+
+/* Icônes SVG avec text-gray-* → couleur thème (uniquement sur SVG) */
+svg.text-gray-300 { color: var(--color-primary-200) !important; }
+svg.text-gray-400 { color: var(--color-primary-400) !important; }
+svg.text-gray-500 { color: var(--color-primary-500) !important; }
+svg.text-gray-600 { color: var(--color-primary-600) !important; }
+
+/* Ring blue */
+.ring-blue-500, .focus\:ring-blue-500:focus { --tw-ring-color: var(--color-primary-500) !important; }
+.focus\:border-blue-500:focus { border-color: var(--color-primary-500) !important; }
+
+@layer utilities {
+  /* Safe area pour les téléphones avec encoche (notch / home indicator) */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+@layer components {
+  .btn-primary {
+    background-color: var(--color-primary-600);
+    @apply text-white font-medium py-1.5 px-3 rounded-md text-sm transition-colors duration-200;
+  }
+  .btn-primary:hover {
+    background-color: var(--color-primary-700);
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-medium py-1.5 px-3 rounded-md text-sm transition-colors duration-200;
+  }
+
+  .btn-sm {
+    @apply py-1 px-2 text-xs rounded;
+  }
+
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-sm dark:border-gray-700;
+    border: 1px solid var(--color-primary-200);
+  }
+  .dark .card {
+    border-color: rgb(55 65 81);
+  }
+
+  .input {
+    @apply w-full px-2.5 py-1.5 text-sm rounded-md bg-white dark:bg-gray-700 dark:border-gray-600;
+    border: 1px solid var(--color-primary-300);
+  }
+  .input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-primary-500);
+    border-color: var(--color-primary-500);
+  }
+
+  .select-compact {
+    @apply text-sm py-1.5 px-2;
+  }
+
+  /* Classes utilitaires pour les couleurs du thème */
+  .bg-theme-primary {
+    background-color: var(--color-primary-600);
+  }
+  .bg-theme-primary-hover:hover {
+    background-color: var(--color-primary-700);
+  }
+  .bg-theme-primary-light {
+    background-color: var(--color-primary-100);
+  }
+  .bg-theme-primary-50 {
+    background-color: var(--color-primary-50);
+  }
+  .text-theme-primary {
+    color: var(--color-primary-600);
+  }
+  .text-theme-primary-dark {
+    color: var(--color-primary-700);
+  }
+  .border-theme-primary {
+    border-color: var(--color-primary-600);
+  }
+  .border-theme-primary-light {
+    border-color: var(--color-primary-200);
+  }
+  .ring-theme-primary {
+    --tw-ring-color: var(--color-primary-500);
+  }
+
+  /* Menu actif */
+  .menu-item-active {
+    background-color: var(--color-primary-100);
+    color: var(--color-primary-700);
+  }
+  .dark .menu-item-active {
+    background-color: rgb(55 65 81);
+    color: white;
+  }
+
+  /* Tables avec thème */
+  .table-theme {
+    border-color: var(--color-primary-300);
+  }
+  .table-theme-header {
+    background-color: var(--color-primary-50);
+    border-color: var(--color-primary-300);
+  }
+  .table-theme-header th {
+    color: var(--color-primary-700);
+    border-color: var(--color-primary-300);
+  }
+  .table-theme-row {
+    border-color: var(--color-primary-200);
+  }
+  .table-theme-row:nth-child(even) {
+    background-color: color-mix(in srgb, var(--color-primary-50) 50%, transparent);
+  }
+  .table-theme-row:hover {
+    background-color: var(--color-primary-100);
+  }
+  .table-theme-cell {
+    border-color: var(--color-primary-200);
+  }
+  .dark .table-theme,
+  .dark .table-theme-header,
+  .dark .table-theme-header th,
+  .dark .table-theme-row,
+  .dark .table-theme-cell {
+    border-color: rgb(55 65 81);
+  }
+  .dark .table-theme-header {
+    background-color: rgb(55 65 81);
+  }
+  .dark .table-theme-header th {
+    color: rgb(209 213 219);
+  }
+  .dark .table-theme-row:nth-child(even) {
+    background-color: rgb(31 41 55);
+  }
+  .dark .table-theme-row:hover {
+    background-color: rgb(55 65 81);
+  }
+
+  /* Tabs avec thème */
+  .tab-active {
+    background-color: var(--color-primary-100);
+    color: var(--color-primary-700);
+  }
+  .dark .tab-active {
+    background-color: rgb(55 65 81);
+    color: white;
+  }
+
+  /* Select/Input avec thème */
+  select.input, .select-theme {
+    border-color: var(--color-primary-300);
+  }
+  select.input:focus, .select-theme:focus {
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 2px var(--color-primary-200);
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   PROTECTION IMPRESSION — Filigrane & anti-copie
+   ═══════════════════════════════════════════════════════ */
+
+/* Désactiver la sélection de texte sur les données sensibles */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+@media print {
+  /* Le filigrane doit être visible à l'impression */
+  #__wm_container__ {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 99999 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #__wm_container__ > div {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Masquer les éléments de navigation à l'impression */
+  header,
+  aside,
+  .sidebar,
+  .chat-widget,
+  button:not(.print-visible) {
+    display: none !important;
+  }
+
+  /* Le contenu principal prend toute la page */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}

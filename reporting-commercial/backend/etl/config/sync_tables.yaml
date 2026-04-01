@@ -1,0 +1,2348 @@
+global:
+  timestamp_column: cbModification
+  creation_column: cbCreation
+  sync_interval_seconds: 300
+  batch_size: 10000
+  staging_threshold: 100000
+  source_label_column: Societe
+  default_interval_minutes: 5
+  default_delete_detection: 'False'
+tables:
+- name: Collaborateurs
+  source:
+    query: "SELECT     *\r\n \r\n\r\nFROM\r\n(\r\n    SELECT ISNULL(CO_No, '0') [Code\
+      \ collaborateur],\r\n           CO_Nom [Nom collaborateur],\r\n           CO_Prenom\
+      \ [Prénom collaborateur],\r\n           CO_Fonction [Fonction collaborateur],\r\
+      \n           CO_Adresse + ISNULL(CO_Complement, '') [Adresse collaborateur],\r\
+      \n           CO_CodePostal [CP collaborateur],\r\n           CO_Ville [Ville\
+      \ collaborateur],\r\n           CO_CodeRegion [Région collaborateur],\r\n  \
+      \         CO_Pays [Pays collaborateur],\r\n           CO_Service [Service collaborateur],\r\
+      \n           CASE\r\n               WHEN CO_Vendeur = 1 THEN\r\n           \
+      \        'Oui'\r\n               ELSE\r\n                   'Non'\r\n      \
+      \     END Vendeur,\r\n           CASE\r\n               WHEN CO_Caissier = 1\
+      \ THEN\r\n                   'Oui'\r\n               ELSE\r\n              \
+      \     'Non'\r\n           END Caissier,\r\n           CASE\r\n             \
+      \  WHEN CO_Acheteur = 1 THEN\r\n                   'Oui'\r\n               ELSE\r\
+      \n                   'Non'\r\n           END Acheteur,\r\n           CO_Telephone\
+      \ [Tél collaborateur],\r\n           CO_Telecopie [Fax collaborateur],\r\n \
+      \          CO_EMail [Email collaborateur],\r\n           CO_TelPortable [GSM\
+      \ collaborateur],\r\n           CASE\r\n               WHEN CO_ChargeRecouvr\
+      \ = 1 THEN\r\n                   'Oui'\r\n               ELSE\r\n          \
+      \         'Non'\r\n           END [Charge Recouvr],\r\n           CASE\r\n \
+      \              WHEN CO_Financier = 1 THEN\r\n                   'Oui'\r\n  \
+      \             ELSE\r\n                   'Non'\r\n           END Financier,\r\
+      \n           CO_Facebook [FaceBook collaborateur],\r\n           CO_LinkedIn\
+      \ [LinkdIn collaborateur],\r\n           CO_Skype [Skyp collaborateur]\r\n \
+      \   FROM F_COLLABORATEUR\r\n    UNION ALL\r\n    SELECT '0',\r\n           ''\
+      \ [Nom collaborateur],\r\n           '' [Prénom collaborateur],\r\n        \
+      \   '' [Fonction collaborateur],\r\n           '' [Adresse collaborateur],\r\
+      \n           '' [CP collaborateur],\r\n           '' [Ville collaborateur],\r\
+      \n           '' [Région collaborateur],\r\n           '' [Pays collaborateur],\r\
+      \n           '' [Service collaborateur],\r\n           '' Vendeur,\r\n     \
+      \      '' Caissier,\r\n           '' Acheteur,\r\n           '' [Tél collaborateur],\r\
+      \n           '' [Fax collaborateur],\r\n           '' [Email collaborateur],\r\
+      \n           '' [GSM collaborateur],\r\n           '' [Charge Recouvr],\r\n\
+      \           '' Financier,\r\n           '' [FaceBook collaborateur],\r\n   \
+      \        '' [LinkdIn collaborateur],\r\n           '' [Skyp collaborateur]\r\
+      \n) tab;"
+  target:
+    table: Collaborateurs
+    primary_key:
+    - Code collaborateur
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 1
+  batch_size: 10000
+- name: Informations libres
+  source:
+    query: "SELECT  \r\n       [CB_File],\r\n       [CB_Name]\r\n\t       \r\nFROM\
+      \ [cbSysLibre];"
+  target:
+    table: Info_Libres
+    primary_key: []
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 2
+  batch_size: 10000
+- name: Liste des articles
+  source:
+    query: "SELECT  \r\n \r\n       F_ARTICLE.cbMarq AS [Code interne],\r\n      \
+      \ CASE F_ARTICLE.AR_Type\r\n           WHEN 0 THEN\r\n               'Standard'\r\
+      \n           WHEN 1 THEN\r\n               'Gamme'\r\n           WHEN 2 THEN\r\
+      \n               'Ressource Prestation'\r\n           WHEN 3 THEN\r\n      \
+      \         'Ressource Location'\r\n       END AS [Type Article],\r\n       F_ARTICLE.AR_Ref\
+      \ AS [Code Article],\r\n       F_ARTICLE.AR_Design AS [Désignation Article],\r\
+      \n       F_ARTICLE.FA_CodeFamille AS [Code Famille],\r\n       F_FAMILLE.FA_Intitule\
+      \ AS [Intitulé famille],\r\n       F_FAMILLE_1.FA_Intitule AS [Intitulé Famille\
+      \ Centralisatrice],\r\n       P_GAMME.G_Intitule AS [Libellé Gamme 1],\r\n \
+      \      P_GAMME_1.G_Intitule AS [Libellé Gamme 2],\r\n       F_CATALOGUE.CL_Intitule\
+      \ AS [Catalogue 1],\r\n       F_CATALOGUE_1.CL_Intitule AS [Catalogue 2],\r\n\
+      \       F_CATALOGUE_2.CL_Intitule AS [Catalogue 3],\r\n       F_CATALOGUE_3.CL_Intitule\
+      \ AS [Catalogue 4],\r\n       ISNULL(P_CONDITIONNEMENT.P_Conditionnement, 'Aucun')\
+      \ AS Conditionnement,\r\n       P_UNITE.U_Intitule AS [Unité Vente],\r\n   \
+      \    (\r\n           SELECT P_IntStatArt FROM P_INTSTATART WHERE (cbIndice =\
+      \ 1)\r\n       ) AS [Libellé Statistique01 A],\r\n       (\r\n           SELECT\
+      \ P_IntStatArt\r\n           FROM P_INTSTATART AS P_INTSTATART_4\r\n       \
+      \    WHERE (cbIndice = 2)\r\n       ) AS [Libellé Statistique02 A],\r\n    \
+      \   (\r\n           SELECT P_IntStatArt\r\n           FROM P_INTSTATART AS P_INTSTATART_3\r\
+      \n           WHERE (cbIndice = 3)\r\n       ) AS [Libellé Statistique03 A],\r\
+      \n       (\r\n           SELECT P_IntStatArt\r\n           FROM P_INTSTATART\
+      \ AS P_INTSTATART_2\r\n           WHERE (cbIndice = 4)\r\n       ) AS [Libellé\
+      \ Statistique04 A],\r\n       (\r\n           SELECT P_IntStatArt\r\n      \
+      \     FROM P_INTSTATART AS P_INTSTATART_1\r\n           WHERE (cbIndice = 5)\r\
+      \n       ) AS [Libellé Statistique05 A],\r\n       F_ARTICLE.AR_Stat01 AS [Statistique01\
+      \ A],\r\n       F_ARTICLE.AR_Stat02 AS [Statistique02 A],\r\n       F_ARTICLE.AR_Stat03\
+      \ AS [Statistique03 A],\r\n       F_ARTICLE.AR_Stat04 AS [Statistique04 A],\r\
+      \n       F_ARTICLE.AR_Stat05 AS [Statistique05 A],\r\n       F_ARTICLE.AR_PrixAch\
+      \ AS [Prix d'achat],\r\n       F_ARTICLE.AR_PUNet AS [Dernier prix d'achat],\r\
+      \n       F_ARTICLE.AR_Coef AS Coefficient,\r\n       F_ARTICLE.AR_PrixVen AS\
+      \ [Prix de vente],\r\n       CASE F_ARTICLE.AR_PrixTTC\r\n           WHEN 0\
+      \ THEN\r\n               'HT'\r\n           WHEN 1 THEN\r\n               'TTC'\r\
+      \n           ELSE\r\n               'ERREUR. Contactez votre revendeur.'\r\n\
+      \       END AS [Type Prix Vente],\r\n       CASE F_ARTICLE.AR_UnitePoids\r\n\
+      \           WHEN 0 THEN\r\n               'Tonne'\r\n           WHEN 1 THEN\r\
+      \n               'Quintal'\r\n           WHEN 2 THEN\r\n               'Kilogramme'\r\
+      \n           WHEN 3 THEN\r\n               'Gramme'\r\n           WHEN 4 THEN\r\
+      \n               'Milligramme'\r\n           ELSE\r\n               'ERREUR.\
+      \ Contactez votre revendeur.'\r\n       END AS [Unité Poids],\r\n       CASE\
+      \ F_ARTICLE.AR_SuiviStock\r\n           WHEN 0 THEN\r\n               'Aucun'\r\
+      \n           WHEN 1 THEN\r\n               'Sérialisé'\r\n           WHEN 2\
+      \ THEN\r\n               'CMUP'\r\n           WHEN 3 THEN\r\n              \
+      \ 'FIFO'\r\n           WHEN 4 THEN\r\n               'LIFO'\r\n           WHEN\
+      \ 5 THEN\r\n               'Par lot'\r\n       END AS [Suivi Stock],\r\n   \
+      \    F_ARTICLE.AR_PoidsNet AS [Poids Net],\r\n       F_ARTICLE.AR_PoidsBrut\
+      \ AS [Poids Brut],\r\n       STR(F_ARTICLE.AR_Delai) + ' jours' AS [Délai Livraison],\r\
+      \n       STR(F_ARTICLE.AR_Garantie) + ' mois' AS Garantie,\r\n       CASE F_ARTICLE.AR_Contremarque\r\
+      \n           WHEN 0 THEN\r\n               'Non'\r\n           WHEN 1 THEN\r\
+      \n               'Oui'\r\n           ELSE\r\n               'ERREUR. Contactez\
+      \ votre revendeur.'\r\n       END AS [Article en contremarque],\r\n       CASE\
+      \ F_ARTICLE.AR_VteDebit\r\n           WHEN 0 THEN\r\n               'Non'\r\n\
+      \           WHEN 1 THEN\r\n               'Oui'\r\n           ELSE\r\n     \
+      \          'ERREUR. Contactez votre revendeur.'\r\n       END AS [Vente au débit],\r\
+      \n       CASE F_ARTICLE.AR_FactPoids\r\n           WHEN 0 THEN\r\n         \
+      \      'Non'\r\n           WHEN 1 THEN\r\n               'Oui'\r\n         \
+      \  ELSE\r\n               'ERREUR. Contactez votre revendeur.'\r\n       END\
+      \ AS [Facturation / poids Net],\r\n       CASE F_ARTICLE.AR_FactForfait\r\n\
+      \           WHEN 0 THEN\r\n               'Non'\r\n           WHEN 1 THEN\r\n\
+      \               'Oui'\r\n           ELSE\r\n               'ERREUR. Contactez\
+      \ votre revendeur.'\r\n       END AS [Facturation forfaitaire],\r\n       CASE\
+      \ F_ARTICLE.AR_Escompte\r\n           WHEN 0 THEN\r\n               'Non'\r\n\
+      \           WHEN 1 THEN\r\n               'Oui'\r\n           ELSE\r\n     \
+      \          'ERREUR. Contactez votre revendeur.'\r\n       END AS [Non soumis\
+      \ à l'escompte],\r\n       CASE F_ARTICLE.AR_NotImp\r\n           WHEN 0 THEN\r\
+      \n               'Non'\r\n           WHEN 1 THEN\r\n               'Oui'\r\n\
+      \           ELSE\r\n               'ERREUR. Contactez votre revendeur.'\r\n\
+      \       END AS [Non impression document],\r\n       CASE F_ARTICLE.AR_HorsStat\r\
+      \n           WHEN 0 THEN\r\n               'Non'\r\n           WHEN 1 THEN\r\
+      \n               'Oui'\r\n           ELSE\r\n               'ERREUR. Contactez\
+      \ votre revendeur.'\r\n       END AS [Hors statistiques],\r\n       CASE F_ARTICLE.AR_Sommeil\r\
+      \n           WHEN 0 THEN\r\n               'Actif'\r\n           WHEN 1 THEN\r\
+      \n               'En sommeil'\r\n           ELSE\r\n               'ERREUR.\
+      \ Contactez votre revendeur.'\r\n       END AS [Actif / Sommeil],\r\n      \
+      \ CASE F_ARTICLE.AR_Publie\r\n           WHEN 0 THEN\r\n               'Non'\r\
+      \n           WHEN 1 THEN\r\n               'Oui'\r\n           ELSE\r\n    \
+      \           'ERREUR. Contactez votre revendeur.'\r\n       END AS [Publié sur\
+      \ le site Marchand],\r\n       F_ARTICLE.AR_Langue1 AS [Langue 1],\r\n     \
+      \  F_ARTICLE.AR_Langue2 AS [Langue 2],\r\n       F_ARTICLE.AR_CodeBarre AS [Code\
+      \ Barres],\r\n       F_ARTICLE.AR_CodeFiscal AS [Code Fiscal],\r\n       F_ARTICLE.AR_Pays\
+      \ AS [Pays Origine],AR_DelaiSecurite [Délai de sécurité],AR_Photo AS [Photo],\r\
+      \n\t   \r\n\t     CAST('' AS varBINARY(max) ) BinaryImage,F_ARTICLE.cbCreation\
+      \ [Date création],F_ARTICLE.cbModification [Date modification]\r\n \r\nFROM\
+      \ P_CONDITIONNEMENT\r\n    RIGHT OUTER JOIN P_UNITE\r\n        RIGHT OUTER JOIN\
+      \ F_CATALOGUE\r\n            RIGHT OUTER JOIN F_ARTICLE\r\n                LEFT\
+      \ OUTER JOIN F_FAMILLE AS F_FAMILLE_1\r\n                    RIGHT OUTER JOIN\
+      \ F_FAMILLE\r\n                        ON F_FAMILLE_1.FA_CodeFamille = F_FAMILLE.FA_Central\r\
+      \n                    ON F_ARTICLE.FA_CodeFamille = F_FAMILLE.FA_CodeFamille\r\
+      \n                LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_3\r\n         \
+      \           ON F_ARTICLE.CL_No4 = F_CATALOGUE_3.CL_No\r\n                LEFT\
+      \ OUTER JOIN F_CATALOGUE AS F_CATALOGUE_2\r\n                    ON F_ARTICLE.CL_No3\
+      \ = F_CATALOGUE_2.CL_No\r\n                LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_1\r\
+      \n                    ON F_ARTICLE.CL_No2 = F_CATALOGUE_1.CL_No\r\n        \
+      \        ON F_CATALOGUE.CL_No = F_ARTICLE.CL_No1\r\n            ON P_UNITE.cbIndice\
+      \ = F_ARTICLE.AR_UniteVen\r\n        ON P_CONDITIONNEMENT.cbIndice = F_ARTICLE.AR_Condition\r\
+      \n    LEFT OUTER JOIN P_GAMME AS P_GAMME_1\r\n        ON F_ARTICLE.AR_Gamme2\
+      \ = P_GAMME_1.cbIndice\r\n    LEFT OUTER JOIN P_GAMME\r\n        ON F_ARTICLE.AR_Gamme1\
+      \ = P_GAMME.cbIndice;"
+  target:
+    table: Articles
+    primary_key:
+    - Code Article
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 3
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Liste des clients
+  source:
+    query: "SELECT   \r\n       F_COMPTET.CT_Qualite AS Qualité,\r\n       F_COMPTET.CT_Num\
+      \ AS [Code client],\r\n       F_COMPTET.CT_Intitule AS [Intitulé],\r\n     \
+      \  F_COMPTET.CT_Classement AS [Classement],\r\n       case when F_COMPTET.CO_No\
+      \ =0 then null else F_COMPTET.CO_No end AS [Code représentant],\r\n       CO_Nom+'\
+      \ '+CO_Prenom AS [Représentant],\r\n       F_COMPTET.CT_NumPayeur AS [Code payeur],\r\
+      \n       F_COMPTET_1.CT_Intitule AS [Tiers payeur],\r\n       P_PERIOD.P_Period\
+      \ AS [Période facturation],\r\n       ISNULL(P_DEVISE.D_Intitule, 'Aucune')\
+      \ AS [Devise],\r\n       P_CATTARIF.CT_Intitule AS [Catégorie tarifaire],\r\n\
+      \       ISNULL(F_DEPOT.DE_Intitule, 'Dépôt principal') AS [Dépôt de rattachement],\r\
+      \n       CASE F_COMPTET.CT_Sommeil\r\n           WHEN 0 THEN\r\n           \
+      \    'Actif'\r\n           WHEN 1 THEN\r\n               'En sommeil'\r\n  \
+      \         ELSE\r\n               'ERREUR. Contactez votre revendeur.'\r\n  \
+      \     END AS [En sommeil],\r\n       F_COMPTET.CG_NumPrinc AS [Compte comptable],\r\
+      \n       F_COMPTET.CT_Contact AS [Contact],\r\n       F_COMPTET.CT_Adresse AS\
+      \ [Adresse],\r\n       F_COMPTET.CT_Complement AS [Complément],\r\n       F_COMPTET.CT_CodePostal\
+      \ AS [Code postal],\r\n       F_COMPTET.CT_Ville AS Ville,\r\n       F_COMPTET.CT_CodeRegion\
+      \ AS [Région],\r\n       F_COMPTET.CT_Pays AS [Pays],\r\n       F_COMPTET.CT_Siret\
+      \ AS SIRET,\r\n       F_COMPTET.CT_Identifiant AS [Identifiant],\r\n       F_COMPTET.CT_Ape\
+      \ AS [NAF],\r\n       F_COMPTET.CT_Telephone AS Téléphone,\r\n       F_COMPTET.CT_Telecopie\
+      \ AS Télécopie,\r\n       F_COMPTET.CT_EMail AS Email,\r\n       F_COMPTET.CT_Site\
+      \ AS Site,\r\n       CASE F_COMPTET.CT_Langue\r\n           WHEN 0 THEN\r\n\
+      \               'Aucune'\r\n           WHEN 1 THEN\r\n               'Langue\
+      \ 1'\r\n           WHEN 2 THEN\r\n               'Langue 2'\r\n           ELSE\r\
+      \n               'ERREUR. Contactez votre revendeur.'\r\n       END AS Langue,\r\
+      \n       F_COMPTET.CA_Num AS [Code affaire],\r\n\r\n       CASE F_COMPTET.N_CatCompta\r\
+      \n           WHEN 1 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen01\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           WHEN 2 THEN\r\n           (\r\
+      \n               SELECT P_CATCOMPTA.CA_ComptaVen02 FROM P_CATCOMPTA\r\n    \
+      \       )\r\n           WHEN 3 THEN\r\n           (\r\n               SELECT\
+      \ P_CATCOMPTA.CA_ComptaVen03 FROM P_CATCOMPTA\r\n           )\r\n          \
+      \ WHEN 4 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen04\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           WHEN 5 THEN\r\n           (\r\
+      \n               SELECT P_CATCOMPTA.CA_ComptaVen05 FROM P_CATCOMPTA\r\n    \
+      \       )\r\n           WHEN 6 THEN\r\n           (\r\n               SELECT\
+      \ P_CATCOMPTA.CA_ComptaVen06 FROM P_CATCOMPTA\r\n           )\r\n          \
+      \ WHEN 7 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen07\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           WHEN 8 THEN\r\n           (\r\
+      \n               SELECT P_CATCOMPTA.CA_ComptaVen08 FROM P_CATCOMPTA\r\n    \
+      \       )\r\n           WHEN 9 THEN\r\n           (\r\n               SELECT\
+      \ P_CATCOMPTA.CA_ComptaVen09 FROM P_CATCOMPTA\r\n           )\r\n          \
+      \ WHEN 10 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen10\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           ELSE\r\n               'ERREUR.\
+      \ Contactez votre revendeur.'\r\n       END AS [Catégorie comptable],\r\n  \
+      \     F_COMPTET.CT_Taux01 AS [Taxe 1],\r\n       F_COMPTET.CT_Taux02 AS [Taxe\
+      \ 2],\r\n       F_COMPTET.CT_Taux03 AS [Taxe 3],\r\n       F_COMPTET.CT_Taux04\
+      \ AS [Taxe 4],\r\n       (\r\n           SELECT P_IntStatArt FROM P_INTSTATART\
+      \ WHERE (cbMarq = 1)\r\n       ) AS [Libellé statistique 1],\r\n       (\r\n\
+      \           SELECT P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_9 WHERE (cbMarq\
+      \ = 2)\r\n       ) AS [Libellé statistique 2],\r\n       (\r\n           SELECT\
+      \ P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_8 WHERE (cbMarq = 3)\r\n  \
+      \     ) AS [Libellé statistique 3],\r\n       (\r\n           SELECT P_IntStatArt\
+      \ FROM P_INTSTATART AS P_INTSTATART_7 WHERE (cbMarq = 4)\r\n       ) AS [Libellé\
+      \ statistique 4],\r\n       (\r\n           SELECT P_IntStatArt FROM P_INTSTATART\
+      \ AS P_INTSTATART_6 WHERE (cbMarq = 5)\r\n       ) AS [Libellé statistique 5],\r\
+      \n       (\r\n           SELECT P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_5\
+      \ WHERE (cbMarq = 6)\r\n       ) AS [Libellé statistique 6],\r\n       (\r\n\
+      \           SELECT P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_4 WHERE (cbMarq\
+      \ = 7)\r\n       ) AS [Libellé statistique 7],\r\n       (\r\n           SELECT\
+      \ P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_3 WHERE (cbMarq = 8)\r\n  \
+      \     ) AS [Libellé statistique 8],\r\n       (\r\n           SELECT P_IntStatArt\
+      \ FROM P_INTSTATART AS P_INTSTATART_2 WHERE (cbMarq = 9)\r\n       ) AS [Libellé\
+      \ statistique 9],\r\n       (\r\n           SELECT P_IntStatArt\r\n        \
+      \   FROM P_INTSTATART AS P_INTSTATART_1\r\n           WHERE (cbMarq = 10)\r\n\
+      \       ) AS [Libellé statistique 10],\r\n       F_COMPTET.CT_Statistique01\
+      \ AS [Statistique 1],\r\n       F_COMPTET.CT_Statistique02 AS [Statistique 2],\r\
+      \n       F_COMPTET.CT_Statistique03 AS [Statistique 3],\r\n       F_COMPTET.CT_Statistique04\
+      \ AS [Statistique 4],\r\n       F_COMPTET.CT_Statistique05 AS [Statistique 5],\r\
+      \n       F_COMPTET.CT_Statistique06 AS [Statistique 6],\r\n       F_COMPTET.CT_Statistique07\
+      \ AS [Statistique 7],\r\n       F_COMPTET.CT_Statistique08 AS [Statistique 8],\r\
+      \n       F_COMPTET.CT_Statistique09 AS [Statistique 9],\r\n       F_COMPTET.CT_Statistique10\
+      \ AS [Statistique 10],\r\n       F_COMPTET.CT_NumCentrale AS [Centre charge],\r\
+      \n       P_CRISQUE.R_Intitule [Risque client],\r\n       (\r\n           SELECT\
+      \ [E_Intitule]\r\n           FROM [P_EXPEDITION]\r\n           WHERE [P_EXPEDITION].[cbIndice]\
+      \ = F_COMPTET.N_Expedition\r\n       ) [Expédition],\r\n       F_COMPTET.CT_DelaiTransport\
+      \ [Délai de transport],\r\n       F_COMPTET.CT_Encours [Encours de l'autorisation],\r\
+      \n       F_COMPTET.CT_Assurance [Assurance],\r\n       F_COMPTET.CT_Facture\
+      \ [Nbr facture],\r\n       F_COMPTET.CT_BLFact [BL/Facture],\r\n       F_COMPTET.cbCreation\
+      \ [Date de création],\r\n\t   F_COMPTET.cbModification [Date de modification]\r\
+      \n\r\n \r\nFROM            F_COMPTET LEFT OUTER JOIN\r\n                   \
+      \      F_COMPTET AS F_COMPTET_1 ON F_COMPTET.CT_NumPayeur = F_COMPTET_1.CT_Num\
+      \ LEFT OUTER JOIN\r\n                         P_CRISQUE ON F_COMPTET.N_Risque\
+      \ = P_CRISQUE.cbIndice LEFT OUTER JOIN\r\n                         F_COMPTEA\
+      \ ON F_COMPTET.N_Analytique = F_COMPTEA.N_Analytique AND F_COMPTET.CA_Num =\
+      \ F_COMPTEA.CA_Num LEFT OUTER JOIN\r\n                         F_COLLABORATEUR\
+      \ ON F_COMPTET.CO_No = F_COLLABORATEUR.CO_No LEFT OUTER JOIN\r\n           \
+      \              F_DEPOT ON F_COMPTET.DE_No = F_DEPOT.DE_No LEFT OUTER JOIN\r\n\
+      \                         P_PERIOD ON F_COMPTET.N_Period = P_PERIOD.cbMarq LEFT\
+      \ OUTER JOIN\r\n                         P_DEVISE ON F_COMPTET.N_Devise = P_DEVISE.cbIndice\
+      \ LEFT OUTER JOIN\r\n                         P_CATTARIF ON F_COMPTET.N_CatTarif\
+      \ = P_CATTARIF.cbIndice\r\nWHERE (F_COMPTET.CT_Type = 0);\r\n"
+  target:
+    table: Clients
+    primary_key:
+    - Code client
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 5
+  batch_size: 10000
+- name: Lieu de livraison clients
+  source:
+    query: "SELECT        \r\n \r\n \r\n\r\nF_LIVRAISON.LI_No [N° interne], F_LIVRAISON.CT_Num\
+      \ AS [Code client], F_LIVRAISON.LI_Intitule AS [Intitule livraison], ISNULL(F_LIVRAISON.LI_Adresse,\
+      \ '') + ISNULL(F_LIVRAISON.LI_Complement, '') AS Adresse, \r\n             \
+      \            F_LIVRAISON.LI_CodePostal AS [Code postal], F_LIVRAISON.LI_Ville\
+      \ AS Ville, F_LIVRAISON.LI_CodeRegion AS Région, F_LIVRAISON.LI_Pays AS Pays,\
+      \ F_LIVRAISON.LI_Contact AS Contact, \r\n                         CASE WHEN\
+      \ LI_Principal = 1 THEN 'Oui' ELSE 'Non' END AS [Dépôt principal], F_LIVRAISON.LI_Telephone\
+      \ AS Téléphone, F_LIVRAISON.LI_Telecopie AS Fax, F_LIVRAISON.LI_EMail AS Email,\
+      \ \r\n                         P_EXPEDITION.E_Intitule AS Expédition, P_CONDLIVR.C_Intitule\
+      \ [Condition de livraison]\r\n \r\n FROM            F_LIVRAISON INNER JOIN\r\
+      \n                         P_EXPEDITION ON F_LIVRAISON.N_Expedition = P_EXPEDITION.cbIndice\
+      \ INNER JOIN\r\n                         P_CONDLIVR ON F_LIVRAISON.N_Condition\
+      \ = P_CONDLIVR.cbIndice"
+  target:
+    table: Lieu_Livraison_Client
+    primary_key:
+    - N° interne
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 6
+  batch_size: 10000
+- name: Entêtes des ventes
+  source:
+    query: "SELECT\r\n \r\n                  F_DOCENTETE.cbMarq [N° interne],\r\n\
+      \                  case\r\n                       when F_DOCENTETE.DO_Type between\
+      \ 0 and 6 then 'Oui'\r\n                       else 'Non' end as Encours,\r\n\
+      \                    isnull(\r\n                           case F_DOCENTETE.DO_Type\r\
+      \n                                when 0 then 'Devis'\r\n                  \
+      \              when 1 then 'Bon de commande'\r\n                           \
+      \     when 2 then 'Préparation de livraison'\r\n                           \
+      \     when 3 then 'Bon de livraison'\r\n                                when\
+      \ 4 then 'Bon de retour'\r\n                                when 5 then 'Bon\
+      \ avoir financier'\r\n                                when 6 then case DO_Provenance\r\
+      \n                                                 when 0 then 'Facture'\r\n\
+      \                                                 when 1 then 'Facture de retour'\r\
+      \n                                                 when 2 then 'Facture avoir'\r\
+      \n                                                 when 3 then 'Facture caisse\
+      \ décentralisée'\r\n                                                 when 4\
+      \ then 'Facture d''accompte' end\r\n                                when 7 then\
+      \ case DO_Provenance\r\n                                                 when\
+      \ 0 then 'Facture comptabilisée'\r\n                                       \
+      \          when 1 then 'Facture de retour comptabilisée'\r\n               \
+      \                                  when 2 then 'Facture avoir comptabilisée'\r\
+      \n                                                 when 3 then 'Facture caisse\
+      \ décentralisée comptabilisée'\r\n                                         \
+      \        when 4 then 'Facture d''accompte comptabilisée' end\r\n           \
+      \                     when 8 then 'Archive'\r\n                            \
+      \    else 'ERREUR sur F_DOCENTETE.DO_Type - Contactez votre revendeur.' end,\r\
+      \n                           'ERREUR sur F_DOCENTETE.DO_Type - Contactez votre\
+      \ revendeur.')   as [Type Document],\r\n                  (select S_Intitule\
+      \ from dbo.P_SOUCHEVENTE where cbIndice = DO_Souche + 1) Souche,\r\n       \
+      \           case\r\n                       when DO_Domaine = 1 then case\r\n\
+      \                                                     when F_DOCENTETE.DO_Type\
+      \ = 10 then case DO_Statut\r\n                                             \
+      \                                                when 0 then 'Saisi'\r\n   \
+      \                                                                          \
+      \                when 1 then 'Confermé'\r\n                                \
+      \                                                             when 2 then 'Accepté'\
+      \ end\r\n                                                     else case\r\n\
+      \                                                               when F_DOCENTETE.DO_Type\
+      \ = 11\r\n                                                                and\
+      \ DO_Statut = 2 then 'Accepté'\r\n                                         \
+      \                      when F_DOCENTETE.DO_Type = 12\r\n                   \
+      \                                             and DO_Statut = 2 then 'Envoyé'\r\
+      \n                                                               when F_DOCENTETE.DO_Type\
+      \ = 13\r\n                                                                and\
+      \ DO_Statut = 2 then 'Réceptionné'\r\n                                     \
+      \                          when F_DOCENTETE.DO_Type = 14\r\n               \
+      \                                                 and DO_Statut = 2 then 'Facturé'\r\
+      \n                                                               when F_DOCENTETE.DO_Type\
+      \ = 15\r\n                                                                and\
+      \ DO_Statut = 2 then 'Facturé'\r\n                                         \
+      \                      when F_DOCENTETE.DO_Type = 16\r\n                   \
+      \                                             and DO_Statut = 2 then 'A comptabiliser'\r\
+      \n                                                               when F_DOCENTETE.DO_Type\
+      \ = 17\r\n                                                                and\
+      \ DO_Statut = 2 then 'Comptabilisé'\r\n                                    \
+      \                           when F_DOCENTETE.DO_Type = 18\r\n              \
+      \                                                  and DO_Statut = 2 then 'Archivé'\r\
+      \n                                                               when DO_Statut\
+      \ = 0 then 'Saisie'\r\n                                                    \
+      \           when DO_Statut = 1 then 'Confirmé'\r\n                         \
+      \                                      else 'Contactez votre revendeur.' end\
+      \ end\r\n                       else case\r\n                              \
+      \   when F_DOCENTETE.DO_Type = 0\r\n                                  and F_DOCENTETE.DO_Statut\
+      \ = 2 then 'Accepté'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 1\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'A préparer'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 2\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'A livrer'\r\n                                 when F_DOCENTETE.DO_Type =\
+      \ 3\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'A facturer'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 4\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'A facturer'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 5\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'A facturer'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 6\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'A comptabiliser'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 7\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'Comptabilisé'\r\n                                 when F_DOCENTETE.DO_Type\
+      \ = 8\r\n                                  and F_DOCENTETE.DO_Statut = 2 then\
+      \ 'Archivé'\r\n                                 when F_DOCENTETE.DO_Statut =\
+      \ 0 then 'Saisie'\r\n                                 when F_DOCENTETE.DO_Statut\
+      \ = 1 then 'Confirmé'\r\n                                 else 'ERREUR. Contactez\
+      \ votre revendeur.' end end as Statut,\r\n                  F_DOCENTETE.DO_Tiers\
+      \ as [Code client],\r\n                  F_COMPTET.CT_Intitule as [Intitulé\
+      \ client],\r\n                  F_DOCENTETE.CO_No [Code représentant],\r\n \
+      \                 CO_Nom+' '+CO_Prenom  [Nom représentant],\r\n            \
+      \      convert(datetime, F_DOCENTETE.DO_Date, 3) as [Date],\r\n            \
+      \      isnull(F_DOCENTETE.DO_Piece, '') as [N° pièce],\r\n                 \
+      \ case\r\n                       when F_DOCENTETE.DO_Ventile = 0 then 'Non'\r\
+      \n                       else 'Oui' end as [Document ventilé],\r\n         \
+      \         case\r\n                       when F_DOCENTETE.DO_Reliquat = 1 then\
+      \ 'Reliquat'\r\n                       when F_DOCENTETE.DO_Reliquat = 0\r\n\
+      \                        and F_DOCENTETE.DO_Imprim = 1 then 'Imprimé'\r\n  \
+      \                     when F_DOCENTETE.DO_Reliquat = 0\r\n                 \
+      \       and F_DOCENTETE.DO_Imprim = 0 then ' '\r\n                       else\
+      \ 'ERREUR. Contactez votre revendeur.' end as Etat,\r\n                  F_DOCENTETE.DO_Coord01\
+      \ as [Entête 1],\r\n                  F_DOCENTETE.DO_Coord02 as [Entête 2],\r\
+      \n                  F_DOCENTETE.DO_Coord03 as [Entête 3],\r\n              \
+      \    F_DOCENTETE.DO_Coord04 as [Entête 4],\r\n                  F_DOCENTETE.CT_NumPayeur\
+      \ as [N° Compte Payeur],\r\n                  F_COMPTET_1.CT_Intitule as [Intitulé\
+      \ tiers payeur],\r\n                  F_DEPOT.DE_Intitule as Dépôt,\r\n    \
+      \              isnull(P_DEVISE.D_Intitule, 'Aucune') as Devise,\r\n        \
+      \          P_EXPEDITION.E_Intitule as Expédition,\r\n                  case\
+      \ (F_DOCENTETE.DO_Langue)\r\n                       when 0 then 'Aucune'\r\n\
+      \                       when 1 then 'Langue 1'\r\n                       when\
+      \ 2 then 'Langue 2' end as Langue,\r\n                  case F_DOCENTETE.DO_BLFact\r\
+      \n                       when 1 then 'Oui'\r\n                       when 0\
+      \ then 'Non' end as [Fact/BL],\r\n                  F_DOCENTETE.DO_NbFacture\
+      \ as [Nb Facture],\r\n                  F_DOCENTETE.CG_Num as [Compte Général],\r\
+      \n                  F_DOCENTETE.CA_Num [Code d'affaire],\r\n               \
+      \   (   select top 1 CA_Intitule\r\n                        from F_COMPTEA\r\
+      \n                       where F_COMPTEA.CA_Num = F_DOCENTETE.CA_Num) as [Intitulé\
+      \ affaire],\r\n                  case F_DOCENTETE.N_CatCompta\r\n          \
+      \             when 1 then (select P_CATCOMPTA.CA_ComptaVen01 from P_CATCOMPTA)\r\
+      \n                       when 2 then (select P_CATCOMPTA.CA_ComptaVen02 from\
+      \ P_CATCOMPTA)\r\n                       when 3 then (select P_CATCOMPTA.CA_ComptaVen03\
+      \ from P_CATCOMPTA)\r\n                       when 4 then (select P_CATCOMPTA.CA_ComptaVen04\
+      \ from P_CATCOMPTA)\r\n                       when 5 then (select P_CATCOMPTA.CA_ComptaVen05\
+      \ from P_CATCOMPTA)\r\n                       when 6 then (select P_CATCOMPTA.CA_ComptaVen06\
+      \ from P_CATCOMPTA)\r\n                       when 7 then (select P_CATCOMPTA.CA_ComptaVen07\
+      \ from P_CATCOMPTA)\r\n                       when 8 then (select P_CATCOMPTA.CA_ComptaVen08\
+      \ from P_CATCOMPTA)\r\n                       when 9 then (select P_CATCOMPTA.CA_ComptaVen09\
+      \ from P_CATCOMPTA)\r\n                       when 10 then (select P_CATCOMPTA.CA_ComptaVen10\
+      \ from P_CATCOMPTA)\r\n                       else ' ' end as [Catégorie Comptable],\r\
+      \n                  F_DEPOT.DE_No as [Code dépôt],\r\n                  F_DOCENTETE.DO_Ref\
+      \ as Référence,\r\n                  F_DOCENTETE.DO_Cours as Cours,\r\n    \
+      \              F_DOCENTETE.DO_TxEscompte as [Taux escompte],\r\n           \
+      \       case\r\n                       when DO_Reliquat = 0 then 'Reliquet'\r\
+      \n                       else 'Non' end as [Document de reliquat],\r\n     \
+      \             case\r\n                       when DO_Imprim = 0 then 'Oui'\r\
+      \n                       else 'Non' end as [Document imprimé ],\r\n        \
+      \          F_DOCENTETE.DO_DateLivr as [Date livraison souhite],\r\n        \
+      \          F_DOCENTETE.DO_DebutAbo as [Date début de l’abonnement lié],\r\n\
+      \                  F_DOCENTETE.DO_FinAbo as [Date fin de l’abonnement lié],\r\
+      \n                  F_DOCENTETE.DO_DebutPeriod as [Date début de la périodicité\
+      \ liée],\r\n                  F_DOCENTETE.DO_FinPeriod as [Date Fin de la périodicité\
+      \ liée],\r\n                  F_DOCENTETE.DO_Cloture as [Document clôturé],\r\
+      \n                  case DO_TypeFrais\r\n                       when 0 then\
+      \ 'Montant Forfaitaire'\r\n                       when 1 then 'Quantité'\r\n\
+      \                       when 2 then 'Poids net'\r\n                       when\
+      \ 3 then 'Poids brut'\r\n                       else 'Erreur. Contactez votre\
+      \ revendeur.' end as [Type frais],\r\n                  F_DOCENTETE.DO_ValFrais\
+      \ as [Valeur frais],\r\n                  case\r\n                       when\
+      \ DO_TypeLigneFrais = 0 then 'HT'\r\n                       else 'TTC' end as\
+      \ [Type HT/TTC frais],\r\n                  case\r\n                       when\
+      \ DO_Valide = 0 then 'Oui'\r\n                       else 'Non' end as [Statut\
+      \ validé],\r\n                  P_DEVISE.D_Intitule as [Intitulé Devise],\r\n\
+      \                  P_CATTARIF.CT_Intitule as [Catégorie tarifaire ],\r\n   \
+      \               P_CONDLIVR.C_Intitule as [Condition de livraison],\r\n     \
+      \             case F_DOCENTETE.DO_Colisage\r\n                       when 0\
+      \ then P_UNITE.U_Intitule\r\n                       else cast(F_DOCENTETE.DO_Colisage\
+      \ as varchar) + ' ' + P_UNITE.U_Intitule end as Colisage,\r\n              \
+      \    F_DOCENTETE.DO_TotalHT as [Montant HT],\r\n                  F_DOCENTETE.DO_TotalTTC\
+      \ [Montant TTC],\r\n                  F_DOCENTETE.DO_NetAPayer [Montant net\
+      \ à payer],\r\n                  F_DOCENTETE.DO_MontantRegle [Montant réglé],\r\
+      \n                  F_LIVRAISON.LI_No as [Code lieu de livraison],\r\n     \
+      \             F_LIVRAISON.LI_Intitule [Lieu de livraison],\r\n\t\t\t\t\t F_DOCENTETE.cbCreation\
+      \ [Date création],\r\n\t\t\t\t\t F_DOCENTETE.cbModification [Date modification]\r\
+      \n\t\t\t\t\t,  CASE\r\n           WHEN F_DOCENTETE.DO_Type < 3 THEN\r\n    \
+      \           'Non'\r\n           ELSE\r\n               'Oui'\r\n       END AS\
+      \ [Valorise CA]\r\n\r\n \r\nfrom            F_DEPOT inner join\r\n         \
+      \                F_COMPTET inner join\r\n                         F_DOCENTETE\
+      \ on F_COMPTET.cbCT_Num = F_DOCENTETE.cbDO_Tiers on F_DEPOT.DE_No = F_DOCENTETE.DE_No\
+      \ inner join\r\n                         F_COMPTET as F_COMPTET_1 on F_DOCENTETE.CT_NumPayeur\
+      \ = F_COMPTET_1.CT_Num left outer join\r\n                         F_COLLABORATEUR\
+      \ as COLLABORATEUR_DOC on F_DOCENTETE.cbCO_No = COLLABORATEUR_DOC.CO_No left\
+      \ outer join\r\n                         F_LIVRAISON ON F_DOCENTETE.cbLI_No\
+      \ = F_LIVRAISON.LI_No LEFT OUTER JOIN\r\n                         P_CONDLIVR\
+      \ ON F_DOCENTETE.DO_DateLivr = P_CONDLIVR.cbIndice LEFT OUTER JOIN\r\n     \
+      \                    P_CATTARIF ON F_DOCENTETE.DO_Tarif = P_CATTARIF.cbIndice\
+      \ LEFT OUTER JOIN\r\n                         P_DEVISE ON F_DOCENTETE.DO_Devise\
+      \ = P_DEVISE.cbIndice LEFT OUTER JOIN\r\n                         P_EXPEDITION\
+      \ ON F_DOCENTETE.DO_Expedit = P_EXPEDITION.cbIndice LEFT OUTER JOIN\r\n    \
+      \                     P_UNITE ON F_DOCENTETE.DO_TypeColis = P_UNITE.cbIndice\r\
+      \n WHERE            (F_DOCENTETE.DO_Domaine IN ( 0 ));"
+  target:
+    table: Entête_des_ventes
+    primary_key:
+    - Type Document
+    - N° Pièce
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 7
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Règlements clients
+  source:
+    query: " SELECT \r\n\t   \r\n       ISNULL(F_CREGLEMENT.CT_NumPayeur, '') AS [Code\
+      \ client],\r\n       F_COMPTET_1.CT_Intitule AS Intitulé,\r\n       F_CREGLEMENT.CT_NumPayeurOrig\
+      \ AS [Code client original],\r\n       F_COMPTET.CT_Intitule AS [Intitulé original],\r\
+      \n       F_CREGLEMENT.RG_Date AS Date,\r\n       F_CREGLEMENT.RG_DateEchCont\
+      \ AS [Date d'échéance],\r\n       F_CREGLEMENT.RG_Reference AS Référence,\r\n\
+      \       F_CREGLEMENT.RG_Libelle AS Libellé,\r\n       CASE\r\n           WHEN\
+      \ F_CREGLEMENT.RG_Impute = 0 THEN\r\n               'Non'\r\n           ELSE\r\
+      \n               'Oui'\r\n       END AS Impute,\r\n       CASE\r\n         \
+      \  WHEN F_CREGLEMENT.RG_Compta = 0 THEN\r\n               'Non'\r\n        \
+      \   ELSE\r\n               'Oui'\r\n       END AS Comptabilisé,\r\n       F_CREGLEMENT.JO_Num\
+      \ AS [Code journal],\r\n       F_JOURNAUX.JO_Intitule AS Journal,\r\n      \
+      \ F_CREGLEMENT.CG_Num AS [Compte générale],\r\n       F_CREGLEMENT.RG_Piece\
+      \ AS [N° piéce],\r\n       CASE\r\n           WHEN F_CREGLEMENT.RG_Valide =\
+      \ 0 THEN\r\n               'Non'\r\n           ELSE\r\n               'Oui'\r\
+      \n       END AS Valide,\r\n       P_REGLEMENT.R_Intitule AS [Mode de règlement],\r\
+      \n       CASE\r\n           WHEN ISNULL(P_DEVISE.D_Intitule, '') = '' THEN\r\
+      \n               'Acune'\r\n           ELSE\r\n               D_Intitule\r\n\
+      \       END AS Devise,\r\n       F_CREGLEMENT.RG_MontantDev AS [Montant en devise],\r\
+      \n       F_CREGLEMENT.RG_Cours AS Cours,\r\n       F_CREGLEMENT.RG_Montant AS\
+      \ Montant,\r\n       ISNULL(RG_No, '') [N° interne],\r\n\t  F_CREGLEMENT.RG_Montant-isnull(\
+      \ (select sum(RC_Montant) from F_REGLECH where F_REGLECH.rg_no=F_CREGLEMENT.RG_No),0)solde,\r\
+      \n\t  CASE WHEN  LEFT(F_JOURNAUX.cg_num,4)='5111' THEN 'Oui' ELSE 'Non' END\
+      \ [Portfeuille],r_code [Code règlement],\r\n\t\t F_CREGLEMENT.cbCreation [Date\
+      \ création],\r\n\t\t F_CREGLEMENT.cbModification [Date modification]\r\n \r\n\
+      FROM F_CREGLEMENT\r\n    INNER JOIN F_COMPTET AS F_COMPTET_1\r\n        ON F_CREGLEMENT.CT_NumPayeur\
+      \ = F_COMPTET_1.CT_Num\r\n    INNER JOIN F_COMPTET\r\n        ON F_CREGLEMENT.CT_NumPayeurOrig\
+      \ = F_COMPTET.CT_Num\r\n    INNER JOIN F_JOURNAUX\r\n        ON F_CREGLEMENT.JO_Num\
+      \ = F_JOURNAUX.JO_Num\r\n    LEFT OUTER JOIN P_REGLEMENT\r\n        ON F_CREGLEMENT.N_Reglement\
+      \ = P_REGLEMENT.cbIndice\r\n    LEFT OUTER JOIN P_DEVISE\r\n        ON F_CREGLEMENT.N_Devise\
+      \ = P_DEVISE.cbIndice\r\nWHERE (F_CREGLEMENT.RG_Type = 0);"
+  target:
+    table: Règlements_Clients
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 8
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Imputation les factures des ventes
+  source:
+    query: "SELECT   \r\n  F_CREGLEMENT.RG_Reference AS Référence,\r\n       F_CREGLEMENT.RG_Libelle\
+      \ AS Libellé,\r\n       F_REGLECH.RG_No [id Règlement],\r\n       F_CREGLEMENT.RG_Date\
+      \ AS [Date règlement],\r\n       F_CREGLEMENT.RG_DateEchCont AS [Date d'échéance],\r\
+      \n       F_REGLECH.DR_No AS [Id échéance],\r\n          CASE WHEN F_DOCENTETE.do_domaine\
+      \ = 1 THEN CASE F_DOCENTETE.DO_TYPE WHEN 10 THEN 'Demande d''achat' WHEN 11\
+      \ THEN 'Bon de commande' WHEN 12 THEN 'Préparation de livraison' WHEN 13 THEN\
+      \ 'Bon de livraison' WHEN 14 THEN 'Bon de retour'\r\n                   WHEN\
+      \ 15 THEN 'Bon avoir financier' WHEN 16 THEN CASE DO_PROVENANCE WHEN 0 THEN\
+      \ 'Facture' WHEN 1 THEN 'Facture de retour' WHEN 2 THEN 'Facture avoir' WHEN\
+      \ 3 THEN 'Facture caisse décentralisée' END WHEN 17 THEN CASE\r\n          \
+      \         DO_PROVENANCE WHEN 0 THEN 'Facture comptabilisée' WHEN 1 THEN 'Facture\
+      \ de retour comptabilisée' WHEN 2 THEN 'Facture avoir comptabilisée' WHEN 3\
+      \ THEN 'Facture caisse décentralisée comptabilisée' END WHEN 18 THEN 'Archive'\r\
+      \n                   ELSE 'ERREUR sur F_DOCENTETE.DO_Type - Contactez votre\
+      \ revendeur.' END ELSE CASE F_DOCENTETE.DO_TYPE WHEN 0 THEN 'Devis' WHEN 1 THEN\
+      \ 'Bon de commande' WHEN 2 THEN 'Préparation de livraison' WHEN 3 THEN 'Bon\
+      \ de livraison'\r\n                   WHEN 4 THEN 'Bon de retour' WHEN 5 THEN\
+      \ 'Bon avoir financier' \r\n\t\t\t\t   \r\n\t\t\t\t   WHEN 6 THEN CASE DO_PROVENANCE\
+      \ WHEN 0 THEN 'Facture' WHEN 1 THEN 'Facture de retour' WHEN 2 THEN 'Facture\
+      \ avoir' WHEN 3 THEN 'Facture caisse décentralisée' when 4 then 'Facture d''accompte'\r\
+      \n                   END \r\n\t\t\t\t   \r\n\t\t\t\t   WHEN 7 THEN CASE DO_PROVENANCE\
+      \ WHEN 0 THEN 'Facture comptabilisée' WHEN 1 THEN 'Facture de retour comptabilisée'\
+      \ WHEN 2 THEN 'Facture avoir comptabilisée' WHEN 3 THEN 'Facture caisse décentralisée\
+      \ comptabilisée'\r\n\t\t\t\t   when 4 then 'Facture d''accompte comptabilisée'\
+      \ END\r\n                   WHEN 8 THEN 'Archive' ELSE 'ERREUR sur F_DOCENTETE.DO_Type\
+      \ - Contactez votre revendeur.' END END  AS [Type Document],\r\n       F_REGLECH.DO_Piece\
+      \ AS [N° pièce],\r\n       (\r\n           SELECT SUM(DL_MontantTTC) AS Expr1\r\
+      \n           FROM F_DOCLIGNE AS ligne\r\n           WHERE (DO_Type = F_REGLECH.DO_Type)\r\
+      \n                 AND (DO_Piece = F_REGLECH.DO_Piece)\r\n       ) AS [Montant\
+      \ facture TTC],\r\n       F_REGLECH.RC_Montant AS [Montant régler],\r\n    \
+      \   F_DOCENTETE.DO_Date AS [Date document],\r\n       P_REGLEMENT.R_Intitule\
+      \ AS [Mode de réglement],\r\n       F_DOCENTETE.DO_Tiers AS [Code client],\r\
+      \n       F_COMPTET_1.CT_Intitule AS [Intitulé client],\r\n       F_COMPTET.CT_Num\
+      \ [Code tier payeur],\r\n       F_COMPTET.CT_Intitule [Intitulé tier payeur],\r\
+      \n       RG_Montant [Montant réglement],\r\n\t\t F_REGLECH.cbCreation [Date\
+      \ création],\r\n\t\t F_REGLECH.cbModification [Date modification]\r\n\r\n \r\
+      \nFROM F_REGLECH\r\n    INNER JOIN F_DOCENTETE\r\n        ON F_REGLECH.DO_Type\
+      \ = F_DOCENTETE.DO_Type\r\n           AND F_REGLECH.DO_Piece = F_DOCENTETE.DO_Piece\r\
+      \n    INNER JOIN F_COMPTET AS F_COMPTET_1\r\n        ON F_DOCENTETE.DO_Tiers\
+      \ = F_COMPTET_1.CT_Num\r\n    INNER JOIN F_COMPTET\r\n        ON F_DOCENTETE.CT_NumPayeur\
+      \ = F_COMPTET.CT_Num\r\n    INNER JOIN F_CREGLEMENT\r\n        ON F_REGLECH.RG_No\
+      \ = F_CREGLEMENT.RG_No\r\n    INNER JOIN P_REGLEMENT\r\n        ON F_CREGLEMENT.N_Reglement\
+      \ = P_REGLEMENT.cbIndice\r\nWHERE (F_DOCENTETE.DO_Domaine = 0)   "
+  target:
+    table: Imputation_Factures_Ventes
+    primary_key:
+    - '[Id échéance]'
+    - '[id Règlement]'
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 9
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Lignes des ventes
+  source:
+    query: "SELECT   \r\n       DL_No [N° interne],\r\n   ISNULL(   \r\n         \
+      \                CASE F_DOCENTETE.DO_Type\r\n                             WHEN\
+      \ 0 THEN\r\n                                 'Devis'\r\n                   \
+      \          WHEN 1 THEN\r\n                                 'Bon de commande'\r\
+      \n                             WHEN 2 THEN\r\n                             \
+      \    'Préparation de livraison'\r\n                             WHEN 3 THEN\r\
+      \n                                 'Bon de livraison'\r\n                  \
+      \           WHEN 4 THEN\r\n                                 'Bon de retour'\r\
+      \n                             WHEN 5 THEN\r\n                             \
+      \    'Bon avoir financier'\r\n                             WHEN 6 THEN\r\n \
+      \                                CASE DO_Provenance\r\n                    \
+      \                 WHEN 0 THEN\r\n                                         'Facture'\r\
+      \n                                     WHEN 1 THEN\r\n                     \
+      \                    'Facture de retour'\r\n                               \
+      \      WHEN 2 THEN\r\n                                         'Facture avoir'\r\
+      \n                                     WHEN 3 THEN\r\n                     \
+      \                    'Facture caisse décentralisée'\r\n\t\t\t\t\t\t\t\t\t when\
+      \ 4 then \r\n\t\t\t\t\t\t\t\t\t\t\t'Facture d''accompte'\r\n               \
+      \                  END\r\n                             WHEN 7 THEN\r\n     \
+      \                            CASE DO_Provenance\r\n                        \
+      \             WHEN 0 THEN\r\n                                         'Facture\
+      \ comptabilisée'\r\n                                     WHEN 1 THEN\r\n   \
+      \                                      'Facture de retour comptabilisée'\r\n\
+      \                                     WHEN 2 THEN\r\n                      \
+      \                   'Facture avoir comptabilisée'\r\n                      \
+      \               WHEN 3 THEN\r\n                                         'Facture\
+      \ caisse décentralisée comptabilisée'\r\n\t\t\t\t\t\t\t\t\t\t WHEN 4 THEN 'Facture\
+      \ d''accompte comptabilisée'\r\n                                 END\r\n   \
+      \                          WHEN 8 THEN\r\n                                 'Archive'\r\
+      \n                             ELSE\r\n                                 'ERREUR\
+      \ sur F_DOCENTETE.DO_Type - Contactez votre revendeur.'\r\n                \
+      \         END\r\n                 ,\r\n                 ''\r\n             )\
+      \  AS [Type Document],\r\n       CASE\r\n           WHEN F_DOCLIGNE.DO_Type\
+      \ < 3 THEN\r\n               'Non'\r\n           ELSE\r\n               'Oui'\r\
+      \n       END AS [Valorise CA],\r\n       F_DOCENTETE.DO_Tiers AS [Code client],\r\
+      \n       F_COMPTET.CT_Intitule AS [Intitulé client],\r\n       ISNULL(F_DOCLIGNE.DO_Piece,\
+      \ '') AS [N° Pièce],\r\n\t     F_DOCLIGNE.DO_Ref AS Référence,\r\n\t\t( SELECT\
+      \  top 1 CA_Intitule FROM F_COMPTEA WHERE  F_COMPTEA.CA_Num=f_docligne.ca_num)\
+      \ AS [Intitulé affaire],\r\n      \t   f_docligne.CA_Num AS [Code d'affaire],\r\
+      \n\r\n       CONVERT(DATETIME, F_DOCENTETE.DO_Date, 3) AS [Date],\r\n\t    CONVERT(DATETIME,\
+      \ F_DOCENTETE.DO_Date, 3) AS [Date document],\r\n       CASE\r\n           WHEN\
+      \ F_DOCLIGNE.DO_Type = 3 THEN\r\n               F_DOCLIGNE.DO_Piece\r\n    \
+      \       WHEN F_DOCLIGNE.DO_Type > 3 THEN\r\n               F_DOCLIGNE.DL_PieceBL\r\
+      \n       END AS [N° Pièce BL],\r\n       CASE\r\n           WHEN F_DOCLIGNE.DO_Type\
+      \ = 3 THEN\r\n               F_DOCLIGNE.DO_Date\r\n           WHEN F_DOCLIGNE.DO_Type\
+      \ > 3 THEN\r\n               CASE\r\n                   WHEN F_DOCLIGNE.DL_DateBL\
+      \ < 0 THEN\r\n                       '01/01/1900'\r\n                   ELSE\r\
+      \n                       F_DOCLIGNE.DL_DateBL\r\n               END\r\n    \
+      \   END AS [Date BL],\r\n\r\n       CASE F_DOCLIGNE.DO_Type\r\n           WHEN\
+      \ 1 THEN\r\n               F_DOCLIGNE.DO_Piece\r\n           ELSE\r\n      \
+      \         F_DOCLIGNE.DL_PieceBC\r\n       END AS [N° Pièce BC],\r\n\r\n\r\n\
+      \       CASE F_DOCLIGNE.DO_Type\r\n           WHEN 1 THEN\r\n              \
+      \ F_DOCLIGNE.DO_Date\r\n           ELSE\r\n                F_DOCLIGNE.DL_DateBC\r\
+      \n       END AS [Date BC],\r\n\r\n\t          CASE F_DOCLIGNE.DO_Type\r\n  \
+      \         WHEN 2 THEN\r\n               F_DOCLIGNE.DO_Piece\r\n           ELSE\r\
+      \n               F_DOCLIGNE.DL_PieceBC\r\n       END AS [N° pièce PL],\r\n\r\
+      \n\t  CASE F_DOCLIGNE.DO_Type\r\n           WHEN 2 THEN\r\n               F_DOCLIGNE.DO_Date\r\
+      \n           ELSE\r\n                F_DOCLIGNE.DL_DatePL \r\n       END AS\
+      \  [Date PL],\r\n\r\n       CASE\r\n           WHEN F_DOCLIGNE.DO_DateLivr <\
+      \ 0 THEN\r\n               NULL\r\n           ELSE\r\n               F_DOCLIGNE.DO_DateLivr\r\
+      \n       END AS [Date Livraison],\r\n\r\n       F_DOCLIGNE.AR_Ref AS [Code article],\r\
+      \n       F_DOCLIGNE.DL_Design AS [Désignation ligne],\r\n       F_CATALOGUE_1.CL_Intitule\
+      \ AS [Catalogue 1],\r\n       F_CATALOGUE.CL_Intitule AS [Catalogue 2],\r\n\
+      \       F_CATALOGUE_2.CL_Intitule AS [Catalogue 3],\r\n       F_CATALOGUE_3.CL_Intitule\
+      \ AS [Catalogue 4],\r\n       P_GAMME.G_Intitule AS [Gamme 1],\r\n       P_GAMME_1.G_Intitule\
+      \ AS [Gamme 2],\r\n\t  \r\n      \r\n       CASE F_DOCENTETE.DO_Colisage\r\n\
+      \           WHEN 0 THEN\r\n               P_UNITE.U_Intitule\r\n           ELSE\r\
+      \n               CAST(F_DOCENTETE.DO_Colisage AS VARCHAR) + ' ' + P_UNITE.U_Intitule\r\
+      \n       END AS Colisage,\r\n       CAST(F_DOCLIGNE.DL_PoidsBrut /\r\n     \
+      \       (\r\n                SELECT CASE PR_UnitePoids\r\n                 \
+      \          WHEN 0 THEN\r\n                               1000000.000\r\n   \
+      \                        WHEN 1 THEN\r\n                               100000.000\r\
+      \n                           WHEN 2 THEN\r\n                               1000.000\r\
+      \n                           WHEN 3 THEN\r\n                               1.000\r\
+      \n                           WHEN 4 THEN\r\n                               0.001\r\
+      \n                       END AS Expr1\r\n                FROM P_PREFERENCES\r\
+      \n            ) AS FLOAT) AS [Poids brut],\r\n       CAST(F_DOCLIGNE.DL_PoidsNet\
+      \ /\r\n            (\r\n                SELECT CASE PR_UnitePoids\r\n      \
+      \                     WHEN 0 THEN\r\n                               1000000.000\r\
+      \n                           WHEN 1 THEN\r\n                               100000.000\r\
+      \n                           WHEN 2 THEN\r\n                               1000.000\r\
+      \n                           WHEN 3 THEN\r\n                               1.000\r\
+      \n                           WHEN 4 THEN\r\n                               0.001\r\
+      \n                       END AS Expr1\r\n                FROM P_PREFERENCES\
+      \ AS P_PREFERENCES_1\r\n            ) AS FLOAT) AS [Poids net],\r\n       CASE\
+      \ FART.AR_SuiviStock\r\n           WHEN 1 THEN\r\n               CASE F_DOCLIGNE.DL_MvtStock\r\
+      \n                   WHEN 0 THEN\r\n                   (\r\n               \
+      \        SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No = DL_NoOut\r\n\
+      \                   )\r\n                   WHEN 1 THEN\r\n                \
+      \   (\r\n                       SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE\
+      \ DL_No = DL_NoIn\r\n                   )\r\n                   WHEN 3 THEN\r\
+      \n                   (\r\n                       SELECT TOP 1 LS_NoSerie FROM\
+      \ F_LOTSERIE WHERE DL_No = DL_NoOut\r\n                   )\r\n            \
+      \   END\r\n           WHEN 5 THEN\r\n               CASE F_DOCLIGNE.DL_MvtStock\r\
+      \n                   WHEN 0 THEN\r\n                   (\r\n               \
+      \        SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No = DL_NoOut\r\n\
+      \                   )\r\n                   WHEN 1 THEN\r\n                \
+      \   (\r\n                       SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE\
+      \ DL_No = DL_NoIn\r\n                   )\r\n                   WHEN 3 THEN\r\
+      \n                   (\r\n                       SELECT TOP 1 LS_NoSerie FROM\
+      \ F_LOTSERIE WHERE DL_No = DL_NoOut\r\n                   )\r\n            \
+      \   END\r\n       END AS [N° Série/Lot],\r\n       CASE DL_Taxe1\r\n       \
+      \    WHEN 0 THEN\r\n               STR(DL_Taxe1) + '%'\r\n           ELSE\r\n\
+      \               CASE DL_TypeTaux1\r\n                   WHEN 0 THEN\r\n    \
+      \                   STR(DL_Taxe1, 6, 2) + '%'\r\n                   WHEN 1 THEN\r\
+      \n                       STR(DL_Taxe1, 6, 2) + 'F'\r\n                   WHEN\
+      \ 2 THEN\r\n                       STR(DL_Taxe1, 6, 2) + 'U'\r\n           \
+      \        ELSE\r\n                       'ERREUR. Contacter votre revendeur.'\r\
+      \n               END\r\n       END AS Taxe1,\r\n       CASE DL_Taxe2\r\n   \
+      \        WHEN 0 THEN\r\n               STR(DL_Taxe2) + '%'\r\n           ELSE\r\
+      \n               CASE DL_TypeTaux2\r\n                   WHEN 0 THEN\r\n   \
+      \                    STR(DL_Taxe2, 6, 2) + '%'\r\n                   WHEN 1\
+      \ THEN\r\n                       STR(DL_Taxe2, 6, 2) + 'F'\r\n             \
+      \      WHEN 2 THEN\r\n                       STR(DL_Taxe2, 6, 2) + 'U'\r\n \
+      \                  ELSE\r\n                       'ERREUR. Contacter votre revendeur.'\r\
+      \n               END\r\n       END AS Taxe2,\r\n       CASE DL_Taxe3\r\n   \
+      \        WHEN 0 THEN\r\n               STR(DL_Taxe3) + '%'\r\n           ELSE\r\
+      \n               CASE DL_TypeTaux3\r\n                   WHEN 0 THEN\r\n   \
+      \                    STR(DL_Taxe3, 6, 2) + '%'\r\n                   WHEN 1\
+      \ THEN\r\n                       STR(DL_Taxe3, 6, 2) + 'F'\r\n             \
+      \      WHEN 2 THEN\r\n                       STR(DL_Taxe3, 6, 2) + 'U'\r\n \
+      \                  ELSE\r\n                       'ERREUR. Contacter votre revendeur.'\r\
+      \n               END\r\n       END AS Taxe3,\r\n       CASE DL_TypeTaux1\r\n\
+      \           WHEN 0 THEN\r\n               'Taux %'\r\n           WHEN 1 THEN\r\
+      \n               'Montant forfait'\r\n           WHEN 2 THEN\r\n           \
+      \    'Quantité'\r\n           ELSE\r\n               'ERREUR. Contacter votre\
+      \ revendeur.'\r\n       END AS [Type taux taxe 1],\r\n       CASE DL_TypeTaux2\r\
+      \n           WHEN 0 THEN\r\n               'Taux %'\r\n           WHEN 1 THEN\r\
+      \n               'Montant forfait'\r\n           WHEN 2 THEN\r\n           \
+      \    'Quantité'\r\n           ELSE\r\n               'ERREUR. Contacter votre\
+      \ revendeur.'\r\n       END AS [Type taux taxe 2],\r\n       CASE DL_TypeTaux3\r\
+      \n           WHEN 0 THEN\r\n               'Taux %'\r\n           WHEN 1 THEN\r\
+      \n               'Montant forfait'\r\n           WHEN 2 THEN\r\n           \
+      \    'Quantité'\r\n           ELSE\r\n               'ERREUR. Contacter votre\
+      \ revendeur.'\r\n       END AS [Type taux taxe 3],\r\n       CASE DL_TypeTaxe1\r\
+      \n           WHEN 0 THEN\r\n               'TVA/débit'\r\n           WHEN 1\
+      \ THEN\r\n               'TVA/Encaissement'\r\n           WHEN 2 THEN\r\n  \
+      \             'TP/HT'\r\n           WHEN 3 THEN\r\n               'TP/TTC'\r\
+      \n           WHEN 4 THEN\r\n               'TP/Poids'\r\n           ELSE\r\n\
+      \               'ERREUR. Contacter votre revendeur.'\r\n       END AS [Type\
+      \ taxe 1],\r\n       CASE DL_TypeTaxe2\r\n           WHEN 0 THEN\r\n       \
+      \        'TVA/débit'\r\n           WHEN 1 THEN\r\n               'TVA/Encaissement'\r\
+      \n           WHEN 2 THEN\r\n               'TP/HT'\r\n           WHEN 3 THEN\r\
+      \n               'TP/TTC'\r\n           WHEN 4 THEN\r\n               'TP/Poids'\r\
+      \n           ELSE\r\n               'ERREUR. Contacter votre revendeur.'\r\n\
+      \       END AS [Type taxe 2],\r\n       CASE DL_TypeTaxe3\r\n           WHEN\
+      \ 0 THEN\r\n               'TVA/débit'\r\n           WHEN 1 THEN\r\n       \
+      \        'TVA/Encaissement'\r\n           WHEN 2 THEN\r\n               'TP/HT'\r\
+      \n           WHEN 3 THEN\r\n               'TP/TTC'\r\n           WHEN 4 THEN\r\
+      \n               'TP/Poids'\r\n           ELSE\r\n               'ERREUR. Contacter\
+      \ votre revendeur.'\r\n       END AS [Type taxe 3],\r\n\r\n       -- CAST(CAST(ROUND(F_DOCLIGNE.DL_Remise01REM_Valeur,\
+      \ 2) AS DECIMAL(18, 2)) AS varchar(100)) + '%'\r\n       FORMAT(F_DOCLIGNE.DL_Remise01REM_Valeur,\
+      \ 'P2') AS [Remise 1],\r\n\r\n\r\n       FORMAT(F_DOCLIGNE.DL_Remise02REM_Valeur,\
+      \ 'P2') AS [Remise 2],\r\n       CAST(F_DOCLIGNE.DL_Frais AS FLOAT) AS [Frais\
+      \ d'approche],\r\n       F_DOCLIGNE.DL_PUDevise AS [PU Devise],\r\n    CASE\
+      \  [DL_Remise01REM_Type] WHEN 0 THEN 'Montant' WHEN 1 THEN 'Pourcentage' WHEN\
+      \ 2 THEN 'Quantité' ELSE  'ERREUR. Contacter votre revendeur.' END AS [Type\
+      \ de la remise 1],\r\n    CASE  [DL_Remise02REM_Type] WHEN 0 THEN 'Montant'\
+      \ WHEN 1 THEN 'Pourcentage' WHEN 2 THEN 'Quantité' ELSE  'ERREUR. Contacter\
+      \ votre revendeur.' END AS [Type de la remise 2],\r\n\t AC_RefClient [Référence\
+      \ article client],\r\n\t DL_FactPoids [Article facturé au poids],\r\n      \
+      \ CASE DL_TNomencl\r\n           WHEN 0 THEN\r\n               'Oui'\r\n   \
+      \        WHEN 1 THEN\r\n               'Non'\r\n           ELSE\r\n        \
+      \       ' ERREUR - Contactez votre revendeur.'\r\n       END AS Nomenclature,\r\
+      \n       CASE DL_TRemPied\r\n           WHEN 0 THEN\r\n               'Oui'\r\
+      \n           WHEN 1 THEN\r\n               'Non'\r\n           ELSE\r\n    \
+      \           ' ERREUR - Contactez votre revendeur.'\r\n       END AS [Type remise\
+      \ de pied],\r\n       CASE DL_TRemExep\r\n           WHEN 0 THEN\r\n       \
+      \        'Oui'\r\n           WHEN 1 THEN\r\n               'Non'\r\n       \
+      \    ELSE\r\n               ' ERREUR - Contactez votre revendeur.'\r\n     \
+      \  END AS [Type remise exceptionnelle],\r\n\r\n\t    \r\n       F_DOCLIGNE.DL_CMUP\
+      \ AS CMUP,\r\n       F_DOCLIGNE.DL_PrixUnitaire AS [Prix unitaire],\r\n    \
+      \   F_DOCLIGNE.DL_PUTTC AS [Prix unitaire TTC],\r\n\t   DL_PUBC [Prix unitaire\
+      \ BC],\r\n\t   EU_Enumere  Conditionnement,\r\n       CASE\r\n           WHEN\
+      \ F_DOCLIGNE.DO_Type <> 5\r\n                AND F_DOCLIGNE.DO_Type <> 15\r\n\
+      \                AND DL_TRemPied = 0\r\n                AND DL_TRemExep = 0\r\
+      \n                AND DL_TypePL < 2\r\n                AND AR_FactForfait =\
+      \ 0 THEN\r\n               CASE\r\n                   WHEN (F_DOCLIGNE.DO_Domaine\
+      \ = 4) THEN\r\n                       0\r\n                   ELSE\r\n     \
+      \                  CASE\r\n                           WHEN\r\n             \
+      \              (\r\n                               F_DOCLIGNE.DO_Type = 4\r\n\
+      \                               OR F_DOCLIGNE.DO_Type = 14\r\n             \
+      \              ) THEN\r\n                               -DL_Qte\r\n        \
+      \                   ELSE\r\n                               DL_Qte\r\n      \
+      \                 END\r\n               END\r\n           ELSE\r\n         \
+      \      0\r\n       END AS [Quantité],\r\n\t   F_DOCLIGNE.DL_QtePL AS [Quantité\
+      \ PL],\r\n\t DL_QteBC [Quantité BC],DL_QteBL [Quantité BL], DL_QteDE [Quantité\
+      \ devis],\r\n\r\n\t  \r\n       CASE\r\n           WHEN\r\n           (\r\n\
+      \               (\r\n                   F_DOCLIGNE.DO_Type >= 4\r\n        \
+      \           AND F_DOCLIGNE.DO_Type <= 5\r\n               )\r\n            \
+      \   OR\r\n               (\r\n                   F_DOCLIGNE.DO_Type >= 14\r\n\
+      \                   AND F_DOCLIGNE.DO_Type <= 15\r\n               )\r\n   \
+      \        ) THEN\r\n               -DL_MontantHT\r\n           ELSE\r\n     \
+      \          DL_MontantHT\r\n       END AS [Montant HT Net],\r\n       CASE\r\n\
+      \           WHEN\r\n           (\r\n               (\r\n                   F_DOCLIGNE.DO_Type\
+      \ >= 4\r\n                   AND F_DOCLIGNE.DO_Type <= 5\r\n               )\r\
+      \n               OR\r\n               (\r\n                   F_DOCLIGNE.DO_Type\
+      \ >= 14\r\n                   AND F_DOCLIGNE.DO_Type <= 15\r\n             \
+      \  )\r\n           ) THEN\r\n               -DL_MontantTTC\r\n           ELSE\r\
+      \n               DL_MontantTTC\r\n       END AS [Montant TTC Net],DL_PrixRU\
+      \ [Prix de revient],F_DOCLIGNE.DE_No  [Code dépôt] ,De_intitule [Intitulé dépôt],\r\
+      \n\t\t F_DOCLIGNE.cbCreation [Date création],\r\n\t\t F_DOCLIGNE.cbModification\
+      \ [Date modification]\r\n\t\t ,cast(0 as float)[DPA-Période]\r\n\t\t ,cast(0\
+      \ as float) [DPA-Vente]\r\n\t\t ,cast(0 as float)[Coût standard]\r\n \r\n\r\n\
+      FROM            F_DOCLIGNE INNER JOIN\r\n                         F_ARTICLE\
+      \ AS FART ON F_DOCLIGNE.cbAR_Ref = FART.cbAR_Ref INNER JOIN\r\n            \
+      \             F_DOCENTETE ON F_DOCLIGNE.DO_Type = F_DOCENTETE.DO_Type AND F_DOCLIGNE.DO_Piece\
+      \ = F_DOCENTETE.DO_Piece INNER JOIN\r\n                         F_COMPTET ON\
+      \ F_DOCENTETE.cbDO_Tiers = F_COMPTET.cbCT_Num INNER JOIN\r\n               \
+      \          F_FAMILLE ON FART.FA_CodeFamille = F_FAMILLE.FA_CodeFamille LEFT\
+      \ OUTER JOIN\r\n                         F_COMPTET AS F_COMPTET_1 ON F_COMPTET.CT_NumPayeur\
+      \ = F_COMPTET_1.CT_Num LEFT OUTER JOIN\r\n                         P_GAMME AS\
+      \ P_GAMME_1 ON F_DOCLIGNE.AG_No2 = P_GAMME_1.cbIndice LEFT OUTER JOIN\r\n  \
+      \                       P_GAMME ON F_DOCLIGNE.AG_No1 = P_GAMME.cbIndice LEFT\
+      \ OUTER JOIN\r\n                     \r\n                         F_DEPOT ON\
+      \ F_DOCLIGNE.DE_No = F_DEPOT.DE_No LEFT OUTER JOIN\r\n                     \
+      \    F_CATALOGUE AS F_CATALOGUE_3 ON FART.CL_No4 = F_CATALOGUE_3.CL_No LEFT\
+      \ OUTER JOIN\r\n                         F_CATALOGUE ON FART.CL_No2 = F_CATALOGUE.CL_No\
+      \ LEFT OUTER JOIN\r\n                         F_CATALOGUE AS F_CATALOGUE_2 ON\
+      \ FART.CL_No3 = F_CATALOGUE_2.CL_No LEFT OUTER JOIN\r\n                    \
+      \     F_CATALOGUE AS F_CATALOGUE_1 ON FART.CL_No1 = F_CATALOGUE_1.CL_No LEFT\
+      \ OUTER JOIN\r\n                         P_DEVISE ON F_DOCENTETE.DO_Devise =\
+      \ P_DEVISE.cbIndice LEFT OUTER JOIN\r\n                         P_UNITE ON F_DOCENTETE.DO_TypeColis\
+      \ = P_UNITE.cbIndice\r\nWHERE (F_DOCLIGNE.DO_Domaine = 0)\r\n      AND (F_DOCLIGNE.DL_TRemExep\
+      \ < 2)\r\n      AND (F_DOCLIGNE.DL_NonLivre = 0)\r\n \r\n"
+  target:
+    table: Lignes_des_ventes
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 10
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Echéances ventes
+  source:
+    query: "with Cte_Lignes\r\nas (select l.DO_Piece                             \
+      \                                                                       as [N°\
+      \ document]\r\n         , l.DO_Date                                        \
+      \                                                             as [Date]\r\n\
+      \         , e.DO_Ref                                                       \
+      \                                               as Référence\r\n         , l.DL_MontantHT\
+      \                                                                          \
+      \                      as [Montant HT]\r\n         , l.DL_MontantTTC       \
+      \                                                                          \
+      \              as [Montant TTC]\r\n         , e.DO_Cours                   \
+      \                                                                          \
+      \       as Cours\r\n         , l.DL_Qte * l.DL_PUDevise                    \
+      \                                                                  as [Montant\
+      \ en devise]\r\n         , l.DL_Taxe1                                      \
+      \                                                              as [Taxe 1]\r\
+      \n         , e.DO_TxEscompte                                               \
+      \                                                as Escompte\r\n         , e.DO_ValFrais\
+      \                                                                          \
+      \                       as [Frais port]\r\n         , e.CT_NumPayeur       \
+      \                                                                          \
+      \               as [Code tiers payeur]\r\n         , l.CT_Num              \
+      \                                                                          \
+      \              as [Code client]\r\n         , e.CA_Num                     \
+      \                                                                          \
+      \       as [Code affaire]\r\n         , e.DO_Souche                        \
+      \                                                                          \
+      \ as Souche\r\n         , e.N_CatCompta                                    \
+      \                                                             as [Catégorie\
+      \ comptable]\r\n         , e.DO_PieceOrig                                  \
+      \                                                              as [Pièce orgine]\r\
+      \n         , coalesce(   case\r\n                           when e.DO_Type =\
+      \ 0 then\r\n                               'Devis'\r\n                     \
+      \      when e.DO_Type = 1 then\r\n                               'Bon de commande'\r\
+      \n                           when e.DO_Type = 2 then\r\n                   \
+      \            'Préparation de livraison'\r\n                           when e.DO_Type\
+      \ = 3 then\r\n                               'Bon de livraison'\r\n        \
+      \                   when e.DO_Type = 4 then\r\n                            \
+      \   'Bon de retour'\r\n                           when e.DO_Type = 5 then\r\n\
+      \                               'Bon avoir financier'\r\n                  \
+      \         when e.DO_Type in ( 6, 7 ) then\r\n                              \
+      \ case DO_Provenance\r\n                                   when 0 then\r\n \
+      \                                      'Facture'\r\n                       \
+      \            when 1 then\r\n                                       'Facture\
+      \ de retour'\r\n                                   when 2 then\r\n         \
+      \                              'Facture avoir'\r\n                         \
+      \          when 3 then\r\n                                       'Facture caisse\
+      \ décentralisée'\r\n                                   when 4 then\r\n     \
+      \                                  'Facture d''accompte'\r\n               \
+      \                end\r\n                           when e.DO_Type = 8 then\r\
+      \n                               'Archive'\r\n                           else\r\
+      \n                               'ERREUR - Contactez votre revendeur.'\r\n \
+      \                      end\r\n                     , 'ERREUR - Contactez votre\
+      \ revendeur.'\r\n                   )                                      \
+      \                                                               as [Type Document]\r\
+      \n         -- New calculated columns:\r\n         , (DL_MontantHT / sum(DL_MontantHT)\
+      \ over (partition by l.DO_Piece, l.DO_Type, e.DO_Provenance))              \
+      \   as [Poids Frais Port]\r\n         , (DO_ValFrais * (DL_MontantHT / sum(DL_MontantHT)\
+      \ over (partition by l.DO_Piece, l.DO_Type, e.DO_Provenance))) as [Valeur frais\
+      \ port]\r\n         , ((DL_MontantHT * (1 - DO_TxEscompte / 100))\r\n      \
+      \      + (DO_ValFrais\r\n               * (DL_MontantHT / sum(DL_MontantHT)\
+      \ over (partition by l.DO_Piece, l.DO_Type, e.DO_Provenance))\r\n          \
+      \    )\r\n           )                                                     \
+      \                                                        as [Montant HT Net]\r\
+      \n         , (((DL_MontantHT * (1 - DO_TxEscompte / 100))\r\n             +\
+      \ (DO_ValFrais\r\n                * CASE WHEN sum(DL_MontantHT) over (partition\
+      \ by l.DO_Piece, l.DO_Type, e.DO_Provenance)=0 THEN 0\r\n\t\t\t\tELSE (DL_MontantHT\
+      \ / sum(DL_MontantHT) over (partition by l.DO_Piece, l.DO_Type, e.DO_Provenance)\
+      \  )END\r\n               )\r\n            )\r\n            * (1 + DL_Taxe1\
+      \ / 100)\r\n           )                                                   \
+      \                                                          as [Montant TTC Net]\r\
+      \n    from F_DOCLIGNE            as l\r\n        inner join F_DOCENTETE as e\r\
+      \n            on l.DO_Type = e.DO_Type\r\n               and l.DO_Piece = e.DO_Piece\r\
+      \n    where (l.DO_Domaine = 0)\r\n          -- and (l.DO_Type >= 6)\r\n    \
+      \      and (l.DL_Valorise = 1))\r\n   , DocTemp\r\nas (select [Type Document]\
+      \          as [Type Document]\r\n         , [N° document]            as [N°\
+      \ document]\r\n         , [Date]                   as [Date]\r\n         , Référence\
+      \                as Référence\r\n         , sum([Montant HT])        as [Montant\
+      \ HT]\r\n         , sum([Montant TTC])       as [Montant TTC]\r\n         ,\
+      \ Cours                    as Cours\r\n         , sum([Montant en devise]) as\
+      \ [Montant en devise]\r\n         , Escompte                 as Escompte\r\n\
+      \         , [Frais port]             as [Frais port]\r\n         , [Code tiers\
+      \ payeur]      as [Code tiers payeur]\r\n         , [Code client]          \
+      \  as [Code client]\r\n         , [Code affaire]           as [Code affaire]\r\
+      \n         , Souche                   as Souche\r\n         , [Catégorie comptable]\
+      \    as [Catégorie comptable]\r\n         , [Pièce orgine]           as [Pièce\
+      \ orgine]\r\n         , sum([Montant HT Net])    as [Montant HT Net]\r\n   \
+      \      , sum([Montant TTC Net])   as [Montant TTC Net]\r\n    from Cte_Lignes\r\
+      \n    group by [Type Document]\r\n           , [N° document]\r\n           ,\
+      \ [Date]\r\n           , Référence\r\n           , Cours\r\n           , Escompte\r\
+      \n           , [Frais port]\r\n           , [Code tiers payeur]\r\n        \
+      \   , [Code affaire]\r\n           , Souche\r\n           , [Catégorie comptable]\r\
+      \n           , [Pièce orgine]\r\n           , [Code client])\r\n   , AcompteAgg\r\
+      \nas (\r\n   -- Pre-aggregate advance payment amounts (only for documents having\
+      \ DR_TypeRegl = 0)\r\n   select DO_Type\r\n        , DO_Piece\r\n        , sum(DR_Montant)\
+      \ as MontantAcompte\r\n   from F_DOCREGL\r\n   where DR_TypeRegl = 0\r\n   group\
+      \ by DO_Type\r\n          , DO_Piece)\r\nselect  \r\n      dr.DR_No        \
+      \                                      as [N° interne]\r\n     , dt.[Code tiers\
+      \ payeur]                                as [Code tiers payeur]\r\n     , tiersPayeur.CT_Intitule\
+      \                               as [Intitulé Tiers payeur]\r\n     , dt.[Code\
+      \ client]                                      as [Code client]\r\n     , tiers.CT_Intitule\
+      \                                     as [Intitulé client]\r\n     , [Type Document]\
+      \                                       as [Type Document]\r\n     , dr.DO_Piece\
+      \                                           as [N° Pièce]\r\n     , [Date] \
+      \                                               as [Date document]\r\n     ,\
+      \ dr.DR_Date                                            as [Date d'échéance]\r\
+      \n     , (dt.[Montant TTC Net] - isnull(aa.MontantAcompte, 0)) as [Montant TTC\
+      \ Net]\r\n     , [Montant en devise]                                   as [Montant\
+      \ en devise]\r\n     , dt.Cours                                            \
+      \  as Cours\r\n     , DR_Libelle                                           \
+      \ as [Libellé du règlement]\r\n     , case\r\n           when dr.DR_Equil =\
+      \ 1 then\r\n     (dt.[Montant TTC Net] - isnull(aa.MontantAcompte, 0))\r\n \
+      \    - sum(((dt.[Montant TTC Net] - isnull(aa.MontantAcompte, 0)) * dr.DR_Pourcent\
+      \ / 100) + dr.DR_Montant) over (partition by dr.DO_Piece\r\n               \
+      \                                                                          \
+      \                                   , dr.DO_Type\r\n                       \
+      \                                                                          \
+      \                           , DR_TypeRegl\r\n                              \
+      \                                                                          \
+      \         order by dr.DR_Date\r\n                                          \
+      \                                                                       rows\
+      \ between unbounded preceding and unbounded following\r\n                  \
+      \                                                                          \
+      \                    )\r\n           when dr.DR_Pourcent is not null\r\n   \
+      \             and dr.DR_Pourcent <> 0 then\r\n     (dt.[Montant TTC Net] - isnull(aa.MontantAcompte,\
+      \ 0)) * dr.DR_Pourcent / 100\r\n           when dr.DR_Montant is not null\r\n\
+      \                and dr.DR_Montant <> 0 then\r\n               dr.DR_Montant\r\
+      \n           else\r\n               0\r\n       end                        \
+      \                           as [Montant échéance]\r\n     , dt.[Montant HT]\
+      \                                       as [Montant HT brut]\r\n     , dt.[Montant\
+      \ TTC]                                      as [Montant TTC brut]\r\n     ,\
+      \ case dr.DR_TypeRegl\r\n           when 0 then\r\n               'Acompte'\r\
+      \n           when 1 then\r\n               'Bon d’achat'\r\n           else\r\
+      \n               'Règlement'\r\n       end                                 \
+      \                  as [Type de règlement]\r\n     , dr.DR_Pourcent         \
+      \                               as [Pourcentage du règlement]\r\n     , dr.DR_Montant\
+      \                                         as [Montant du règlement]\r\n    \
+      \ , case\r\n           when [DR_Equil] = 0 then\r\n               'Non'\r\n\
+      \           else\r\n               'Oui'\r\n       end                     \
+      \                              as [Ligne d’équilibrage]\r\n     , dr.N_Reglement\
+      \                                        as [Code mode règlement]\r\n     ,\
+      \ R_Intitule                                            as [Mode de règlement]\r\
+      \n\r\n ,dr.cbModification [Date modification]\r\nfrom F_DOCREGL           dr\r\
+      \n    left join DocTemp    dt\r\n        on dr.DO_Piece = dt.[N° document]\r\
+      \n    left join AcompteAgg aa\r\n        on dr.DO_Type = aa.DO_Type\r\n    \
+      \       and dr.DO_Piece = aa.DO_Piece\r\n    left join dbo.P_REGLEMENT\r\n \
+      \       on dr.N_Reglement = P_REGLEMENT.cbIndice\r\n    left join F_COMPTET\
+      \  tiers\r\n        on dt.[Code client] = tiers.CT_Num\r\n    left join F_COMPTET\
+      \  tiersPayeur\r\n        on dt.[Code tiers payeur] = tiersPayeur.CT_Num\r\n\
+      where dr.DO_Domaine = 0;\r\n"
+  target:
+    table: Echéances_Ventes
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 12
+  timestamp_column: cbModification
+  batch_size: 10000
+- name: Liste des fournisseurs
+  source:
+    query: "SELECT \r\n \r\n\r\n       F_COMPTET.CT_Qualite AS Qualité,\r\n      \
+      \ F_COMPTET.CT_Num AS [Code fournisseur],\r\n       F_COMPTET.CT_Intitule AS\
+      \ [Intitulé],\r\n       F_COMPTET.CT_Classement AS [Classement],\r\n       F_COMPTET.CO_No\
+      \ AS [Code acheteur],\r\n       F_COLLABORATEUR.CO_Nom+' '+CO_Prenom  AS Acheteur,\r\
+      \n       F_COMPTET.CT_NumPayeur AS [Code encaisseur],\r\n       F_COMPTET_1.CT_Intitule\
+      \ AS [Tiers encaisseur],\r\n       P_PERIOD.P_Period AS [Période facturation],\r\
+      \n       ISNULL(P_DEVISE.D_Intitule, 'Aucune') AS [Devise],\r\n       P_CATTARIF.CT_Intitule\
+      \ AS [Catégorie tarifaire],\r\n       ISNULL(F_DEPOT.DE_Intitule, 'Dépôt principal')\
+      \ AS [Dépôt],\r\n       CASE F_COMPTET.CT_Sommeil\r\n           WHEN 0 THEN\r\
+      \n               'Actif'\r\n           WHEN 1 THEN\r\n               'En sommeil'\r\
+      \n           ELSE\r\n               'ERREUR. Contactez votre revendeur.'\r\n\
+      \       END AS [En sommeil],\r\n       F_COMPTET.CG_NumPrinc AS [Compte comptable],\r\
+      \n       F_COMPTET.CT_Contact AS [Contact],\r\n       F_COMPTET.CT_Adresse AS\
+      \ [Adresse],\r\n       F_COMPTET.CT_Complement AS [Complément],\r\n       F_COMPTET.CT_CodePostal\
+      \ AS [Code postal],\r\n       F_COMPTET.CT_Ville AS Ville,\r\n       F_COMPTET.CT_CodeRegion\
+      \ AS [Région],\r\n       F_COMPTET.CT_Pays AS [Pays],\r\n       F_COMPTET.CT_Siret\
+      \ AS SIRET,\r\n       F_COMPTET.CT_Identifiant AS [Identifiant],\r\n       F_COMPTET.CT_Ape\
+      \ AS [NAF],\r\n       F_COMPTET.CT_Telephone AS Téléphone,\r\n       F_COMPTET.CT_Telecopie\
+      \ AS Télécopie,\r\n       F_COMPTET.CT_EMail AS Email,\r\n       F_COMPTET.CT_Site\
+      \ AS Site,\r\n       CASE F_COMPTET.CT_Langue\r\n           WHEN 0 THEN\r\n\
+      \               'Aucune'\r\n           WHEN 1 THEN\r\n               'Langue\
+      \ 1'\r\n           WHEN 2 THEN\r\n               'Langue 2'\r\n           ELSE\r\
+      \n               'ERREUR. Contactez votre revendeur.'\r\n       END AS Langue,\r\
+      \n       F_COMPTET.CA_Num AS [Code affaire],\r\n       CASE F_COMPTET.N_CatCompta\r\
+      \n           WHEN 1 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen01\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           WHEN 2 THEN\r\n           (\r\
+      \n               SELECT P_CATCOMPTA.CA_ComptaVen02 FROM P_CATCOMPTA\r\n    \
+      \       )\r\n           WHEN 3 THEN\r\n           (\r\n               SELECT\
+      \ P_CATCOMPTA.CA_ComptaVen03 FROM P_CATCOMPTA\r\n           )\r\n          \
+      \ WHEN 4 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen04\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           WHEN 5 THEN\r\n           (\r\
+      \n               SELECT P_CATCOMPTA.CA_ComptaVen05 FROM P_CATCOMPTA\r\n    \
+      \       )\r\n           WHEN 6 THEN\r\n           (\r\n               SELECT\
+      \ P_CATCOMPTA.CA_ComptaVen06 FROM P_CATCOMPTA\r\n           )\r\n          \
+      \ WHEN 7 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen07\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           WHEN 8 THEN\r\n           (\r\
+      \n               SELECT P_CATCOMPTA.CA_ComptaVen08 FROM P_CATCOMPTA\r\n    \
+      \       )\r\n           WHEN 9 THEN\r\n           (\r\n               SELECT\
+      \ P_CATCOMPTA.CA_ComptaVen09 FROM P_CATCOMPTA\r\n           )\r\n          \
+      \ WHEN 10 THEN\r\n           (\r\n               SELECT P_CATCOMPTA.CA_ComptaVen10\
+      \ FROM P_CATCOMPTA\r\n           )\r\n           ELSE\r\n               'ERREUR.\
+      \ Contactez votre revendeur.'\r\n       END AS [Catégorie comptable],\r\n  \
+      \     F_COMPTET.CT_Taux01 AS [Taxe 1],\r\n       F_COMPTET.CT_Taux02 AS [Taxe\
+      \ 2],\r\n       F_COMPTET.CT_Taux03 AS [Taxe 3],\r\n       F_COMPTET.CT_Taux04\
+      \ AS [Taxe 4],\r\n       (\r\n           SELECT P_IntStatArt FROM P_INTSTATART\
+      \ WHERE (cbMarq = 1)\r\n       ) AS [Libellé statistique 1],\r\n       (\r\n\
+      \           SELECT P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_9 WHERE (cbMarq\
+      \ = 2)\r\n       ) AS [Libellé statistique 2],\r\n       (\r\n           SELECT\
+      \ P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_8 WHERE (cbMarq = 3)\r\n  \
+      \     ) AS [Libellé statistique 3],\r\n       (\r\n           SELECT P_IntStatArt\
+      \ FROM P_INTSTATART AS P_INTSTATART_7 WHERE (cbMarq = 4)\r\n       ) AS [Libellé\
+      \ statistique 4],\r\n       (\r\n           SELECT P_IntStatArt FROM P_INTSTATART\
+      \ AS P_INTSTATART_6 WHERE (cbMarq = 5)\r\n       ) AS [Libellé statistique 5],\r\
+      \n       (\r\n           SELECT P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_5\
+      \ WHERE (cbMarq = 6)\r\n       ) AS [Libellé statistique 6],\r\n       (\r\n\
+      \           SELECT P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_4 WHERE (cbMarq\
+      \ = 7)\r\n       ) AS [Libellé statistique 7],\r\n       (\r\n           SELECT\
+      \ P_IntStatArt FROM P_INTSTATART AS P_INTSTATART_3 WHERE (cbMarq = 8)\r\n  \
+      \     ) AS [Libellé statistique 8],\r\n       (\r\n           SELECT P_IntStatArt\
+      \ FROM P_INTSTATART AS P_INTSTATART_2 WHERE (cbMarq = 9)\r\n       ) AS [Libellé\
+      \ statistique 9],\r\n       (\r\n           SELECT P_IntStatArt\r\n        \
+      \   FROM P_INTSTATART AS P_INTSTATART_1\r\n           WHERE (cbMarq = 10)\r\n\
+      \       ) AS [Libellé statistique 10],\r\n       F_COMPTET.CT_Statistique01\
+      \ AS [Statistique 1],\r\n       F_COMPTET.CT_Statistique02 AS [Statistique 2],\r\
+      \n       F_COMPTET.CT_Statistique03 AS [Statistique 3],\r\n       F_COMPTET.CT_Statistique04\
+      \ AS [Statistique 4],\r\n       F_COMPTET.CT_Statistique05 AS [Statistique 5],\r\
+      \n       F_COMPTET.CT_Statistique06 AS [Statistique 6],\r\n       F_COMPTET.CT_Statistique07\
+      \ AS [Statistique 7],\r\n       F_COMPTET.CT_Statistique08 AS [Statistique 8],\r\
+      \n       F_COMPTET.CT_Statistique09 AS [Statistique 9],\r\n       F_COMPTET.CT_Statistique10\
+      \ AS [Statistique 10],\r\n       F_COMPTET.CT_NumCentrale AS [Centre charge],\r\
+      \n       P_CRISQUE.R_Intitule [Risque fournisseur],\r\n       (\r\n        \
+      \   SELECT [E_Intitule]\r\n           FROM [P_EXPEDITION]\r\n           WHERE\
+      \ [P_EXPEDITION].[cbIndice] = F_COMPTET.N_Expedition\r\n       ) [Expédition],\r\
+      \n       F_COMPTET.CT_DelaiTransport [Délai de transport],\r\n       F_COMPTET.CT_Encours\
+      \ [Encours de l'autorisation],\r\n       F_COMPTET.CT_Assurance [Assurance],\r\
+      \n       F_COMPTET.CT_Facture [Nbr facture],\r\n       F_COMPTET.CT_BLFact [BL/Facture],\r\
+      \n       F_COMPTET.cbCreation [Date de création],\r\n\t    F_COMPTET.cbModification\
+      \ [Date modification]\r\n \r\nFROM F_COMPTET\r\n    INNER JOIN F_COMPTET F_COMPTET_1\r\
+      \n        ON F_COMPTET.CT_NumPayeur = F_COMPTET_1.CT_Num\r\n    LEFT OUTER JOIN\
+      \ P_CRISQUE\r\n        ON F_COMPTET.N_Risque = P_CRISQUE.cbIndice\r\n    LEFT\
+      \ OUTER JOIN F_COMPTEA\r\n        ON F_COMPTET.N_Analytique = F_COMPTEA.N_Analytique\r\
+      \n           AND F_COMPTET.CA_Num = F_COMPTEA.CA_Num\r\n    LEFT OUTER JOIN\
+      \ F_COLLABORATEUR\r\n        ON F_COMPTET.CO_No = F_COLLABORATEUR.CO_No\r\n\
+      \    LEFT OUTER JOIN F_DEPOT\r\n        ON F_COMPTET.DE_No = F_DEPOT.DE_No\r\
+      \n    LEFT OUTER JOIN P_PERIOD\r\n        ON F_COMPTET.N_Period = P_PERIOD.cbMarq\r\
+      \n    LEFT OUTER JOIN P_DEVISE\r\n        ON F_COMPTET.N_Devise = P_DEVISE.cbIndice\r\
+      \n    LEFT OUTER JOIN P_CATTARIF\r\n        ON F_COMPTET.N_CatTarif = P_CATTARIF.cbIndice\r\
+      \nWHERE (F_COMPTET.CT_Type = 1);"
+  target:
+    table: Fournisseurs
+    primary_key:
+    - Code fournisseur
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 14
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Entêtes des achats
+  source:
+    query: "SELECT        \r\n                  ISNULL(CASE F_DOCENTETE.DO_Type\r\n\
+      \                              WHEN 10 THEN 'Demande d''achat'\r\n         \
+      \                     WHEN 11 THEN 'Préparation de commande'\r\n           \
+      \                   WHEN 12 THEN 'Bon de commande' \r\n                    \
+      \          WHEN 13 THEN 'Bon de livraison'\r\n                             \
+      \ WHEN 14 THEN 'Bon de retour'\r\n                              WHEN 15 THEN\
+      \ 'Bon avoir financier'\r\n                              WHEN 16 THEN CASE DO_Provenance\r\
+      \n                                                WHEN 0 THEN 'Facture'\r\n\
+      \                                                WHEN 1 THEN 'Facture de retour'\r\
+      \n                                                WHEN 2 THEN 'Facture avoir'\r\
+      \n                                                WHEN 3 THEN 'Facture caisse\
+      \ décentralisée'\r\n                                                WHEN 4 THEN\
+      \ 'Facture d\"accompte' END\r\n                              WHEN 17 THEN CASE\
+      \ DO_Provenance\r\n                                                WHEN 0 THEN\
+      \ 'Facture comptabilisée'\r\n                                              \
+      \  WHEN 1 THEN 'Facture de retour comptabilisée'\r\n                       \
+      \                         WHEN 2 THEN 'Facture avoir comptabilisée'\r\n    \
+      \                                            WHEN 3 THEN 'Facture caisse décentralisée\
+      \ comptabilisée'\r\n                                                WHEN 4 THEN\
+      \ 'Facture d\"accompte comptabilisée' END\r\n                              WHEN\
+      \ 18 THEN 'Archive'\r\n                              ELSE 'ERREUR sur F_DOCENTETE.DO_Type\
+      \ - Contactez votre revendeur.' END,'') AS [Type Document],\r\n            \
+      \      CASE\r\n                       WHEN F_DOCENTETE.DO_Type BETWEEN 0 AND\
+      \ 6 THEN 'Oui'\r\n                       ELSE 'Non' END AS Encours,\r\n    \
+      \              CASE\r\n                       WHEN DO_Domaine = 1 THEN CASE\r\
+      \n                                                     WHEN F_DOCENTETE.DO_Type\
+      \ = 10 THEN CASE DO_Statut\r\n                                             \
+      \                                                WHEN 0 THEN 'Saisi'\r\n   \
+      \                                                                          \
+      \                WHEN 1 THEN 'Confermé'\r\n                                \
+      \                                                             WHEN 2 THEN 'Accepté'\
+      \ END\r\n                                                     ELSE CASE\r\n\
+      \                                                               WHEN F_DOCENTETE.DO_Type\
+      \ = 11\r\n                                                                AND\
+      \ DO_Statut = 2 THEN 'Accepté'\r\n                                         \
+      \                      WHEN F_DOCENTETE.DO_Type = 12\r\n                   \
+      \                                             AND DO_Statut = 2 THEN 'Envoyé'\r\
+      \n                                                               WHEN F_DOCENTETE.DO_Type\
+      \ = 13\r\n                                                                AND\
+      \ DO_Statut = 2 THEN 'Réceptionné'\r\n                                     \
+      \                          WHEN F_DOCENTETE.DO_Type = 14\r\n               \
+      \                                                 AND DO_Statut = 2 THEN 'Facturé'\r\
+      \n                                                               WHEN F_DOCENTETE.DO_Type\
+      \ = 15\r\n                                                                AND\
+      \ DO_Statut = 2 THEN 'Facturé'\r\n                                         \
+      \                      WHEN F_DOCENTETE.DO_Type = 16\r\n                   \
+      \                                             AND DO_Statut = 2 THEN 'A comptabiliser'\r\
+      \n                                                               WHEN F_DOCENTETE.DO_Type\
+      \ = 17\r\n                                                                AND\
+      \ DO_Statut = 2 THEN 'Comptabilisé'\r\n                                    \
+      \                           WHEN F_DOCENTETE.DO_Type = 18\r\n              \
+      \                                                  AND DO_Statut = 2 THEN 'Archivé'\r\
+      \n                                                               WHEN DO_Statut\
+      \ = 0 THEN 'Saisie'\r\n                                                    \
+      \           WHEN DO_Statut = 1 THEN 'Confirmé'\r\n                         \
+      \                                      ELSE 'Contactez votre revendeur.' END\
+      \ END\r\n                       ELSE CASE\r\n                              \
+      \   WHEN F_DOCENTETE.DO_Type = 0\r\n                                  AND F_DOCENTETE.DO_Statut\
+      \ = 2 THEN 'Accepté'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 1\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'A préparer'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 2\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'A livrer'\r\n                                 WHEN F_DOCENTETE.DO_Type =\
+      \ 3\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'A facturer'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 4\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'A facturer'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 5\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'A facturer'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 6\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'A comptabiliser'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 7\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'Comptabilisé'\r\n                                 WHEN F_DOCENTETE.DO_Type\
+      \ = 8\r\n                                  AND F_DOCENTETE.DO_Statut = 2 THEN\
+      \ 'Archivé'\r\n                                 WHEN F_DOCENTETE.DO_Statut =\
+      \ 0 THEN 'Saisie'\r\n                                 WHEN F_DOCENTETE.DO_Statut\
+      \ = 1 THEN 'Confirmé'\r\n                                 ELSE 'ERREUR. Contactez\
+      \ votre revendeur.' END END AS Statut,\r\n                  CASE\r\n       \
+      \                WHEN DO_Valide = 0 THEN 'Oui'\r\n                       ELSE\
+      \ 'Non' END AS [Statut validé],\r\n                  CASE\r\n              \
+      \         WHEN DO_Reliquat = 0 THEN 'Oui'\r\n                       ELSE 'Non'\
+      \ END AS [Document reliquat],\r\n                  CASE\r\n                \
+      \       WHEN F_DOCENTETE.DO_Cloture = 0 THEN 'Non'\r\n                     \
+      \  ELSE 'Oui' END AS [Document clôturé],\r\n                  CONVERT(DATETIME,\
+      \ F_DOCENTETE.DO_Date, 3) AS Date,\r\n                  ISNULL(F_DOCENTETE.DO_Piece,\
+      \ '') AS [N° Pièce],\r\n                  (SELECT S_Intitule FROM dbo.P_SOUCHEACHAT\
+      \ WHERE cbIndice = DO_Souche + 1) Souche,\r\n                  F_DOCENTETE.DO_Ref\
+      \ AS Référence,\r\n                  F_DOCENTETE.DO_Tiers AS [Code Fournisseur],\r\
+      \n                  F_COMPTET.CT_Intitule AS [Intitulé Fournisseur],\r\n   \
+      \               F_DOCENTETE.CT_NumPayeur AS [N° Compte tiers encaisseur],\r\n\
+      \                  F_COMPTET_1.CT_Intitule AS [Intitulé tiers encaisseur],\r\
+      \n                  F_DOCENTETE.cbCO_No [Code acheteur],\r\n               \
+      \   COLLABORATEUR_DOC.CO_Nom+' '+COLLABORATEUR_DOC.CO_Prenom [Nom acheteur],\r\
+      \n                  CASE\r\n                       WHEN F_DOCENTETE.DO_Ventile\
+      \ = 0 THEN 'Non'\r\n                       ELSE 'Oui' END AS [Document ventilé],\r\
+      \n                  CASE\r\n                       WHEN F_DOCENTETE.DO_Reliquat\
+      \ = 1 THEN 'Reliquat'\r\n                       WHEN F_DOCENTETE.DO_Reliquat\
+      \ = 0\r\n                        AND F_DOCENTETE.DO_Imprim = 1 THEN 'Imprimé'\r\
+      \n                       WHEN F_DOCENTETE.DO_Reliquat = 0\r\n              \
+      \          AND F_DOCENTETE.DO_Imprim = 0 THEN ' '\r\n                      \
+      \ ELSE 'ERREUR. Contactez votre revendeur.' END AS Etat,\r\n               \
+      \   F_DOCENTETE.DO_Coord01 AS [Entête 1],\r\n                  F_DOCENTETE.DO_Coord02\
+      \ AS [Entête 2],\r\n                  F_DOCENTETE.DO_Coord03 AS [Entête 3],\r\
+      \n                  F_DOCENTETE.DO_Coord04 AS [Entête 4],\r\n              \
+      \    F_DEPOT.DE_No AS [Code dépôt],\r\n                  F_DEPOT.DE_Intitule\
+      \ AS [Intitulé dépôt],\r\n                  ISNULL(P_DEVISE.D_Intitule, 'Aucune')\
+      \ AS Devise,\r\n                  F_DOCENTETE.DO_Cours AS Cours,\r\n       \
+      \           P_EXPEDITION.E_Intitule AS Expédition,\r\n                  CASE\
+      \ (F_DOCENTETE.DO_Langue)\r\n                       WHEN 0 THEN 'Aucune'\r\n\
+      \                       WHEN 1 THEN 'Langue 1'\r\n                       WHEN\
+      \ 2 THEN 'Langue 2' END AS Langue,\r\n                  CASE F_DOCENTETE.DO_BLFact\r\
+      \n                       WHEN 1 THEN 'Oui'\r\n                       WHEN 0\
+      \ THEN 'Non' END AS [Fact/BL],\r\n                  F_DOCENTETE.DO_NbFacture\
+      \ AS [Nb Facture],\r\n                  F_DOCENTETE.CA_Num [Code d'affaire],\r\
+      \n                  (   SELECT TOP 1 CA_Intitule\r\n                       \
+      \ FROM F_COMPTEA\r\n                       WHERE F_COMPTEA.CA_Num = F_DOCENTETE.ca_num)\
+      \ AS [Intitulé affaire],\r\n                  F_DOCENTETE.CG_Num AS [Compte\
+      \ Général],\r\n                  CASE F_DOCENTETE.N_CatCompta\r\n          \
+      \             WHEN 1 THEN (SELECT P_CATCOMPTA.CA_ComptaVen01 FROM P_CATCOMPTA)\r\
+      \n                       WHEN 2 THEN (SELECT P_CATCOMPTA.CA_ComptaVen02 FROM\
+      \ P_CATCOMPTA)\r\n                       WHEN 3 THEN (SELECT P_CATCOMPTA.CA_ComptaVen03\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 4 THEN (SELECT P_CATCOMPTA.CA_ComptaVen04\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 5 THEN (SELECT P_CATCOMPTA.CA_ComptaVen05\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 6 THEN (SELECT P_CATCOMPTA.CA_ComptaVen06\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 7 THEN (SELECT P_CATCOMPTA.CA_ComptaVen07\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 8 THEN (SELECT P_CATCOMPTA.CA_ComptaVen08\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 9 THEN (SELECT P_CATCOMPTA.CA_ComptaVen09\
+      \ FROM P_CATCOMPTA)\r\n                       WHEN 10 THEN (SELECT P_CATCOMPTA.CA_ComptaVen10\
+      \ FROM P_CATCOMPTA)\r\n                       ELSE ' ' END AS [Catégorie Comptable],\r\
+      \n                  CASE F_DOCENTETE.DO_Colisage\r\n                       WHEN\
+      \ 0 THEN P_UNITE.U_Intitule\r\n                       ELSE CAST(F_DOCENTETE.DO_Colisage\
+      \ AS VARCHAR) + ' ' + P_UNITE.U_Intitule END AS Colisage,\r\n              \
+      \    F_DOCENTETE.DO_TxEscompte AS [Taux escompte],\r\n                  DO_Ecart\
+      \ [Ecart],\r\n                  CASE\r\n                       WHEN DO_Imprim\
+      \ = 0 THEN 'Oui'\r\n                       ELSE 'Non' END AS [Document imprimé\
+      \ ],\r\n                  F_DOCENTETE.DO_DateLivr AS [Date livraison souhaite],\r\
+      \n                  F_DOCENTETE.DO_DebutAbo AS [Date début de l’abonnement lié],\r\
+      \n                  F_DOCENTETE.DO_FinAbo AS [Date fin de l’abonnement lié],\r\
+      \n                  F_DOCENTETE.DO_DebutPeriod AS [Date début de la périodicité\
+      \ liée],\r\n                  F_DOCENTETE.DO_FinPeriod AS [Date Fin de la périodicité\
+      \ liée],\r\n                  F_DOCENTETE.DO_FactureFrs AS [N° facture Fournisseur],\r\
+      \n                  CASE DO_TypeFrais\r\n                       WHEN 0 THEN\
+      \ 'Montant Forfaitaire'\r\n                       WHEN 1 THEN 'Quantité'\r\n\
+      \                       WHEN 2 THEN 'Poids net'\r\n                       WHEN\
+      \ 3 THEN 'Poids brut'\r\n                       ELSE 'Erreur. Contactez votre\
+      \ revendeur.' END AS [Type frais],\r\n                  F_DOCENTETE.DO_ValFrais\
+      \ AS [Valeur frais],\r\n                  CASE\r\n                       WHEN\
+      \ DO_TypeLigneFrais = 0 THEN 'HT'\r\n                       ELSE 'TTC' END AS\
+      \ [Type HT/TTC frais],\r\n                  P_CATTARIF.CT_Intitule AS [Catégorie\
+      \ tarifaire ],\r\n                  P_CONDLIVR.C_Intitule AS [Condition de livraison],\r\
+      \n                  LI_No [Code lieu de livraison],\r\n                  ( \
+      \  SELECT liv.LI_Intitule\r\n                        FROM dbo.F_LIVRAISON liv\r\
+      \n                       WHERE liv.LI_No = F_DOCENTETE.LI_No) [Lieu de livraison],\r\
+      \n                  F_DOCENTETE.DO_TotalHT AS [Montant HT],\r\n            \
+      \      F_DOCENTETE.DO_TotalTTC [Montant TTC],\r\n                  F_DOCENTETE.DO_NetAPayer\
+      \ [Montant net à payer],\r\n                  F_DOCENTETE.DO_MontantRegle [Montant\
+      \ réglé],'' [Souche Ach. Imoprt],\r\n\t\t F_DOCENTETE.cbCreation [Date création],\r\
+      \n\t\t F_DOCENTETE.cbModification [Date modification]\r\n\r\n \r\n\r\n  FROM\
+      \            F_COMPTET AS F_COMPTET_1\r\n INNER JOIN       F_COMPTET\r\n INNER\
+      \            JOIN       F_DOCENTETE\r\n    ON F_COMPTET.cbCT_Num = F_DOCENTETE.cbDO_Tiers\r\
+      \n    ON F_COMPTET_1.CT_Num       = F_COMPTET.CT_NumPayeur\r\n  LEFT OUTER JOIN\
+      \ F_DEPOT\r\n    ON F_DOCENTETE.DE_No        = F_DEPOT.DE_No\r\n  LEFT OUTER\
+      \ JOIN P_CONDLIVR\r\n    ON F_DOCENTETE.DO_DateLivr  = P_CONDLIVR.cbIndice\r\
+      \n  LEFT OUTER JOIN P_CATTARIF\r\n    ON F_DOCENTETE.DO_Tarif     = P_CATTARIF.cbIndice\r\
+      \n  LEFT OUTER JOIN F_COLLABORATEUR AS COLLABORATEUR_TIERS\r\n    ON F_COMPTET.CO_No\
+      \          = COLLABORATEUR_TIERS.CO_No\r\n  LEFT OUTER JOIN F_COLLABORATEUR\
+      \ AS COLLABORATEUR_DOC\r\n    ON F_DOCENTETE.cbCO_No      = COLLABORATEUR_DOC.CO_No\r\
+      \n  LEFT OUTER JOIN P_DEVISE\r\n    ON F_DOCENTETE.DO_Devise    = P_DEVISE.cbIndice\r\
+      \n  LEFT OUTER JOIN P_EXPEDITION\r\n    ON F_DOCENTETE.DO_Expedit   = P_EXPEDITION.cbIndice\r\
+      \n  LEFT OUTER JOIN P_UNITE\r\n    ON F_DOCENTETE.DO_TypeColis = P_UNITE.cbIndice\r\
+      \n WHERE            (F_DOCENTETE.DO_Domaine IN ( 1 ));"
+  target:
+    table: Entête_des_achats
+    primary_key:
+    - Type Document
+    - N° Pièce
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 15
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Réglements fournisseurs
+  source:
+    query: "SELECT  \r\n \r\n       ISNULL(F_CREGLEMENT.CT_NumPayeur, '') AS [Code\
+      \ fournisseur],\r\n       F_COMPTET_1.CT_Intitule AS Intitulé,\r\n \r\n    \
+      \   F_CREGLEMENT.RG_Date AS Date,\r\n       F_CREGLEMENT.RG_DateEchCont AS [Date\
+      \ d'échéance],\r\n       F_CREGLEMENT.RG_Reference AS Référence,\r\n       F_CREGLEMENT.RG_Libelle\
+      \ AS Libellé,\r\n       CASE\r\n           WHEN F_CREGLEMENT.RG_Impute = 0 THEN\r\
+      \n               'Non'\r\n           ELSE\r\n               'Oui'\r\n      \
+      \ END AS Impute,\r\n       CASE\r\n           WHEN F_CREGLEMENT.RG_Compta =\
+      \ 0 THEN\r\n               'Non'\r\n           ELSE\r\n               'Oui'\r\
+      \n       END AS Comptabilisé,\r\n       F_CREGLEMENT.JO_Num AS [Code journal],\r\
+      \n       F_JOURNAUX.JO_Intitule AS Journal,\r\n       F_CREGLEMENT.CG_Num AS\
+      \ [Compte générale],\r\n       F_CREGLEMENT.RG_Piece AS [N° piéce],\r\n    \
+      \   CASE\r\n           WHEN F_CREGLEMENT.RG_Valide = 0 THEN\r\n            \
+      \   'Non'\r\n           ELSE\r\n               'Ou'\r\n       END AS Valide,\r\
+      \n       P_REGLEMENT.R_Intitule AS [Mode réglement],\r\n       CASE\r\n    \
+      \       WHEN ISNULL(P_DEVISE.D_Intitule, '') = '' THEN\r\n               'Acune'\r\
+      \n           ELSE\r\n               D_Intitule\r\n       END AS Devise,\r\n\
+      \       F_CREGLEMENT.RG_MontantDev AS [Montant en devise],\r\n       F_CREGLEMENT.RG_Cours\
+      \ AS Cours,\r\n       F_CREGLEMENT.RG_Montant AS Montant,\r\n       ISNULL(RG_No,\
+      \ '') [N° interne],\r\n\t     F_CREGLEMENT.RG_Montant-isnull( (select sum(RC_Montant)\
+      \ from F_REGLECH where F_REGLECH.rg_no=F_CREGLEMENT.RG_No),0)solde,r_code [Code\
+      \ réglement]\r\n\t\t ,\r\n\t\t F_CREGLEMENT.cbCreation [Date création],\r\n\t\
+      \t F_CREGLEMENT.cbModification [Date modification]\r\n \r\nFROM F_CREGLEMENT\r\
+      \n    INNER JOIN F_COMPTET AS F_COMPTET_1\r\n        ON F_CREGLEMENT.CT_NumPayeur\
+      \ = F_COMPTET_1.CT_Num\r\n    INNER JOIN F_COMPTET\r\n        ON F_CREGLEMENT.CT_NumPayeurOrig\
+      \ = F_COMPTET.CT_Num\r\n    INNER JOIN F_JOURNAUX\r\n        ON F_CREGLEMENT.JO_Num\
+      \ = F_JOURNAUX.JO_Num\r\n    LEFT OUTER JOIN P_REGLEMENT\r\n        ON F_CREGLEMENT.N_Reglement\
+      \ = P_REGLEMENT.cbIndice\r\n    LEFT OUTER JOIN P_DEVISE\r\n        ON F_CREGLEMENT.N_Devise\
+      \ = P_DEVISE.cbIndice\r\nWHERE (F_CREGLEMENT.RG_Type = 1);"
+  target:
+    table: Paiements_Fournisseurs
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 16
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Imputation factures des achats
+  source:
+    query: "SELECT     \r\nF_CREGLEMENT.RG_Reference AS Référence, F_CREGLEMENT.RG_Libelle\
+      \ AS Libellé, F_REGLECH.RG_No [id Réglement], F_CREGLEMENT.RG_Date AS [Date\
+      \ réglement], F_CREGLEMENT.RG_DateEchCont AS [Date d'échance], \r\n        \
+      \                 F_REGLECH.DR_No AS [Id écheance], \r\n\t\t\t\t\t\t \r\n\t\t\
+      \t\t\t\t \r\n ISNULL(   CASE\r\n                     WHEN F_REGLECH.DO_Domaine\
+      \ = 1 THEN\r\n                         CASE F_DOCENTETE.DO_Type\r\n        \
+      \                     WHEN 10 THEN\r\n                                 'Demande\
+      \ d''achat'\r\n                             WHEN 11 THEN\r\n               \
+      \                  'Bon de commande'\r\n                             WHEN 12\
+      \ THEN\r\n                                 'Préparation de livraison'\r\n  \
+      \                           WHEN 13 THEN\r\n                               \
+      \  'Bon de livraison'\r\n                             WHEN 14 THEN\r\n     \
+      \                            'Bon de retour'\r\n                           \
+      \  WHEN 15 THEN\r\n                                 'Bon avoir financier'\r\n\
+      \                             WHEN 16 THEN\r\n                             \
+      \    CASE DO_Provenance\r\n                                     WHEN 0 THEN\r\
+      \n                                         'Facture'\r\n                   \
+      \                  WHEN 1 THEN\r\n                                         'Facture\
+      \ de retour'\r\n                                     WHEN 2 THEN\r\n       \
+      \                                  'Facture avoir'\r\n                     \
+      \                WHEN 3 THEN\r\n                                         'Facture\
+      \ caisse décentralisée'\r\n\t\t\t\t\t\t\t\t\t WHEN 4 THEN\r\n              \
+      \                           'Facture d\"accompte'\r\n                      \
+      \           END\r\n                             WHEN 17 THEN\r\n           \
+      \                      CASE DO_Provenance\r\n                              \
+      \       WHEN 0 THEN\r\n                                         'Facture comptabilisée'\r\
+      \n                                     WHEN 1 THEN\r\n                     \
+      \                    'Facture de retour comptabilisée'\r\n                 \
+      \                    WHEN 2 THEN\r\n                                       \
+      \  'Facture avoir comptabilisée'\r\n                                     WHEN\
+      \ 3 THEN\r\n                                         'Facture caisse décentralisée\
+      \ comptabilisée'\r\n\t\t\t\t\t\t\t\t\t WHEN 4 THEN\r\n                     \
+      \                    'Facture d\"accompte comptabilisée'\r\n               \
+      \                  END\r\n                             WHEN 18 THEN\r\n    \
+      \                             'Archive'\r\n                             ELSE\r\
+      \n                                 'ERREUR sur F_DOCENTETE.DO_Type - Contactez\
+      \ votre revendeur.'\r\n                         END\r\n                    \
+      \ ELSE\r\n                         CASE F_DOCENTETE.DO_Type\r\n            \
+      \                 WHEN 0 THEN\r\n                                 'Devis'\r\n\
+      \                             WHEN 1 THEN\r\n                              \
+      \   'Bon de commande'\r\n                             WHEN 2 THEN\r\n      \
+      \                           'Préparation de livraison'\r\n                 \
+      \            WHEN 3 THEN\r\n                                 'Bon de livraison'\r\
+      \n                             WHEN 4 THEN\r\n                             \
+      \    'Bon de retour'\r\n                             WHEN 5 THEN\r\n       \
+      \                          'Bon avoir financier'\r\n                       \
+      \      WHEN 6 THEN\r\n                                 CASE DO_Provenance\r\n\
+      \                                     WHEN 0 THEN\r\n                      \
+      \                   'Facture'\r\n                                     WHEN 1\
+      \ THEN\r\n                                         'Facture de retour'\r\n \
+      \                                    WHEN 2 THEN\r\n                       \
+      \                  'Facture avoir'\r\n                                     WHEN\
+      \ 3 THEN\r\n                                         'Facture caisse décentralisée'\r\
+      \n                                 END\r\n                             WHEN\
+      \ 7 THEN\r\n                                 CASE DO_Provenance\r\n        \
+      \                             WHEN 0 THEN\r\n                              \
+      \           'Facture comptabilisée'\r\n                                    \
+      \ WHEN 1 THEN\r\n                                         'Facture de retour\
+      \ comptabilisée'\r\n                                     WHEN 2 THEN\r\n   \
+      \                                      'Facture avoir comptabilisée'\r\n   \
+      \                                  WHEN 3 THEN\r\n                         \
+      \                'Facture caisse décentralisée comptabilisée'\r\n          \
+      \                       END\r\n                             WHEN 8 THEN\r\n\
+      \                                 'Archive'\r\n                            \
+      \ ELSE\r\n                                 'ERREUR sur F_DOCENTETE.DO_Type -\
+      \ Contactez votre revendeur.'\r\n                         END\r\n          \
+      \       END,\r\n                 'ERREUR sur F_DOCENTETE.DO_Type - Contactez\
+      \ votre revendeur.'\r\n             ) AS [Type Document],\r\n\t\t\t\t\t\t  \r\
+      \n\t\t\t\t\t\t  \r\n\t\t\t\t\t\t  F_REGLECH.DO_Piece AS [N° pièce],\r\n    \
+      \                         (SELECT        SUM(DL_MontantTTC) AS Expr1\r\n   \
+      \                            FROM            F_DOCLIGNE AS ligne\r\n       \
+      \                        WHERE        (DO_Type = F_REGLECH.DO_Type) AND (DO_Piece\
+      \ = F_REGLECH.DO_Piece)) AS [Montant facture TTC], F_REGLECH.RC_Montant AS [Montant\
+      \ régler], F_DOCENTETE.DO_Date AS [Date document], \r\n                    \
+      \     P_REGLEMENT.R_Intitule AS [Mode de réglement], F_DOCENTETE.DO_Tiers AS\
+      \ [Code fournisseur], F_COMPTET_1.CT_Intitule AS [Intitulé fournisseur], \r\n\
+      \t\t\t\t\t\t F_COMPTET.CT_Num [Code tier encaisseur], F_COMPTET.CT_Intitule\
+      \ [Intitulé tier encaisseur]\r\n,RG_Montant [Montant réglement] ,\r\n\t\t F_REGLECH.cbCreation\
+      \ [Date création],\r\n\t\t F_REGLECH.cbModification [Date modification]\r\n\
+      \ \r\nFROM            F_REGLECH INNER JOIN\r\n                         F_DOCENTETE\
+      \ ON F_REGLECH.DO_Type = F_DOCENTETE.DO_Type AND F_REGLECH.DO_Piece = F_DOCENTETE.DO_Piece\
+      \ INNER JOIN\r\n                         F_COMPTET AS F_COMPTET_1 ON F_DOCENTETE.DO_Tiers\
+      \ = F_COMPTET_1.CT_Num INNER JOIN\r\n                         F_COMPTET ON F_DOCENTETE.CT_NumPayeur\
+      \ = F_COMPTET.CT_Num INNER JOIN\r\n                         F_CREGLEMENT ON\
+      \ F_REGLECH.RG_No = F_CREGLEMENT.RG_No INNER JOIN\r\n                      \
+      \   P_REGLEMENT ON F_CREGLEMENT.N_Reglement = P_REGLEMENT.cbIndice\r\nWHERE\
+      \        (F_DOCENTETE.DO_Domaine =1)"
+  target:
+    table: Imputation_Factures_Achats
+    primary_key:
+    - '[id Réglement]'
+    - '[Id écheance]'
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 17
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Lignes des achats
+  source:
+    query: "SELECT           \r\n                  DL_No [N° interne],\r\n       \
+      \           ISNULL(CASE F_DOCENTETE.DO_Type\r\n                            \
+      \  WHEN 10 THEN 'Demande d''achat'\r\n                              WHEN 11\
+      \ THEN 'Préparation de commande' \r\n                              WHEN 12 THEN\
+      \ 'Bon de commande'\r\n                              WHEN 13 THEN 'Bon de livraison'\r\
+      \n                              WHEN 14 THEN 'Bon de retour'\r\n           \
+      \                   WHEN 15 THEN 'Bon avoir financier'\r\n                 \
+      \             WHEN 16 THEN CASE DO_Provenance\r\n                          \
+      \                      WHEN 0 THEN 'Facture'\r\n                           \
+      \                     WHEN 1 THEN 'Facture de retour'\r\n                  \
+      \                              WHEN 2 THEN 'Facture avoir'\r\n             \
+      \                                   WHEN 3 THEN 'Facture caisse décentralisée'\
+      \ END\r\n                              WHEN 17 THEN CASE DO_Provenance\r\n \
+      \                                               WHEN 0 THEN 'Facture comptabilisée'\r\
+      \n                                                WHEN 1 THEN 'Facture de retour\
+      \ comptabilisée'\r\n                                                WHEN 2 THEN\
+      \ 'Facture avoir comptabilisée'\r\n                                        \
+      \        WHEN 3 THEN 'Facture caisse décentralisée comptabilisée' END\r\n  \
+      \                            WHEN 18 THEN 'Archive'\r\n                    \
+      \          ELSE 'ERREUR sur F_DOCENTETE.DO_Type - Contactez votre revendeur.'\
+      \ END,\r\n                         '') AS [Type Document],\r\n             \
+      \     CASE\r\n                       WHEN F_DOCLIGNE.DO_Type < 13 THEN 'Non'\r\
+      \n                       ELSE 'Oui' END AS [Valorise CA],\r\n              \
+      \    F_DOCENTETE.DO_Tiers AS [Code fournisseur],\r\n                  F_COMPTET.CT_Intitule\
+      \ AS [Intitulé fournisseur],\r\n                  ISNULL(F_DOCLIGNE.DO_Piece,\
+      \ '') AS [N° Pièce],\r\n                  F_DOCLIGNE.DO_Ref AS Référence,\r\n\
+      \                  (   SELECT TOP 1 CA_Intitule\r\n                        FROM\
+      \ F_COMPTEA\r\n                       WHERE F_COMPTEA.CA_Num = F_DOCLIGNE.CA_Num)\
+      \ AS [Intitulé affaire],\r\n                  F_DOCLIGNE.CA_Num AS [Code d'affaire],\r\
+      \n                  CONVERT(DATETIME, F_DOCENTETE.DO_Date, 3) AS [Date],\r\n\
+      \                  CASE\r\n                       WHEN F_DOCLIGNE.DO_Type =\
+      \ 3 THEN F_DOCLIGNE.DO_Piece\r\n                       WHEN F_DOCLIGNE.DO_Type\
+      \ > 3 THEN F_DOCLIGNE.DL_PieceBL END AS [N° Pièce BL],\r\n                 \
+      \ CASE\r\n                       WHEN F_DOCLIGNE.DO_Type = 3 THEN F_DOCLIGNE.DO_Date\r\
+      \n                       WHEN F_DOCLIGNE.DO_Type > 3 THEN CASE\r\n         \
+      \                                                    WHEN F_DOCLIGNE.DL_DateBL\
+      \ < 0 THEN '01/01/1900'\r\n                                                \
+      \             ELSE F_DOCLIGNE.DL_DateBL END END AS [Date BL],\r\n          \
+      \        CASE F_DOCLIGNE.DO_Type\r\n                       WHEN 1 THEN F_DOCLIGNE.DO_Piece\r\
+      \n                       ELSE F_DOCLIGNE.DL_PieceBC END AS [N° Pièce BC],\r\n\
+      \                  CASE F_DOCLIGNE.DO_Type\r\n                       WHEN 1\
+      \ THEN F_DOCLIGNE.DO_Date\r\n                       ELSE CASE\r\n          \
+      \                       WHEN F_DOCLIGNE.DL_DateBC < 0 THEN '01/01/1900'\r\n\
+      \                                 ELSE F_DOCLIGNE.DL_DateBC END END AS [Date\
+      \ BC],\r\n                  F_DOCLIGNE.DL_PiecePL AS [N° pièce PL],\r\n    \
+      \              F_DOCLIGNE.DL_DatePL AS [Date PL],\r\n                  CASE\r\
+      \n                       WHEN F_DOCLIGNE.DO_DateLivr < 0 THEN NULL\r\n     \
+      \                  ELSE F_DOCLIGNE.DO_DateLivr END AS [Date Livraison],\r\n\
+      \                  F_DOCLIGNE.AR_Ref AS [Code article],\r\n                \
+      \  F_DOCLIGNE.DL_Design AS Désignation,\r\n                  F_CATALOGUE_1.CL_Intitule\
+      \ AS [Catalogue 1],\r\n                  F_CATALOGUE.CL_Intitule AS [Catalogue\
+      \ 2],\r\n                  F_CATALOGUE_2.CL_Intitule AS [Catalogue 3],\r\n \
+      \                 F_CATALOGUE_3.CL_Intitule AS [Catalogue 4],\r\n          \
+      \        P_GAMME.G_Intitule AS [Gamme 1],\r\n                  P_GAMME_1.G_Intitule\
+      \ AS [Gamme 2],\r\n                  CASE F_DOCENTETE.DO_Colisage\r\n      \
+      \                 WHEN 0 THEN P_UNITE.U_Intitule\r\n                       ELSE\
+      \ CAST(F_DOCENTETE.DO_Colisage AS VARCHAR) + ' ' + P_UNITE.U_Intitule END AS\
+      \ Colisage,\r\n                  CAST(F_DOCLIGNE.DL_PoidsBrut / (   SELECT CASE\
+      \ PR_UnitePoids\r\n                                                        \
+      \         WHEN 0 THEN 1000000.000\r\n                                      \
+      \                           WHEN 1 THEN 100000.000\r\n                     \
+      \                                            WHEN 2 THEN 1000.000\r\n      \
+      \                                                           WHEN 3 THEN 1.000\r\
+      \n                                                                 WHEN 4 THEN\
+      \ 0.001 END AS Expr1\r\n                                                   \
+      \    FROM P_PREFERENCES) AS FLOAT) AS [Poids brut],\r\n                  CAST(F_DOCLIGNE.DL_PoidsNet\
+      \ / (   SELECT CASE PR_UnitePoids\r\n                                      \
+      \                          WHEN 0 THEN 1000000.000\r\n                     \
+      \                                           WHEN 1 THEN 100000.000\r\n     \
+      \                                                           WHEN 2 THEN 1000.000\r\
+      \n                                                                WHEN 3 THEN\
+      \ 1.000\r\n                                                                WHEN\
+      \ 4 THEN 0.001 END AS Expr1\r\n                                            \
+      \          FROM P_PREFERENCES AS P_PREFERENCES_1) AS FLOAT) AS [Poids net],\r\
+      \n                  CASE FART.AR_SuiviStock\r\n                       WHEN 1\
+      \ THEN CASE F_DOCLIGNE.DL_MvtStock\r\n                                     \
+      \   WHEN 0 THEN (SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No = DL_NoOut)\r\
+      \n                                        WHEN 1 THEN (SELECT TOP 1 LS_NoSerie\
+      \ FROM F_LOTSERIE WHERE DL_No = DL_NoIn)\r\n                               \
+      \         WHEN 3 THEN (SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No =\
+      \ DL_NoOut) END\r\n                       WHEN 5 THEN CASE F_DOCLIGNE.DL_MvtStock\r\
+      \n                                        WHEN 0 THEN (SELECT TOP 1 LS_NoSerie\
+      \ FROM F_LOTSERIE WHERE DL_No = DL_NoOut)\r\n                              \
+      \          WHEN 1 THEN (SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No\
+      \ = DL_NoIn)\r\n                                        WHEN 3 THEN (SELECT\
+      \ TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No = DL_NoOut) END END AS [N° Série/Lot],\r\
+      \n                  CASE DL_Taxe1\r\n                       WHEN 0 THEN STR(DL_Taxe1)\
+      \ + '%'\r\n                       ELSE CASE DL_TypeTaux1\r\n               \
+      \                  WHEN 0 THEN STR(DL_Taxe1, 6, 2) + '%'\r\n               \
+      \                  WHEN 1 THEN STR(DL_Taxe1, 6, 2) + 'F'\r\n               \
+      \                  WHEN 2 THEN STR(DL_Taxe1, 6, 2) + 'U'\r\n               \
+      \                  ELSE 'ERREUR. Contacter votre revendeur.' END END AS Taxe1,\r\
+      \n                  CASE DL_Taxe2\r\n                       WHEN 0 THEN STR(DL_Taxe2)\
+      \ + '%'\r\n                       ELSE CASE DL_TypeTaux2\r\n               \
+      \                  WHEN 0 THEN STR(DL_Taxe2, 6, 2) + '%'\r\n               \
+      \                  WHEN 1 THEN STR(DL_Taxe2, 6, 2) + 'F'\r\n               \
+      \                  WHEN 2 THEN STR(DL_Taxe2, 6, 2) + 'U'\r\n               \
+      \                  ELSE 'ERREUR. Contacter votre revendeur.' END END AS Taxe2,\r\
+      \n                  CASE DL_Taxe3\r\n                       WHEN 0 THEN STR(DL_Taxe3)\
+      \ + '%'\r\n                       ELSE CASE DL_TypeTaux3\r\n               \
+      \                  WHEN 0 THEN STR(DL_Taxe3, 6, 2) + '%'\r\n               \
+      \                  WHEN 1 THEN STR(DL_Taxe3, 6, 2) + 'F'\r\n               \
+      \                  WHEN 2 THEN STR(DL_Taxe3, 6, 2) + 'U'\r\n               \
+      \                  ELSE 'ERREUR. Contacter votre revendeur.' END END AS Taxe3,\r\
+      \n                  CASE DL_TypeTaux1\r\n                       WHEN 0 THEN\
+      \ 'Taux %'\r\n                       WHEN 1 THEN 'Montant forfait'\r\n     \
+      \                  WHEN 2 THEN 'Quantité'\r\n                       ELSE 'ERREUR.\
+      \ Contacter votre revendeur.' END AS [Type taux taxe 1],\r\n               \
+      \   CASE DL_TypeTaux2\r\n                       WHEN 0 THEN 'Taux %'\r\n   \
+      \                    WHEN 1 THEN 'Montant forfait'\r\n                     \
+      \  WHEN 2 THEN 'Quantité'\r\n                       ELSE 'ERREUR. Contacter\
+      \ votre revendeur.' END AS [Type taux taxe 2],\r\n                  CASE DL_TypeTaux3\r\
+      \n                       WHEN 0 THEN 'Taux %'\r\n                       WHEN\
+      \ 1 THEN 'Montant forfait'\r\n                       WHEN 2 THEN 'Quantité'\r\
+      \n                       ELSE 'ERREUR. Contacter votre revendeur.' END AS [Type\
+      \ taux taxe 3],\r\n                  CASE DL_TypeTaxe1\r\n                 \
+      \      WHEN 0 THEN 'TVA/débit'\r\n                       WHEN 1 THEN 'TVA/Encaissement'\r\
+      \n                       WHEN 2 THEN 'TP/HT'\r\n                       WHEN\
+      \ 3 THEN 'TP/TTC'\r\n                       WHEN 4 THEN 'TP/Poids'\r\n     \
+      \                  ELSE 'ERREUR. Contacter votre revendeur.' END AS [Type taxe\
+      \ 1],\r\n                  CASE DL_TypeTaxe2\r\n                       WHEN\
+      \ 0 THEN 'TVA/débit'\r\n                       WHEN 1 THEN 'TVA/Encaissement'\r\
+      \n                       WHEN 2 THEN 'TP/HT'\r\n                       WHEN\
+      \ 3 THEN 'TP/TTC'\r\n                       WHEN 4 THEN 'TP/Poids'\r\n     \
+      \                  ELSE 'ERREUR. Contacter votre revendeur.' END AS [Type taxe\
+      \ 2],\r\n                  CASE DL_TypeTaxe3\r\n                       WHEN\
+      \ 0 THEN 'TVA/débit'\r\n                       WHEN 1 THEN 'TVA/Encaissement'\r\
+      \n                       WHEN 2 THEN 'TP/HT'\r\n                       WHEN\
+      \ 3 THEN 'TP/TTC'\r\n                       WHEN 4 THEN 'TP/Poids'\r\n     \
+      \                  ELSE 'ERREUR. Contacter votre revendeur.' END AS [Type taxe\
+      \ 3],\r\n\r\n                  -- CAST(CAST(ROUND(F_DOCLIGNE.DL_Remise01REM_Valeur,\
+      \ 2) AS DECIMAL(18, 2)) AS varchar(100)) + '%'\r\n                  FORMAT(F_DOCLIGNE.DL_Remise01REM_Valeur,\
+      \ 'P2') AS [Remise 1],\r\n                  FORMAT(F_DOCLIGNE.DL_Remise02REM_Valeur,\
+      \ 'P2') AS [Remise 2],\r\n                  CAST(F_DOCLIGNE.DL_Frais AS FLOAT)\
+      \ AS [Frais d'approche],\r\n                  F_DOCLIGNE.DL_PUDevise AS [PU\
+      \ Devise],\r\n                  CASE DL_TNomencl\r\n                       WHEN\
+      \ 0 THEN 'Oui'\r\n                       WHEN 1 THEN 'Non'\r\n             \
+      \          ELSE ' ERREUR - Contactez votre revendeur.' END AS Nomenclature,\r\
+      \n                  CASE DL_TRemPied\r\n                       WHEN 0 THEN 'Oui'\r\
+      \n                       WHEN 1 THEN 'Non'\r\n                       ELSE '\
+      \ ERREUR - Contactez votre revendeur.' END AS [Type remise de pied],\r\n   \
+      \               CASE DL_TRemExep\r\n                       WHEN 0 THEN 'Oui'\r\
+      \n                       WHEN 1 THEN 'Non'\r\n                       ELSE '\
+      \ ERREUR - Contactez votre revendeur.' END AS [Type remise exceptionnelle],\r\
+      \n                  F_DOCLIGNE.DL_CMUP AS CMUP,\r\n                  F_DOCLIGNE.DL_PrixUnitaire\
+      \ AS [Prix unitaire],\r\n                  F_DOCLIGNE.DL_PUTTC AS [Prix unitaire\
+      \ TTC],\r\n                  CASE\r\n                       WHEN F_DOCLIGNE.DO_Type\
+      \ <> 5\r\n                        AND F_DOCLIGNE.DO_Type <> 15\r\n         \
+      \               AND DL_TRemPied = 0\r\n                        AND DL_TRemExep\
+      \ = 0\r\n                        AND DL_TypePL < 2\r\n                     \
+      \   AND AR_FactForfait = 0 THEN CASE\r\n                                   \
+      \                      WHEN (F_DOCLIGNE.DO_Domaine = 4) THEN 0\r\n         \
+      \                                                ELSE CASE\r\n             \
+      \                                                      WHEN (   F_DOCLIGNE.DO_Type\
+      \ = 4\r\n                                                                  \
+      \     OR   F_DOCLIGNE.DO_Type = 14) THEN -DL_Qte\r\n                       \
+      \                                            ELSE DL_Qte END END\r\n       \
+      \                ELSE 0 END AS [Quantité],\r\n                  F_DOCLIGNE.DL_QtePL\
+      \ AS [Quantité PL],\r\n                  F_DOCLIGNE.DL_QteRessource AS [Qté\
+      \ Ressource],\r\n                  CASE\r\n                       WHEN (   (\
+      \   F_DOCLIGNE.DO_Type >= 4\r\n                              AND   F_DOCLIGNE.DO_Type\
+      \ <= 5)\r\n                           OR   (   F_DOCLIGNE.DO_Type >= 14\r\n\
+      \                              AND   F_DOCLIGNE.DO_Type <= 15)) THEN -DL_MontantHT\r\
+      \n                       ELSE DL_MontantHT END AS [Montant HT Net],\r\n    \
+      \              CASE\r\n                       WHEN (   (   F_DOCLIGNE.DO_Type\
+      \ >= 4\r\n                              AND   F_DOCLIGNE.DO_Type <= 5)\r\n \
+      \                          OR   (   F_DOCLIGNE.DO_Type >= 14\r\n           \
+      \                   AND   F_DOCLIGNE.DO_Type <= 15)) THEN -DL_MontantTTC\r\n\
+      \                       ELSE DL_MontantTTC END AS [Montant TTC Net],\r\n   \
+      \               DL_PrixRU [Prix de revient],\r\n                  F_DOCLIGNE.DE_No\
+      \ [Code dépôt],\r\n                  DE_Intitule [Intitulé dépôt],\r\n\t\t\t\
+      \t   DL_PUBC [Prix unitaire BC],\r\n\t   EU_Enumere  Conditionnement,\r\n\t\
+      \       CASE  [DL_Remise01REM_Type] WHEN 0 THEN 'Montant' WHEN 1 THEN 'Pourcentage'\
+      \ WHEN 2 THEN 'Quantité' ELSE  'ERREUR. Contacter votre revendeur.' END AS [Type\
+      \ de la remise 1],\r\n    CASE  [DL_Remise02REM_Type] WHEN 0 THEN 'Montant'\
+      \ WHEN 1 THEN 'Pourcentage' WHEN 2 THEN 'Quantité' ELSE  'ERREUR. Contacter\
+      \ votre revendeur.' END AS [Type de la remise 2],\r\n\t AF_RefFourniss [Référence\
+      \ article fournisseur],\r\n\t DL_FactPoids [Article facturé au poids],\r\n\t\
+      \t F_DOCLIGNE.cbCreation [Date création],\r\n\t\t F_DOCLIGNE.cbModification\
+      \ [Date modification]\r\n \r\n\r\n  FROM            F_DOCLIGNE\r\n INNER JOIN\
+      \       F_ARTICLE AS FART\r\n    ON F_DOCLIGNE.cbAR_Ref      = FART.cbAR_Ref\r\
+      \n INNER JOIN       F_DOCENTETE\r\n    ON F_DOCLIGNE.DO_Type       = F_DOCENTETE.DO_Type\r\
+      \n   AND F_DOCLIGNE.DO_Piece      = F_DOCENTETE.DO_Piece\r\n INNER JOIN    \
+      \   F_COMPTET\r\n    ON F_DOCENTETE.cbDO_Tiers   = F_COMPTET.cbCT_Num\r\n INNER\
+      \ JOIN       F_FAMILLE\r\n    ON FART.FA_CodeFamille      = F_FAMILLE.FA_CodeFamille\r\
+      \n INNER JOIN       F_COMPTET AS F_COMPTET_1\r\n    ON F_COMPTET.CT_NumPayeur\
+      \   = F_COMPTET_1.CT_Num\r\n  LEFT OUTER JOIN P_GAMME AS P_GAMME_1\r\n    ON\
+      \ F_DOCLIGNE.AG_No2        = P_GAMME_1.cbIndice\r\n  LEFT OUTER JOIN P_GAMME\r\
+      \n    ON F_DOCLIGNE.AG_No1        = P_GAMME.cbIndice\r\n  LEFT OUTER JOIN F_DEPOT\r\
+      \n    ON F_DOCLIGNE.DE_No         = F_DEPOT.DE_No\r\n  LEFT OUTER JOIN F_CATALOGUE\
+      \ AS F_CATALOGUE_3\r\n    ON FART.CL_No4              = F_CATALOGUE_3.CL_No\r\
+      \n  LEFT OUTER JOIN F_CATALOGUE\r\n    ON FART.CL_No2              = F_CATALOGUE.CL_No\r\
+      \n  LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_2\r\n    ON FART.CL_No3     \
+      \         = F_CATALOGUE_2.CL_No\r\n  LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_1\r\
+      \n    ON FART.CL_No1              = F_CATALOGUE_1.CL_No\r\n  LEFT OUTER JOIN\
+      \ P_DEVISE\r\n    ON F_DOCENTETE.DO_Devise    = P_DEVISE.cbIndice\r\n  LEFT\
+      \ OUTER JOIN P_UNITE\r\n    ON F_DOCENTETE.DO_TypeColis = P_UNITE.cbIndice\r\
+      \n WHERE            (F_DOCLIGNE.DO_Domaine = 1)\r\n   AND            (F_DOCLIGNE.DL_TRemExep\
+      \           < 2)\r\n   AND            (F_DOCLIGNE.DL_NonLivre           = 0);\r\
+      \n\r\n"
+  target:
+    table: Lignes_des_achats
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 18
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Echéances achats
+  source:
+    query: "select \r\n\r\n[Code tier payeur], [Type Document],[Date d'échéance],[Pourcentage],[N°\
+      \ pièce],[Montant échéance devise],Régler, [Montant TTC],\r\n[Mode de réglement],[Tier\
+      \ payeur],[Intitulé fournisseur],[Code fournisseur],[Date document],\r\ncase\
+      \ when countt = 1 then [Montant TTC] else case when [Montant échance1]<>0 then\
+      \ [Montant échance1] else [Montant TTC]-sum([Montant échance1])over(partition\
+      \ by [N° pièce] order by DR_Equil) end end [Montant échéance]\r\n,[N° interne],[Date\
+      \ création],[Date modification]\r\n \r\n\r\nfrom (\r\n\t\tSELECT    DR_Equil\
+      \ ,\r\n \r\n\t\t \r\n\t\t\t\t\t\t\t\t\r\n\t\t\t\t\t\t\t\tF_DOCENTETE.CT_NumPayeur\
+      \  AS [Code tier payeur], \r\n\r\n\r\n ISNULL(   CASE\r\n                  \
+      \   WHEN F_DOCENTETE.DO_Domaine = 1 THEN\r\n                         CASE F_DOCENTETE.DO_Type\r\
+      \n                             WHEN 10 THEN\r\n                            \
+      \     'Demande d''achat'\r\n                             WHEN 11 THEN\r\n  \
+      \                               'Bon de commande'\r\n                      \
+      \       WHEN 12 THEN\r\n                                 'Préparation de livraison'\r\
+      \n                             WHEN 13 THEN\r\n                            \
+      \     'Bon de livraison'\r\n                             WHEN 14 THEN\r\n  \
+      \                               'Bon de retour'\r\n                        \
+      \     WHEN 15 THEN\r\n                                 'Bon avoir financier'\r\
+      \n                             WHEN 16 THEN\r\n                            \
+      \     CASE DO_Provenance\r\n                                     WHEN 0 THEN\r\
+      \n                                         'Facture'\r\n                   \
+      \                  WHEN 1 THEN\r\n                                         'Facture\
+      \ de retour'\r\n                                     WHEN 2 THEN\r\n       \
+      \                                  'Facture avoir'\r\n                     \
+      \                WHEN 3 THEN\r\n                                         'Facture\
+      \ caisse décentralisée'\r\n\t\t\t\t\t\t\t\t\t WHEN 4 THEN\r\n              \
+      \                           'Facture d\"accompte'\r\n                      \
+      \           END\r\n                             WHEN 17 THEN\r\n           \
+      \                      CASE DO_Provenance\r\n                              \
+      \       WHEN 0 THEN\r\n                                         'Facture comptabilisée'\r\
+      \n                                     WHEN 1 THEN\r\n                     \
+      \                    'Facture de retour comptabilisée'\r\n                 \
+      \                    WHEN 2 THEN\r\n                                       \
+      \  'Facture avoir comptabilisée'\r\n                                     WHEN\
+      \ 3 THEN\r\n                                         'Facture caisse décentralisée\
+      \ comptabilisée'\r\n\t\t\t\t\t\t\t\t\t WHEN 4 THEN\r\n                     \
+      \                    'Facture d\"accompte comptabilisée'\r\n               \
+      \                  END\r\n                             WHEN 18 THEN\r\n    \
+      \                             'Archive'\r\n                             ELSE\r\
+      \n                                 'ERREUR sur F_DOCENTETE.DO_Type - Contactez\
+      \ votre revendeur.'\r\n                         END\r\n                    \
+      \ ELSE\r\n                         CASE F_DOCENTETE.DO_Type\r\n            \
+      \                 WHEN 0 THEN\r\n                                 'Devis'\r\n\
+      \                             WHEN 1 THEN\r\n                              \
+      \   'Bon de commande'\r\n                             WHEN 2 THEN\r\n      \
+      \                           'Préparation de livraison'\r\n                 \
+      \            WHEN 3 THEN\r\n                                 'Bon de livraison'\r\
+      \n                             WHEN 4 THEN\r\n                             \
+      \    'Bon de retour'\r\n                             WHEN 5 THEN\r\n       \
+      \                          'Bon avoir financier'\r\n                       \
+      \      WHEN 6 THEN\r\n                                 CASE DO_Provenance\r\n\
+      \                                     WHEN 0 THEN\r\n                      \
+      \                   'Facture'\r\n                                     WHEN 1\
+      \ THEN\r\n                                         'Facture de retour'\r\n \
+      \                                    WHEN 2 THEN\r\n                       \
+      \                  'Facture avoir'\r\n                                     WHEN\
+      \ 3 THEN\r\n                                         'Facture caisse décentralisée'\r\
+      \n                                 END\r\n                             WHEN\
+      \ 7 THEN\r\n                                 CASE DO_Provenance\r\n        \
+      \                             WHEN 0 THEN\r\n                              \
+      \           'Facture comptabilisée'\r\n                                    \
+      \ WHEN 1 THEN\r\n                                         'Facture de retour\
+      \ comptabilisée'\r\n                                     WHEN 2 THEN\r\n   \
+      \                                      'Facture avoir comptabilisée'\r\n   \
+      \                                  WHEN 3 THEN\r\n                         \
+      \                'Facture caisse décentralisée comptabilisée'\r\n          \
+      \                       END\r\n                             WHEN 8 THEN\r\n\
+      \                                 'Archive'\r\n                            \
+      \ ELSE\r\n                                 'ERREUR sur F_DOCENTETE.DO_Type -\
+      \ Contactez votre revendeur.'\r\n                         END\r\n          \
+      \       END,\r\n                 'ERREUR sur F_DOCENTETE.DO_Type - Contactez\
+      \ votre revendeur.'\r\n             ) AS [Type Document],\r\n\t\t\t\t\t\t\t\t\
+      \  \r\n\t\t\t\t\t\t\t\t  F_DOCREGL.DO_Piece AS [N° pièce], \r\n\t\t\t\t\t\t\t\
+      \t F_DOCREGL.DR_Date AS [Date d'échéance], F_DOCREGL.DR_Pourcent [Pourcentage],\r\
+      \n\t\t\t\t\t\t \r\n\t\t\t\t\t\t\t\t ISNULL(CASE WHEN F_DOCREGL.DR_Equil = 0\
+      \ THEN (CASE when DR_Pourcent=0 then F_DOCREGL.DR_Montant else SUM( DL_MontantTTC)*DR_Pourcent/100\
+      \ end )   end ,0) \r\n\t\t\t\t\t\t\t\t AS [Montant échance1],\r\n\t\t\t\t\t\t\
+      \t\t \r\n\r\n\t\t\t\t\t\t\t\t F_DOCREGL.DR_MontantDev AS [Montant échéance devise],\
+      \ \r\n\t\t\t\t\t\t\t\t CASE WHEN F_DOCREGL.DR_Regle = 0 THEN 'Non' ELSE 'Oui'\
+      \ END AS Régler, \r\n\t\t\t\t\t\t\t\t \r\n\t\t\t\t\t\t\t\t SUM(F_DOCLIGNE.DL_MontantTTC)\
+      \ AS [Montant TTC], \r\n\t\t\t\t\t\t\t\t P_REGLEMENT.R_Intitule AS [Mode de\
+      \ réglement], F_COMPTET.CT_Intitule [Tier payeur],   F_COMPTET_1.CT_Intitule\
+      \ AS [Intitulé fournisseur], F_DOCENTETE.DO_Tiers [Code fournisseur]\r\n\t\t\
+      \t\t\t\t\t\t ,F_DOCENTETE.DO_Date [Date document]\r\n\t\t\t\t\t\t\t\t,\tcount(F_DOCREGL.DO_Piece)over(partition\
+      \ by F_DOCLIGNE.DO_Piece,F_DOCLIGNE.DO_Type)countt\r\n \r\n,dr_no [N° interne],\r\
+      \n\t\t F_DOCREGL.cbCreation [Date création],\r\n\t\t F_DOCREGL.cbModification\
+      \ [Date modification]\r\n\t\tFROM            F_DOCENTETE INNER JOIN\r\n\t\t\t\
+      \t\t\t\t\t F_DOCLIGNE ON F_DOCENTETE.DO_Type = F_DOCLIGNE.DO_Type AND F_DOCENTETE.DO_Piece\
+      \ = F_DOCLIGNE.DO_Piece INNER JOIN\r\n\t\t\t\t\t\t\t\t F_COMPTET ON F_DOCENTETE.CT_NumPayeur\
+      \ = F_COMPTET.CT_Num INNER JOIN\r\n\t\t\t\t\t\t\t\t F_COMPTET AS F_COMPTET_1\
+      \ ON F_DOCENTETE.DO_Tiers = F_COMPTET_1.CT_num LEFT OUTER JOIN\r\n\t\t\t\t\t\
+      \t\t\t F_DOCREGL INNER JOIN\r\n\t\t\t\t\t\t\t\t P_REGLEMENT ON F_DOCREGL.N_Reglement\
+      \ = P_REGLEMENT.cbIndice ON F_DOCLIGNE.DO_Piece = F_DOCREGL.DO_Piece AND F_DOCLIGNE.DO_Type\
+      \ = F_DOCREGL.DO_Type\r\n\t\tWHERE    isnull(F_DOCREGL.DO_Domaine,99)=1 and\
+      \    (F_DOCLIGNE.DO_Type IN (16, 17 ))  \r\n\t\tGROUP BY F_DOCENTETE.DO_Tiers,F_DOCENTETE.DO_Provenance,\
+      \ F_DOCLIGNE.DO_Piece, F_DOCENTETE.DO_Type, F_DOCLIGNE.DO_Type,  F_DOCREGL.DR_No,\
+      \ F_DOCENTETE.DO_Domaine, F_DOCREGL.DO_Type, F_DOCREGL.DO_Piece, F_DOCREGL.DR_Date,\
+      \ \r\n\t\tF_DOCREGL.DR_Libelle, F_DOCREGL.DR_Pourcent, F_DOCREGL.DR_Montant,\
+      \ F_DOCREGL.DR_MontantDev, F_DOCREGL.DR_Equil, F_DOCREGL.DR_Regle, F_DOCREGL.N_Reglement,\
+      \ P_REGLEMENT.R_Intitule, \r\n\t\tF_COMPTET.CT_Intitule, F_DOCENTETE.CT_NumPayeur,\
+      \ F_COMPTET_1.CT_Intitule, F_DOCENTETE.DO_Tiers ,F_DOCENTETE.DO_Date  ,F_DOCREGL.cbCreation\
+      \ , F_DOCREGL.cbModification\r\n \r\n \t) tab \r\n\r\n "
+  target:
+    table: Echeances_Achats
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 19
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Entête des documents interne
+  source:
+    query: "\r\nSELECT \r\n  \r\n\r\n\r\nCASE WHEN F_DOCENTETE.DO_TYPE BETWEEN 0 AND\
+      \ 6 THEN 'OUI' ELSE 'NON' END AS Encours, \r\n\r\n\t\t\t\tISNULL( (SELECT D_Intitule\
+      \  FROM dbo.P_INTERNE WHERE 39+cbIndice =DO_Type),'Erreur. Contactez votre revendeur.'\
+      \ ) AS [Type Document], \r\n\t\t\t\t   \r\n\t\t\t\t   ( SELECT S_Intitule FROM\
+      \ dbo.P_SOUCHEINTERNE WHERE cbIndice = DO_Souche+1  ) Souche,\r\n\r\n      \
+      \          CASE DO_STATUT WHEN 0 THEN 'Saisi' WHEN 1 THEN 'Confermé' WHEN 2\
+      \ THEN 'Accepté' END AS Statut, \r\n\r\n                  F_DOCENTETE.DO_Tiers\
+      \ AS [Code client], F_COMPTET.CT_Intitule AS [Intitulé client], F_DOCENTETE.CO_No\
+      \ [Code représentant] ,COLLABORATEUR_DOC.co_nom [Nom représentant] , \r\n\t\t\
+      \t\t  \r\n\t\t\t\t   CONVERT(DATETIME, F_DOCENTETE.DO_Date, 3) AS [Date],  isnull(\
+      \ F_DOCENTETE.DO_Piece ,'')  AS [N° pièce], \r\n\t\t\t\t  \r\n\t\t\t\t  CASE\
+      \ WHEN F_DOCENTETE.DO_Ventile = 0 THEN 'Non' ELSE 'Oui' END AS [Document ventilé],\
+      \ \r\n                  CASE WHEN F_DOCENTETE.DO_RELIQUAT = 1 THEN 'Reliquat'\
+      \ WHEN F_DOCENTETE.DO_RELIQUAT = 0 AND F_DOCENTETE.DO_IMPRIM = 1 THEN 'Imprimé'\
+      \ WHEN F_DOCENTETE.DO_RELIQUAT = 0 AND \r\n                  F_DOCENTETE.DO_IMPRIM\
+      \ = 0 THEN ' ' ELSE 'ERREUR. Contactez votre revendeur.' END AS Etat,F_DOCENTETE.DO_Coord01\
+      \ AS [Entête 1],  F_DOCENTETE.DO_Coord02 AS [Entête 2],\r\n\t\t\t\t   F_DOCENTETE.DO_Coord03\
+      \ AS [Entête 3], F_DOCENTETE.DO_Coord04 AS [Entête 4], \r\n\r\n\t\t\t\t  F_DOCENTETE.CT_NumPayeur\
+      \ AS [N° Compte Payeur],  F_COMPTET_1.CT_Intitule AS [Intitulé tiers payeur],\r\
+      \n                 F_DEPOT.DE_Intitule AS Dépôt, ISNULL(P_DEVISE.D_Intitule,\
+      \ 'Aucune') AS Devise, P_EXPEDITION.E_Intitule AS Expédition, \r\n         \
+      \         CASE (F_DOCENTETE.DO_LANGUE) WHEN 0 THEN 'Aucune' WHEN 1 THEN 'Langue\
+      \ 1' WHEN 2 THEN 'Langue 2' END AS Langue, CASE F_DOCENTETE.DO_BLFACT WHEN 1\
+      \ THEN 'OUI' WHEN 0 THEN 'NON' END AS [Fact/BL], \r\n                  F_DOCENTETE.DO_NbFacture\
+      \ AS [Nb Facture], F_DOCENTETE.CG_Num AS [Compte Général], \r\n            \
+      \    F_DOCENTETE.CA_Num [Code d'affaire],\r\n                  (   SELECT TOP\
+      \ 1 CA_Intitule\r\n                        FROM F_COMPTEA\r\n              \
+      \         WHERE F_COMPTEA.CA_Num = F_DOCENTETE.ca_num) AS [Intitulé affaire],\r\
+      \n\t\t\t\t \r\n\t\t\t\t \r\n\t\t\t\t case F_DOCENTETE.N_CATCOMPTA WHEN 1 THEN\r\
+      \n                      (SELECT P_CATCOMPTA.CA_COMPTAVEN01\r\n             \
+      \          FROM      P_CATCOMPTA) WHEN 2 THEN\r\n                      (SELECT\
+      \ P_CATCOMPTA.CA_COMPTAVEN02\r\n                       FROM      P_CATCOMPTA)\
+      \ WHEN 3 THEN\r\n                      (SELECT P_CATCOMPTA.CA_COMPTAVEN03\r\n\
+      \                       FROM      P_CATCOMPTA) WHEN 4 THEN\r\n             \
+      \         (SELECT P_CATCOMPTA.CA_COMPTAVEN04\r\n                       FROM\
+      \      P_CATCOMPTA) WHEN 5 THEN\r\n                      (SELECT P_CATCOMPTA.CA_COMPTAVEN05\r\
+      \n                       FROM      P_CATCOMPTA) WHEN 6 THEN\r\n            \
+      \          (SELECT P_CATCOMPTA.CA_COMPTAVEN06\r\n                       FROM\
+      \      P_CATCOMPTA) WHEN 7 THEN\r\n                      (SELECT P_CATCOMPTA.CA_COMPTAVEN07\r\
+      \n                       FROM      P_CATCOMPTA) WHEN 8 THEN\r\n            \
+      \          (SELECT P_CATCOMPTA.CA_COMPTAVEN08\r\n                       FROM\
+      \      P_CATCOMPTA) WHEN 9 THEN\r\n                      (SELECT P_CATCOMPTA.CA_COMPTAVEN09\r\
+      \n                       FROM      P_CATCOMPTA) WHEN 10 THEN\r\n           \
+      \           (SELECT P_CATCOMPTA.CA_COMPTAVEN10\r\n                       FROM\
+      \      P_CATCOMPTA) ELSE ' ' END AS [Catégorie Comptable], F_DEPOT.DE_No AS\
+      \ [Code dépôt],\r\n\t\t\t\t\t  \r\n                  F_DOCENTETE.DO_Ref AS Référence,\
+      \ F_DOCENTETE.DO_Cours AS Cours, F_DOCENTETE.DO_TxEscompte AS [Taux escompte],\
+      \ CASE WHEN DO_Reliquat = 0 THEN 'Reliquet' ELSE 'Non' END AS [Document de reliquat],\
+      \ \r\n                  CASE WHEN DO_Imprim = 0 THEN 'Oui' ELSE 'Non' END AS\
+      \ [Document imprimé ], F_DOCENTETE.DO_DateLivr AS [Date livraison souhite],\
+      \ F_DOCENTETE.DO_DebutAbo AS [Date début de l’abonnement lié], \r\n        \
+      \          F_DOCENTETE.DO_FinAbo AS [Date fin de l’abonnement lié], F_DOCENTETE.DO_DebutPeriod\
+      \ AS [Date début de la périodicité liée], F_DOCENTETE.DO_FinPeriod AS [Date\
+      \ Fin de la périodicité liée], \r\n                  F_DOCENTETE.DO_Cloture\
+      \ AS [Document clôturé] , \r\n                  CASE DO_TypeFrais WHEN 0 THEN\
+      \ 'Montant Forfaitaire' WHEN 1 THEN 'Quantité' WHEN 2 THEN 'Poids net' WHEN\
+      \ 3 THEN 'Poids brut' ELSE 'Erreur. Contactez votre revendeur.' END AS [Type\
+      \ frais], \r\n                  F_DOCENTETE.DO_ValFrais AS [Valeur frais], CASE\
+      \ WHEN DO_TypeLigneFrais = 0 THEN 'HT' ELSE 'TTC' END AS [Type HT/TTC frais],\
+      \ CASE WHEN DO_Valide = 0 THEN 'Oui' ELSE 'Non' END AS [Statut validé], \r\n\
+      \                 P_DEVISE.D_Intitule AS [Intitulé dépôt], P_CATTARIF.CT_Intitule\
+      \ AS [Catégorie tarifaire ], P_CONDLIVR.C_Intitule AS [Condition de livraison],\
+      \ CASE F_DOCENTETE.DO_COLISAGE WHEN 0 THEN P_UNITE.U_INTITULE ELSE CAST(F_DOCENTETE.DO_COLISAGE\
+      \ AS VARCHAR) \r\n                  + ' ' + P_UNITE.U_INTITULE END AS Colisage,\
+      \  F_DOCENTETE.DO_TotalHT AS [Montant HT], F_DOCENTETE.DO_TotalTTC [Montant\
+      \ TTC], \r\n                  F_DOCENTETE.DO_NetAPayer [Montant net à payer],\
+      \ F_DOCENTETE.DO_MontantRegle [Montant réglé],      F_LIVRAISON.LI_No AS [Code\
+      \ lieu de livraison], F_LIVRAISON.LI_Intitule [Lieu de livraison]\r\n\t\t\t\t\
+      \  ,F_DOCENTETE.cbModification [Date modification]\r\n \r\nFROM            P_CATTARIF\
+      \ RIGHT OUTER JOIN\r\n                         F_COMPTET AS F_COMPTET_1 INNER\
+      \ JOIN\r\n                         F_COMPTET INNER JOIN\r\n                \
+      \         F_DOCENTETE ON F_COMPTET.cbCT_Num = F_DOCENTETE.cbDO_Tiers ON F_COMPTET_1.CT_Num\
+      \ = F_COMPTET.CT_NumPayeur INNER JOIN\r\n                         F_DEPOT ON\
+      \ F_DOCENTETE.DE_No = F_DEPOT.DE_No LEFT OUTER JOIN\r\n                    \
+      \     F_LIVRAISON ON F_DOCENTETE.cbLI_No = F_LIVRAISON.LI_No LEFT OUTER JOIN\r\
+      \n                         P_CONDLIVR ON F_DOCENTETE.DO_DateLivr = P_CONDLIVR.cbIndice\
+      \ ON P_CATTARIF.cbIndice = F_DOCENTETE.DO_Tarif LEFT OUTER JOIN\r\n        \
+      \                 F_COLLABORATEUR AS COLLABORATEUR_DOC ON F_DOCENTETE.cbCO_No\
+      \ = COLLABORATEUR_DOC.CO_No LEFT OUTER JOIN\r\n                         P_DEVISE\
+      \ ON F_DOCENTETE.DO_Devise = P_DEVISE.cbIndice LEFT OUTER JOIN\r\n         \
+      \                P_EXPEDITION ON F_DOCENTETE.DO_Expedit = P_EXPEDITION.cbIndice\
+      \ LEFT OUTER JOIN\r\n                         P_UNITE ON F_DOCENTETE.DO_TypeColis\
+      \ = P_UNITE.cbIndice\r\nWHERE        (F_DOCENTETE.DO_Domaine IN (4)) "
+  target:
+    table: Entête_des_documents_internes
+    primary_key:
+    - Type Document
+    - N° Pièce
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 21
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Ligne des documents internes
+  source:
+    query: "SELECT   DL_No [N° interne],\r\n      \tISNULL( (SELECT D_Intitule  FROM\
+      \ dbo.P_INTERNE WHERE 39+cbIndice = F_DOCLIGNE.DO_Type),'Erreur. Contactez votre\
+      \ revendeur.' ) AS [Type Document], \r\n                        \r\n    \r\n\
+      \   \r\n \r\n       F_DOCENTETE.DO_Tiers AS [Code client],\r\n       F_COMPTET.CT_Intitule\
+      \ AS [Intitulé client],\r\n       ISNULL(F_DOCLIGNE.DO_Piece, '') AS [N° Pièce],\r\
+      \n\t     F_DOCLIGNE.DO_Ref AS Référence,\r\n\t\t F_COMPTEA.CA_Intitule AS [Intitule\
+      \ affaire],\r\n       F_COMPTEA.CA_Num AS [Code affaire],\r\n\r\n       CONVERT(DATETIME,\
+      \ F_DOCENTETE.DO_Date, 3) AS [Date],\r\n\t    CONVERT(DATETIME, F_DOCENTETE.DO_Date,\
+      \ 3) AS [Date document],\r\n      \r\n       \r\n       CASE\r\n           WHEN\
+      \ F_DOCLIGNE.DO_DateLivr < 0 THEN\r\n               NULL\r\n           ELSE\r\
+      \n               F_DOCLIGNE.DO_DateLivr\r\n       END AS [Date Livraison],\r\
+      \n\r\n       F_DOCLIGNE.AR_Ref AS [Code article],\r\n       F_DOCLIGNE.DL_Design\
+      \ AS Désignation,\r\n       F_CATALOGUE_1.CL_Intitule AS [Catalogue 1],\r\n\
+      \       F_CATALOGUE.CL_Intitule AS [Catalogue 2],\r\n       F_CATALOGUE_2.CL_Intitule\
+      \ AS [Catalogue 3],\r\n       F_CATALOGUE_3.CL_Intitule AS [Catalogue 4],\r\n\
+      \       P_GAMME.G_Intitule AS [Gamme 1],\r\n       P_GAMME_1.G_Intitule AS [Gamme\
+      \ 2],\r\n\t  \r\n      \r\n       CASE F_DOCENTETE.DO_Colisage\r\n         \
+      \  WHEN 0 THEN\r\n               P_UNITE.U_Intitule\r\n           ELSE\r\n \
+      \              CAST(F_DOCENTETE.DO_Colisage AS VARCHAR) + ' ' + P_UNITE.U_Intitule\r\
+      \n       END AS Colisage,\r\n       CAST(F_DOCLIGNE.DL_PoidsBrut /\r\n     \
+      \       (\r\n                SELECT CASE PR_UnitePoids\r\n                 \
+      \          WHEN 0 THEN\r\n                               1000000.000\r\n   \
+      \                        WHEN 1 THEN\r\n                               100000.000\r\
+      \n                           WHEN 2 THEN\r\n                               1000.000\r\
+      \n                           WHEN 3 THEN\r\n                               1.000\r\
+      \n                           WHEN 4 THEN\r\n                               0.001\r\
+      \n                       END AS Expr1\r\n                FROM P_PREFERENCES\r\
+      \n            ) AS FLOAT) AS [Poids brut],\r\n       CAST(F_DOCLIGNE.DL_PoidsNet\
+      \ /\r\n            (\r\n                SELECT CASE PR_UnitePoids\r\n      \
+      \                     WHEN 0 THEN\r\n                               1000000.000\r\
+      \n                           WHEN 1 THEN\r\n                               100000.000\r\
+      \n                           WHEN 2 THEN\r\n                               1000.000\r\
+      \n                           WHEN 3 THEN\r\n                               1.000\r\
+      \n                           WHEN 4 THEN\r\n                               0.001\r\
+      \n                       END AS Expr1\r\n                FROM P_PREFERENCES\
+      \ AS P_PREFERENCES_1\r\n            ) AS FLOAT) AS [Poids net],\r\n       CASE\
+      \ FART.AR_SuiviStock\r\n           WHEN 1 THEN\r\n               CASE F_DOCLIGNE.DL_MvtStock\r\
+      \n                   WHEN 0 THEN\r\n                   (\r\n               \
+      \        SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No = DL_NoOut\r\n\
+      \                   )\r\n                   WHEN 1 THEN\r\n                \
+      \   (\r\n                       SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE\
+      \ DL_No = DL_NoIn\r\n                   )\r\n                   WHEN 3 THEN\r\
+      \n                   (\r\n                       SELECT TOP 1 LS_NoSerie FROM\
+      \ F_LOTSERIE WHERE DL_No = DL_NoOut\r\n                   )\r\n            \
+      \   END\r\n           WHEN 5 THEN\r\n               CASE F_DOCLIGNE.DL_MvtStock\r\
+      \n                   WHEN 0 THEN\r\n                   (\r\n               \
+      \        SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE DL_No = DL_NoOut\r\n\
+      \                   )\r\n                   WHEN 1 THEN\r\n                \
+      \   (\r\n                       SELECT TOP 1 LS_NoSerie FROM F_LOTSERIE WHERE\
+      \ DL_No = DL_NoIn\r\n                   )\r\n                   WHEN 3 THEN\r\
+      \n                   (\r\n                       SELECT TOP 1 LS_NoSerie FROM\
+      \ F_LOTSERIE WHERE DL_No = DL_NoOut\r\n                   )\r\n            \
+      \   END\r\n       END AS [N° Série/Lot],\r\n       CASE DL_Taxe1\r\n       \
+      \    WHEN 0 THEN\r\n               STR(DL_Taxe1) + '%'\r\n           ELSE\r\n\
+      \               CASE DL_TypeTaux1\r\n                   WHEN 0 THEN\r\n    \
+      \                   STR(DL_Taxe1, 6, 2) + '%'\r\n                   WHEN 1 THEN\r\
+      \n                       STR(DL_Taxe1, 6, 2) + 'F'\r\n                   WHEN\
+      \ 2 THEN\r\n                       STR(DL_Taxe1, 6, 2) + 'U'\r\n           \
+      \        ELSE\r\n                       'ERREUR. Contacter votre revendeur.'\r\
+      \n               END\r\n       END AS Taxe1,\r\n       CASE DL_Taxe2\r\n   \
+      \        WHEN 0 THEN\r\n               STR(DL_Taxe2) + '%'\r\n           ELSE\r\
+      \n               CASE DL_TypeTaux2\r\n                   WHEN 0 THEN\r\n   \
+      \                    STR(DL_Taxe2, 6, 2) + '%'\r\n                   WHEN 1\
+      \ THEN\r\n                       STR(DL_Taxe2, 6, 2) + 'F'\r\n             \
+      \      WHEN 2 THEN\r\n                       STR(DL_Taxe2, 6, 2) + 'U'\r\n \
+      \                  ELSE\r\n                       'ERREUR. Contacter votre revendeur.'\r\
+      \n               END\r\n       END AS Taxe2,\r\n       CASE DL_Taxe3\r\n   \
+      \        WHEN 0 THEN\r\n               STR(DL_Taxe3) + '%'\r\n           ELSE\r\
+      \n               CASE DL_TypeTaux3\r\n                   WHEN 0 THEN\r\n   \
+      \                    STR(DL_Taxe3, 6, 2) + '%'\r\n                   WHEN 1\
+      \ THEN\r\n                       STR(DL_Taxe3, 6, 2) + 'F'\r\n             \
+      \      WHEN 2 THEN\r\n                       STR(DL_Taxe3, 6, 2) + 'U'\r\n \
+      \                  ELSE\r\n                       'ERREUR. Contacter votre revendeur.'\r\
+      \n               END\r\n       END AS Taxe3,\r\n       CASE DL_TypeTaux1\r\n\
+      \           WHEN 0 THEN\r\n               'Taux %'\r\n           WHEN 1 THEN\r\
+      \n               'Montant forfait'\r\n           WHEN 2 THEN\r\n           \
+      \    'Quantité'\r\n           ELSE\r\n               'ERREUR. Contacter votre\
+      \ revendeur.'\r\n       END AS [Type taux taxe 1],\r\n       CASE DL_TypeTaux2\r\
+      \n           WHEN 0 THEN\r\n               'Taux %'\r\n           WHEN 1 THEN\r\
+      \n               'Montant forfait'\r\n           WHEN 2 THEN\r\n           \
+      \    'Quantité'\r\n           ELSE\r\n               'ERREUR. Contacter votre\
+      \ revendeur.'\r\n       END AS [Type taux taxe 2],\r\n       CASE DL_TypeTaux3\r\
+      \n           WHEN 0 THEN\r\n               'Taux %'\r\n           WHEN 1 THEN\r\
+      \n               'Montant forfait'\r\n           WHEN 2 THEN\r\n           \
+      \    'Quantité'\r\n           ELSE\r\n               'ERREUR. Contacter votre\
+      \ revendeur.'\r\n       END AS [Type taux taxe 3],\r\n       CASE DL_TypeTaxe1\r\
+      \n           WHEN 0 THEN\r\n               'TVA/débit'\r\n           WHEN 1\
+      \ THEN\r\n               'TVA/Encaissement'\r\n           WHEN 2 THEN\r\n  \
+      \             'TP/HT'\r\n           WHEN 3 THEN\r\n               'TP/TTC'\r\
+      \n           WHEN 4 THEN\r\n               'TP/Poids'\r\n           ELSE\r\n\
+      \               'ERREUR. Contacter votre revendeur.'\r\n       END AS [Type\
+      \ taxe 1],\r\n       CASE DL_TypeTaxe2\r\n           WHEN 0 THEN\r\n       \
+      \        'TVA/débit'\r\n           WHEN 1 THEN\r\n               'TVA/Encaissement'\r\
+      \n           WHEN 2 THEN\r\n               'TP/HT'\r\n           WHEN 3 THEN\r\
+      \n               'TP/TTC'\r\n           WHEN 4 THEN\r\n               'TP/Poids'\r\
+      \n           ELSE\r\n               'ERREUR. Contacter votre revendeur.'\r\n\
+      \       END AS [Type taxe 2],\r\n       CASE DL_TypeTaxe3\r\n           WHEN\
+      \ 0 THEN\r\n               'TVA/débit'\r\n           WHEN 1 THEN\r\n       \
+      \        'TVA/Encaissement'\r\n           WHEN 2 THEN\r\n               'TP/HT'\r\
+      \n           WHEN 3 THEN\r\n               'TP/TTC'\r\n           WHEN 4 THEN\r\
+      \n               'TP/Poids'\r\n           ELSE\r\n               'ERREUR. Contacter\
+      \ votre revendeur.'\r\n       END AS [Type taxe 3],\r\n\r\n       -- CAST(CAST(ROUND(F_DOCLIGNE.DL_Remise01REM_Valeur,\
+      \ 2) AS DECIMAL(18, 2)) AS varchar(100)) + '%'\r\n       FORMAT(F_DOCLIGNE.DL_Remise01REM_Valeur,\
+      \ 'P2') AS [Remise 1],\r\n       FORMAT(F_DOCLIGNE.DL_Remise02REM_Valeur, 'P2')\
+      \ AS [Remise 2],\r\n       CAST(F_DOCLIGNE.DL_Frais AS FLOAT) AS [Frais d'approche],\r\
+      \n       F_DOCLIGNE.DL_PUDevise AS [PU Devise],\r\n     \r\n       \r\n    \
+      \   CASE DL_TNomencl\r\n           WHEN 0 THEN\r\n               'Oui'\r\n \
+      \          WHEN 1 THEN\r\n               'Non'\r\n           ELSE\r\n      \
+      \         ' ERREUR - Contactez votre revendeur.'\r\n       END AS Nomenclature,\r\
+      \n       CASE DL_TRemPied\r\n           WHEN 0 THEN\r\n               'Oui'\r\
+      \n           WHEN 1 THEN\r\n               'Non'\r\n           ELSE\r\n    \
+      \           ' ERREUR - Contactez votre revendeur.'\r\n       END AS [Type remise\
+      \ de pied],\r\n       CASE DL_TRemExep\r\n           WHEN 0 THEN\r\n       \
+      \        'Oui'\r\n           WHEN 1 THEN\r\n               'Non'\r\n       \
+      \    ELSE\r\n               ' ERREUR - Contactez votre revendeur.'\r\n     \
+      \  END AS [Type remise exceptionnelle],\r\n\r\n\t    \r\n       F_DOCLIGNE.DL_CMUP\
+      \ AS CMUP,\r\n       F_DOCLIGNE.DL_PrixUnitaire AS [Prix unitaire],\r\n    \
+      \   F_DOCLIGNE.DL_PUTTC AS [Prix unitaire TTC],\r\n        DL_QTE AS [Quantité],\r\
+      \n\t  \r\n       dl_montantht AS [Montant HT Net],\r\n       \r\n          \
+      \     DL_MontantTTC  AS [Montant TTC Net],DL_PrixRU [Prix de revient]\r\n ,F_DOCLIGNE.cbModification\
+      \ [Date modification]\r\n\r\nFROM F_DOCLIGNE\r\n    INNER JOIN F_ARTICLE AS\
+      \ FART\r\n        ON F_DOCLIGNE.cbAR_Ref = FART.cbAR_Ref\r\n    INNER JOIN F_DOCENTETE\r\
+      \n        ON F_DOCLIGNE.DO_Type = F_DOCENTETE.DO_Type\r\n           AND F_DOCLIGNE.DO_Piece\
+      \ = F_DOCENTETE.DO_Piece\r\n    INNER JOIN F_COMPTET\r\n        ON F_DOCENTETE.cbDO_Tiers\
+      \ = F_COMPTET.cbCT_Num\r\n    INNER JOIN F_FAMILLE\r\n        ON FART.FA_CodeFamille\
+      \ = F_FAMILLE.FA_CodeFamille\r\n    INNER JOIN F_COMPTET AS F_COMPTET_1\r\n\
+      \        ON F_COMPTET.CT_NumPayeur = F_COMPTET_1.CT_Num\r\n    LEFT OUTER JOIN\
+      \ P_GAMME AS P_GAMME_1\r\n        ON F_DOCLIGNE.AG_No2 = P_GAMME_1.cbIndice\r\
+      \n    LEFT OUTER JOIN P_GAMME\r\n        ON F_DOCLIGNE.AG_No1 = P_GAMME.cbIndice\r\
+      \n    LEFT OUTER JOIN F_COMPTEA\r\n        ON F_DOCLIGNE.CA_Num = F_COMPTEA.CA_Num\r\
+      \n    LEFT OUTER JOIN F_DEPOT\r\n        ON F_DOCLIGNE.DE_No = F_DEPOT.DE_No\r\
+      \n    LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_3\r\n        ON FART.CL_No4\
+      \ = F_CATALOGUE_3.CL_No\r\n    LEFT OUTER JOIN F_CATALOGUE\r\n        ON FART.CL_No2\
+      \ = F_CATALOGUE.CL_No\r\n    LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_2\r\n\
+      \        ON FART.CL_No3 = F_CATALOGUE_2.CL_No\r\n    LEFT OUTER JOIN F_CATALOGUE\
+      \ AS F_CATALOGUE_1\r\n        ON FART.CL_No1 = F_CATALOGUE_1.CL_No\r\n    LEFT\
+      \ OUTER JOIN P_DEVISE\r\n        ON F_DOCENTETE.DO_Devise = P_DEVISE.cbIndice\r\
+      \n    LEFT OUTER JOIN P_UNITE\r\n        ON F_DOCENTETE.DO_TypeColis = P_UNITE.cbIndice\r\
+      \nWHERE (F_DOCLIGNE.DO_Domaine = 4)\r\n \r\n      AND ISNULL(F_COMPTEA.N_Analytique,\
+      \ 1) = 1;\r\n"
+  target:
+    table: Ligne_des_documents_interne
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 22
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Etat du stock
+  source:
+    query: "SELECT  \r\nF_ARTSTOCK.AR_Ref AS [Code article],\r\n       F_ARTSTOCK.DE_No\
+      \ AS [Code dépôt],\r\n       F_ARTSTOCK.AS_QteMini AS [Quantité minimale],\r\
+      \n       F_ARTSTOCK.AS_QteMaxi AS [Quantité maximale],\r\n       F_ARTSTOCK.AS_MontSto\
+      \ AS [Valeur du stock (montant)],\r\n       F_ARTSTOCK.AS_QteSto AS [Quantité\
+      \ en stock],\r\n       F_ARTSTOCK.AS_QteRes AS [Quntitté réservée],\r\n    \
+      \   F_ARTSTOCK.AS_QteCom AS [Quantité commandée],\r\n       F_ARTSTOCK.AS_Principal\
+      \ AS [Dépôt principale],\r\n       F_ARTSTOCK.AS_QteResCM AS [Qté réservée Contremarques],\r\
+      \n       F_ARTSTOCK.AS_QteComCM AS [Qté commandée Contremarques],\r\n      \
+      \ F_ARTSTOCK.AS_QtePrepa AS [Quantité préparée],\r\n  \r\n       F_ARTSTOCK.AS_QteAControler\
+      \ AS [Quantité de contrôle],\r\n       F_ARTSTOCK.cbMarq AS [N° intene],\r\n\
+      \       CASE\r\n           WHEN AS_Mouvemente = 0 THEN\r\n               'Non'\r\
+      \n           ELSE\r\n               'Oui'\r\n       END AS [Stock mouvementé],\r\
+      \n       FART.AR_Design AS [Désignation article],\r\n       F_FAMILLE.FA_CodeFamille\
+      \ AS [Code famille],\r\n       F_FAMILLE.FA_Intitule AS Intitule,\r\n      \
+      \ F_DEPOT.DE_Intitule,\r\n       F_CATALOGUE_1.CL_Intitule AS [Catalogue 1],\r\
+      \n       F_CATALOGUE_2.CL_Intitule AS [Catalogue 2],\r\n       F_CATALOGUE_4.CL_Intitule\
+      \ AS [Catalogue 4],\r\n       F_CATALOGUE_3.CL_Intitule AS [Catalogue 3],\r\n\
+      \       P_UNITE.U_Intitule AS Unité,\r\n       EmpPrin.DP_Intitule AS [Emplacement\
+      \ principal],\r\n       EmpCon.DP_Intitule [Emplacement de contrôle]\r\n ,F_ARTSTOCK.cbModification\
+      \ [Date modification]\r\nFROM F_FAMILLE\r\n    INNER JOIN F_ARTICLE AS FART\r\
+      \n        INNER JOIN F_ARTSTOCK AS F_ARTSTOCK\r\n            ON FART.cbAR_Ref\
+      \ = F_ARTSTOCK.cbAR_Ref\r\n        INNER JOIN F_DEPOT\r\n            ON F_ARTSTOCK.DE_No\
+      \ = F_DEPOT.DE_No\r\n        ON F_FAMILLE.FA_CodeFamille = FART.FA_CodeFamille\r\
+      \n    INNER JOIN P_UNITE\r\n        ON FART.AR_UniteVen = P_UNITE.cbIndice\r\
+      \n    LEFT OUTER JOIN F_DEPOTEMPL AS EmpPrin\r\n        ON F_ARTSTOCK.DP_NoPrincipal\
+      \ = EmpPrin.DP_No\r\n    LEFT OUTER JOIN F_DEPOTEMPL AS EmpCon\r\n        ON\
+      \ F_ARTSTOCK.DP_NoControle = EmpCon.DP_No\r\n    LEFT OUTER JOIN F_CATALOGUE\
+      \ AS F_CATALOGUE_4\r\n        ON FART.CL_No4 = F_CATALOGUE_4.CL_No\r\n    LEFT\
+      \ OUTER JOIN F_CATALOGUE AS F_CATALOGUE_3\r\n        ON FART.CL_No3 = F_CATALOGUE_3.CL_No\r\
+      \n    LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_1\r\n        ON FART.CL_No1\
+      \ = F_CATALOGUE_1.CL_No\r\n    LEFT OUTER JOIN F_CATALOGUE AS F_CATALOGUE_2\r\
+      \n        ON FART.CL_No2 = F_CATALOGUE_2.CL_No;"
+  target:
+    table: Etat_Stock
+    primary_key:
+    - N° intene
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 24
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Mouvement stock
+  source:
+    query: " \r\nSELECT \r\n \r\n\r\ncase when F_DEPOT.DE_Exclure=0 then 'Non' else\
+      \ 'Oui' end as [Exclure du réapprovisionnement] ,\r\n  F_DEPOT.DE_Intitule AS\
+      \ [Dépôt],F_DEPOT.DE_No AS [Code Dépôt],\r\n  F_FAMILLE.FA_CodeFamille AS [Code\
+      \ famille],\r\n  F_FAMILLE.FA_Intitule AS [Intitulé famille],\r\n  F_DOCLIGNE.AR_Ref\
+      \ AS [Code article],\r\n F_DOCENTETE.do_ref [Référence],\r\n  CASE F_DOCLIGNE.DO_DOMAINE\r\
+      \n    WHEN 0 THEN 'Vente'\r\n    WHEN 1 THEN 'Achat'\r\n    WHEN 2 THEN 'Stock'\r\
+      \n    WHEN 4 THEN 'Document interne'\r\n  END AS [Domaine mouvement],\r\n  FART.AR_Design\
+      \ AS Désignation,\r\n  ISNULL( CASE F_DOCLIGNE.DO_TYPE\r\n    WHEN 0 THEN 'Devis'\r\
+      \n    WHEN 1 THEN 'Bon de commande'\r\n    WHEN 2 THEN 'Préparation de livraison'\r\
+      \n    WHEN 3 THEN 'Bon de livraison'\r\n    WHEN 4 THEN 'Bon de retour'\r\n\
+      \    WHEN 5 THEN 'Bon avoir financier'\r\n    WHEN 6 THEN 'Facture'\r\n    WHEN\
+      \ 7 THEN 'Facture comptabilisée'\r\n    WHEN 8 THEN 'Archive'\r\n    WHEN 11\
+      \ THEN 'Préparation de commande'\r\n    WHEN 12 THEN 'Bon de commande'\r\n \
+      \   WHEN 13 THEN 'Bon de Réception'\r\n    WHEN 14 THEN 'Bon de retour'\r\n\
+      \    WHEN 15 THEN 'Bon avoir'\r\n    WHEN 16 THEN 'Facture'\r\n    WHEN\r\n\
+      \      17 THEN 'Facture comptabilisée'\r\n    WHEN 18 THEN 'Archive'\r\n   \
+      \ WHEN 20 THEN 'Mouvement entrée'\r\n    WHEN 21 THEN 'Mouvement sortie'\r\n\
+      \    WHEN 22 THEN 'Dépréciation du stock'\r\n    WHEN 23 THEN 'Virement de dépôt\
+      \ à dépôt'\r\n    WHEN 24 THEN 'Préparation de fabrication'\r\n    WHEN 25 THEN\
+      \ 'Ordre de fabrication'\r\n    WHEN 26 THEN 'Bon de fabrication'\r\n    WHEN\
+      \ 27 THEN 'Archive'\r\n    WHEN 40 THEN (SELECT\r\n        P_INTERNE.D_INTITULE\r\
+      \n      FROM P_INTERNE\r\n      WHERE P_INTERNE.CBINDICE + 39 = 40)\r\n    WHEN\
+      \ 41 THEN (SELECT\r\n        P_INTERNE.D_INTITULE\r\n      FROM P_INTERNE\r\n\
+      \      WHERE P_INTERNE.CBINDICE + 39 = 41)\r\n    WHEN 42 THEN (SELECT\r\n \
+      \       P_INTERNE.D_INTITULE\r\n      FROM P_INTERNE\r\n      WHERE P_INTERNE.CBINDICE\
+      \ + 39 = 42)\r\n    WHEN 43 THEN (SELECT\r\n        P_INTERNE.D_INTITULE\r\n\
+      \      FROM P_INTERNE\r\n      WHERE P_INTERNE.CBINDICE + 39 = 43)\r\n    WHEN\
+      \ 44 THEN (SELECT\r\n        P_INTERNE.D_INTITULE\r\n      FROM P_INTERNE\r\n\
+      \      WHERE P_INTERNE.CBINDICE + 39 = 44)\r\n    WHEN 45 THEN (SELECT\r\n \
+      \       P_INTERNE.D_INTITULE\r\n      FROM P_INTERNE\r\n      WHERE P_INTERNE.CBINDICE\
+      \ + 39 = 45)\r\n    WHEN 46 THEN (SELECT\r\n        P_INTERNE.D_INTITULE\r\n\
+      \      FROM P_INTERNE\r\n      WHERE P_INTERNE.CBINDICE + 39 = 46)\r\n    ELSE\
+      \ 'ERREUR.Contactez votre revendeur.'\r\n  END ,'' ) AS [Type Mouvement],\r\n\
+      \  F_DOCLIGNE.DL_DateBL AS [Date Mouvement],\r\n  F_DOCLIGNE.DO_Piece AS [N°\
+      \ Pièce],\r\n  F_DOCLIGNE.DL_CMUP AS [CMUP],\r\n  F_DOCLIGNE.DL_PrixUnitaire\
+      \ AS [Prix unitaire],\r\n  F_DOCLIGNE.DL_PrixRU AS [Prix de revient],\r\n  \
+      \ \r\n  cast(0 as float) [DPA-Période],\r\n  FART.AR_CoutStd [Coût standard],\r\
+      \n  cast(0 as float) [DPA-Vente],\r\n  cast(0 as float) [DPR-Vente],\r\n\r\n\
+      \  CASE DL_MVTSTOCK\r\n    WHEN 1 THEN CASE\r\n        WHEN f_docligne.DO_TYPE\
+      \ = 27 OR\r\n          f_docligne.DO_TYPE = 4 THEN DL_QTE\r\n        ELSE CASE\r\
+      \n            WHEN DL_TYPEPL > 0 OR\r\n              (DL_QTE < 0 AND\r\n   \
+      \           f_docligne.DO_DOMAINE <> 2) THEN -DL_QTE\r\n            ELSE DL_QTE\r\
+      \n          END\r\n      END\r\n    WHEN 3 THEN CASE\r\n        WHEN f_docligne.DO_TYPE\
+      \ = 14 THEN -DL_QTE\r\n        ELSE CASE\r\n            WHEN DL_TYPEPL > 0 OR\r\
+      \n              DL_QTE < 0 THEN DL_QTE\r\n            ELSE -DL_QTE\r\n     \
+      \     END\r\n      END\r\n    ELSE 0\r\n  END AS [Quantité],\r\n\r\n  (SELECT\
+      \ DISTINCT\r\n    CASE AR_SUIVISTOCK\r\n      WHEN 1 THEN CASE DL_MvtStock\r\
+      \n          WHEN 0 THEN (SELECT top 1\r\n              LS_NOSERIE\r\n      \
+      \      FROM F_LOTSERIE\r\n            WHERE DL_NOOUT = DL_No)\r\n          WHEN\
+      \ 1 THEN (SELECT  top 1\r\n              LS_NOSERIE\r\n            FROM F_LOTSERIE\r\
+      \n            WHERE DL_NOIN = DL_No)\r\n          WHEN 3 THEN (SELECT  top 1\r\
+      \n              LS_NOSERIE\r\n            FROM F_LOTSERIE\r\n            WHERE\
+      \ DL_NOOUT = DL_No)\r\n        END\r\n      WHEN 5 THEN CASE DL_MvtStock\r\n\
+      \          WHEN 0 THEN (SELECT  top 1\r\n              LS_NOSERIE\r\n      \
+      \      FROM F_LOTSERIE\r\n            WHERE DL_NOOUT = DL_No)\r\n          WHEN\
+      \ 1 THEN (SELECT  top 1\r\n              LS_NOSERIE\r\n            FROM F_LOTSERIE\r\
+      \n            WHERE DL_NOIN = DL_No)\r\n          WHEN 3 THEN (SELECT  top 1\r\
+      \n              LS_NOSERIE\r\n            FROM F_LOTSERIE\r\n            WHERE\
+      \ DL_NOOUT = DL_No)\r\n        END\r\n    END AS Expr1)\r\n  AS [N° Série /\
+      \ Lot],\r\n\r\n\r\n\r\n  CASE FART.AR_SUIVISTOCK\r\n    WHEN 0 THEN 'Aucun'\r\
+      \n    WHEN 1 THEN 'Sérialisé'\r\n    WHEN 2 THEN 'CMUP'\r\n    WHEN 3 THEN 'FIFO'\r\
+      \n    WHEN 4 THEN 'LIFO'\r\n    WHEN 5 THEN 'Par lot'\r\n  END AS [Suivi Stock],\r\
+      \n  P_GAMME.G_Intitule AS [Gamme 1],\r\n  P_GAMME_1.G_Intitule AS [Gamme 2],\r\
+      \n  NULLIF\r\n  ((SELECT\r\n    CASE AR_SUIVISTOCK\r\n      WHEN 1 THEN CASE\
+      \ DL_MvtStock\r\n          WHEN 1 THEN (SELECT DISTINCT\r\n              MAX(LS_PEREMPTION)\r\
+      \n            FROM F_LOTSERIE\r\n            WHERE DL_NOIN = DL_No)\r\n    \
+      \      WHEN 3 THEN (SELECT DISTINCT\r\n              MAX(LS_PEREMPTION)\r\n\
+      \            FROM F_LOTSERIE\r\n            WHERE DL_NOOUT = DL_No)\r\n    \
+      \    END\r\n      WHEN 5 THEN CASE DL_MvtStock\r\n          WHEN 1 THEN (SELECT\
+      \ DISTINCT\r\n              MAX(LS_PEREMPTION)\r\n\r\n            FROM F_LOTSERIE\r\
+      \n\r\n            WHERE DL_NOIN = DL_No)\r\n          WHEN 3 THEN (SELECT DISTINCT\r\
+      \n              MAX(LS_PEREMPTION)\r\n            FROM F_LOTSERIE\r\n      \
+      \      WHERE DL_NOOUT = DL_No)\r\n        END\r\n    END AS Expr1), '01/01/1900')\
+      \ AS [Date Péremption],\r\n\r\n  NULLIF\r\n  ((SELECT\r\n    CASE AR_SUIVISTOCK\r\
+      \n      WHEN 1 THEN CASE DL_MvtStock\r\n          WHEN 1 THEN (SELECT DISTINCT\r\
+      \n              MAX(LS_FABRICATION)\r\n            FROM F_LOTSERIE\r\n     \
+      \       WHERE DL_NOIN = DL_No)\r\n          WHEN 3 THEN (SELECT DISTINCT\r\n\
+      \              MAX(LS_FABRICATION)\r\n            FROM F_LOTSERIE\r\n      \
+      \      WHERE DL_NOOUT = DL_No)\r\n        END\r\n      WHEN 5 THEN CASE DL_MvtStock\r\
+      \n          WHEN 1 THEN (SELECT DISTINCT\r\n              MAX(LS_FABRICATION)\r\
+      \n            FROM F_LOTSERIE\r\n            WHERE DL_NOIN = DL_No)\r\n    \
+      \      WHEN 3 THEN (SELECT DISTINCT\r\n              MAX(LS_FABRICATION)\r\n\
+      \            FROM F_LOTSERIE\r\n            WHERE DL_NOOUT = DL_No)\r\n    \
+      \    END\r\n    END AS Expr1), '01/01/1900') AS [Date Fabrication],\r\n\r\n\
+      \  CASE CASE\r\n    WHEN (f_docligne.DO_TYPE = 27 AND\r\n      DL_MVTSTOCK =\
+      \ 1 AND\r\n      DL_QTE < 0) OR\r\n      (f_docligne.DO_TYPE = 20 AND\r\n  \
+      \    LEFT(f_docligne.DO_PIECE, 1) = 'i') OR\r\n      DL_MVTSTOCK = 4 THEN 3\r\
+      \n    ELSE DL_MVTSTOCK\r\n  END\r\n    WHEN 3 THEN 'Sortie'\r\n    ELSE 'Entrée'\r\
+      \n  END AS [Sens de mouvement],\r\n\r\n  F_DOCLIGNE.DL_No AS [N° interne],\r\
+      \n CASE DL_MVTSTOCK\r\n    WHEN 0 THEN CASE\r\n        WHEN DL_TYPEPL = 0 AND\r\
+      \n          f_docligne.DO_TYPE = 23 THEN ROUND(DL_CMUP,\r\n          2)\r\n\
+      \        ELSE 0\r\n      END\r\n    WHEN 1 THEN CASE\r\n        WHEN f_docligne.DO_TYPE\
+      \ = 27 AND\r\n          DL_QTE < 0 THEN ROUND(-DL_CMUP * ABS(DL_QTE), 2)\r\n\
+      \        WHEN DL_TYPEPL = 0 AND\r\n          f_docligne.DO_TYPE = 23 THEN ROUND(DL_CMUP\
+      \ * ABS(DL_QTE), 2)\r\n        ELSE ROUND(DL_CMUP * ABS(DL_QTE), 2)\r\n    \
+      \  END\r\n    WHEN 3 THEN CASE\r\n        WHEN DL_TYPEPL = 0 AND\r\n       \
+      \   f_docligne.DO_TYPE = 23 THEN ROUND(-DL_CMUP * ABS(DL_QTE), 2)\r\n      \
+      \  ELSE ROUND(-DL_CMUP * ABS(DL_QTE), 2)\r\n      END\r\n    WHEN 4 THEN CASE\r\
+      \n        WHEN f_docligne.DO_DOMAINE = 1 AND\r\n          (DL_TYPEPL = 2 OR\r\
+      \n\r\n          DL_TYPEPL = 3) AND\r\n          f_docligne.DO_TYPE <> 16 THEN\
+      \ ROUND(DL_CMUP * ABS(DL_QTE), 2)\r\n        WHEN DL_TYPEPL = 2 AND\r\n    \
+      \      f_docligne.DO_TYPE = 16 THEN ROUND(DL_CMUP, 2)\r\n        WHEN DL_TYPEPL\
+      \ = 0 THEN CASE f_docligne.DO_TYPE\r\n            WHEN 15 THEN ROUND(-DL_CMUP,\
+      \ 2)\r\n            WHEN 22 THEN ROUND(-DL_CMUP, 2)\r\n            ELSE ROUND(DL_CMUP,\
+      \ 2)\r\n          END\r\n        ELSE ROUND(-DL_CMUP * ABS(DL_QTE), 2)\r\n \
+      \     END\r\n    ELSE ROUND(DL_CMUP * ABS(DL_QTE), 2)\r\n  END AS [Montant Stock],\r\
+      \n\r\n  F_DOCLIGNE.CO_No AS [Code coloboratore],\r\n\r\n  F_COLLABORATEUR.CO_Nom\
+      \ AS [Représentant],\r\n  F_CATALOGUE_1.CL_Intitule AS [Catalogue 1],\r\n  F_CATALOGUE_2.CL_Intitule\
+      \ AS [Catalogue 2],\r\n  F_CATALOGUE_3.CL_Intitule AS [Catalogue 3],\r\n  F_CATALOGUE_4.CL_Intitule\
+      \ AS [Catalogue 4],\r\n\r\n  CASE F_DOCLIGNE.DO_domaine\r\n    WHEN 2 THEN F_DEPOT_1.DE_Intitule\r\
+      \n    ELSE F_COMPTET.CT_Intitule\r\n  END AS [Intitulé tiers],\r\n  \r\n  CASE\
+      \ F_DOCLIGNE.DO_domaine\r\n    WHEN 2 THEN ''\r\n    ELSE F_COMPTET.CT_num\r\
+      \n  END AS [Code tiers] ,AR_RefCompose [Article composé]\r\n ,F_DOCLIGNE.cbModification\
+      \ [Date modification]\r\n\r\nFROM     F_CATALOGUE AS F_CATALOGUE_1 RIGHT OUTER\
+      \ JOIN\r\n                  F_CATALOGUE AS F_CATALOGUE_3 RIGHT OUTER JOIN\r\n\
+      \                  F_COLLABORATEUR RIGHT OUTER JOIN\r\n                  F_FAMILLE\
+      \ INNER JOIN\r\n                  F_ARTICLE AS FART INNER JOIN\r\n         \
+      \         F_DOCLIGNE AS F_DOCLIGNE ON FART.cbAR_Ref = F_DOCLIGNE.cbAR_Ref INNER\
+      \ JOIN\r\n                  F_DEPOT ON F_DOCLIGNE.DE_No = F_DEPOT.DE_No ON F_FAMILLE.FA_CodeFamille\
+      \ = FART.FA_CodeFamille INNER JOIN\r\n                  F_DOCENTETE ON F_DOCLIGNE.DO_Piece\
+      \ = F_DOCENTETE.DO_Piece AND F_DOCLIGNE.DO_Type = F_DOCENTETE.DO_Type ON F_COLLABORATEUR.CO_No\
+      \ = F_DOCLIGNE.cbCO_No LEFT OUTER JOIN\r\n                  F_COMPTET ON F_DOCLIGNE.CT_Num\
+      \ = F_COMPTET.CT_Num LEFT OUTER JOIN\r\n                  F_DEPOT AS F_DEPOT_1\
+      \ ON F_DOCLIGNE.CT_Num = CAST(F_DEPOT_1.DE_No AS varchar(255)) LEFT OUTER JOIN\r\
+      \n                  F_CATALOGUE AS F_CATALOGUE_4 ON FART.CL_No4 = F_CATALOGUE_4.CL_No\
+      \ ON F_CATALOGUE_3.CL_No = FART.CL_No3 ON F_CATALOGUE_1.CL_No = FART.CL_No1\
+      \ LEFT OUTER JOIN\r\n                  F_CATALOGUE AS F_CATALOGUE_2 ON FART.CL_No2\
+      \ = F_CATALOGUE_2.CL_No LEFT OUTER JOIN\r\n                  P_GAMME AS P_GAMME_1\
+      \ ON F_DOCLIGNE.AG_No2 = P_GAMME_1.cbIndice LEFT OUTER JOIN\r\n            \
+      \      P_GAMME ON F_DOCLIGNE.AG_No1 = P_GAMME.cbIndice\r\n\r\nWHERE (F_DOCLIGNE.DL_MvtStock\
+      \ = 0\r\nAND F_DOCLIGNE.DL_TypePL = 0\r\nOR F_DOCLIGNE.DL_MvtStock = 0\r\nAND\
+      \ F_DOCLIGNE.DL_TypePL = 2\r\nOR F_DOCLIGNE.DL_MvtStock = 1\r\nAND F_DOCLIGNE.DL_TypePL\
+      \ = 0\r\nOR F_DOCLIGNE.DL_MvtStock = 1\r\nAND F_DOCLIGNE.DL_TypePL = 1\r\nOR\
+      \ F_DOCLIGNE.DL_MvtStock = 3\r\nAND F_DOCLIGNE.DL_TypePL = 0\r\nOR F_DOCLIGNE.DL_MvtStock\
+      \ = 4\r\nAND F_DOCLIGNE.DL_TypePL = 0\r\nOR F_DOCLIGNE.DL_MvtStock = 4\r\nAND\
+      \ F_DOCLIGNE.DL_TypePL = 2\r\nOR F_DOCLIGNE.DL_MvtStock = 1\r\nOR F_DOCLIGNE.DL_MvtStock\
+      \ = 3)\r\nAND (F_DOCLIGNE.DL_Qte <> 0)\r\nAND (F_DOCLIGNE.DE_No > 0)\r\nAND\
+      \ (F_DOCLIGNE.DL_MvtStock > 0)\r\nAND (F_DOCLIGNE.DL_MvtStock = 1\r\nOR F_DOCLIGNE.DL_MvtStock\
+      \ = 3\r\nOR FART.AR_SuiviStock = 2\r\nOR F_DOCLIGNE.DO_Type < 15\r\nOR F_DOCLIGNE.DO_Type\
+      \ > 15\r\nAND F_DOCLIGNE.DL_TypePL < 2\r\nOR F_DOCLIGNE.DL_TypePL > 3\r\nAND\
+      \ F_DOCLIGNE.DO_Type < 22\r\nOR F_DOCLIGNE.DO_Type > 22)\r\n "
+  target:
+    table: Mouvement_stock
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 25
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Plan reporting
+  source:
+    query: "SELECT  \r\n\t\t\t\t\t\t\t\t[CR_Num] Code  ,CASE WHEN [CR_Type] =0 THEN\
+      \ 'Détail' ELSE 'Total' end [Type de compte]\r\n,[CR_Intitule] Intitulé \r\n\
+      \ \r\n\r\nFROM [F_COMPTER]\r\n"
+  target:
+    table: Plan_Reporting
+    primary_key: []
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 27
+  batch_size: 10000
+- name: Plan comptable
+  source:
+    query: "SELECT \r\nCG_Num [Numéro compte], case when CG_Type=0 then 'Détail' else\
+      \ 'Total' end  [Type de compte], CG_Intitule Intitulé, CG_Classement Classement,\
+      \   \r\ncase  N_Nature   when  0 then 'Aucune'\r\n when  1 then 'Client'\r\n\
+      \ when  2 then 'Fournisseur'\r\n when  3 then 'Salarié'\r\n when  4 then 'Banque'\r\
+      \n when  5 then 'Caisse'\r\n when  6 then 'Amortissement/Provi\x02sion'\r\n\
+      \ when  7 then 'Résultat bilan'\r\n when  8 then 'charge'\r\n when  9 then 'Produit'\r\
+      \n when  10 then 'Résultat Gestion'\r\n when  11 then 'Immobilisation'\r\n when\
+      \  12 then 'Capitaux'\r\n when  13 then 'Stock'\r\n when  14 then 'Titre'end\
+      \ Nature, case CG_Report when 0 then 'Aucun' when 1 then 'Solde' when 2 then\
+      \ 'Détail' end [Type report], \r\n F_COMPTEG.CR_Num [Code reporting],  CG_Raccourci\
+      \ Raccourci,   CG_Saut [Saut de lignes], case when CG_Regroup=0 then 'Non validée'\
+      \ else 'Validée' end [Option regroupement],\r\ncase when CG_Analytique=0 then\
+      \ 'Non validée' else 'Validée' end  [Option analytique], \r\ncase when CG_Echeance=0\
+      \ then 'Non validée' else 'Validée' end  [Option échéance], \r\ncase when CG_Quantite=0\
+      \ then 'Non validée' else 'Validée' end [Option quantité], \r\ncase when CG_Lettrage=0\
+      \ then 'Non validée' else 'Validée' end [Option Lettrage], \r\ncase when CG_Tiers=0\
+      \ then 'Non validée' else 'Validée' end [Option tiers],  F_COMPTEG.cbCreation\
+      \ [Date de création],\r\n  \r\nN_Devise [Devise], TA_Code [Code Taxe],  case\
+      \ when CG_Sommeil=0 then 'Actif' else 'En sommeil' end [Mise en sommeil], \r\
+      \ncase when CG_ReportAnal=0 then 'Non validée' else 'Validée' end   [Option\
+      \ report analy.],\r\ncase when CG_LettrageSaisie=0 then 'Non validée' else 'Validée'\
+      \ end    [Option Saisie lettrage]\r\n     \r\n,  F_COMPTER.CR_Intitule [Intitulé\
+      \ reporting]\r\n \r\nFROM            F_COMPTEG LEFT OUTER JOIN\r\n         \
+      \                F_COMPTER ON F_COMPTEG.CR_Num = F_COMPTER.CR_Num "
+  target:
+    table: Plan_Comptable
+    primary_key:
+    - Numéro compte
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 28
+  batch_size: 10000
+- name: Les écritures comptables
+  source:
+    query: "SELECT    F_ECRITUREC.JM_Date + F_ECRITUREC.EC_Jour - 1 AS [Date d'écriture],\
+      \       \r\n                            F_ECRITUREC.CG_Num AS [N° Compte Général],\
+      \  F_COMPTEG_1.CG_Intitule as [Intitulé compte général],\r\n               \
+      \         F_ECRITUREC.CT_Num AS [Compte Tiers],  F_COMPTET_1.CT_Intitule as\
+      \ [Intitulé tiers], \r\n\r\n                        F_ECRITUREC.EC_Piece AS\
+      \ [N° Pièce],\r\n                         F_ECRITUREC.EC_RefPiece AS [N° facture],\
+      \ \r\n                               F_ECRITUREC.JO_Num AS  [Code Journal],\
+      \  \r\n\r\n     \r\n\r\n               \r\n                        F_ECRITUREC.EC_TresoPiece\
+      \ AS [N° Pièce de tréso], F_ECRITUREC.EC_Intitule AS [Libellé], \r\n\r\n   \
+      \                      CASE EC_SENS WHEN 0 THEN EC_MONTANT ELSE cast( 0 as float)\
+      \ END AS [Débit], \r\n                                              CASE EC_SENS\
+      \ WHEN 1 THEN EC_MONTANT ELSE cast( 0 as float)  END AS [Crédit], \r\n\t\t\t\
+      \t\t\t\t\t\t\t\tCAST('' AS VARCHAR(64) ) AS  Masse,CAST('' AS VARCHAR(64) )\
+      \  AS Rubrique,CAST('' AS VARCHAR(64) )  AS Poste,CAST('' AS VARCHAR(64) ) AS\
+      \ [Compte principal],\r\n \r\n                            \r\n\t\t\t\t\tCASE\
+      \ F_COMPTEG_1.CG_Report WHEN 0 THEN 'Aucun' WHEN 1 THEN 'Solde' WHEN 2 THEN\
+      \ 'Détail' ELSE 'ERREUR. Contacter votre revendeur.' END AS [Report à Nouveau],\
+      \ \r\n\t\t\t\t\tCASE F_COMPTEG_1.CG_Regroup WHEN 0 THEN 'Non Validée' WHEN 1\
+      \ THEN 'Validée' ELSE 'ERREUR. Contacter votre revendeur.' END AS [Regroupement],\
+      \ \r\n\t\t\t\t\tCASE  F_COMPTEG_1.CG_Analytique  WHEN 0 THEN 'Non Validée' WHEN\
+      \ 1 THEN 'Validée' ELSE 'ERREUR. Contacter votre revendeur.' END AS [Saisie\
+      \ Analytique], \r\n\t\t\t\t\tCASE F_COMPTEG_1.CG_Echeance WHEN 0 THEN 'Non Validée'\
+      \ WHEN 1 THEN 'Validée' ELSE 'ERREUR. Contacter votre revendeur.' END AS [Saisie\
+      \ Echéance],         \r\n\t\t\t\t\tCASE  F_COMPTEG_1.CG_Quantite WHEN 0 THEN\
+      \ 'Non Validée' WHEN 1 THEN 'Validée' ELSE 'ERREUR. Contacter votre revendeur.'\
+      \ END AS [Saisie Quantité], \r\n\r\n                        F_ECRITUREC.cbMarq\
+      \   AS [Clé Comptabilité],\r\n                      \r\n                   \
+      \   CAST(YEAR( F_ECRITUREC.JM_Date) AS varchar) AS Exercice, \r\n          \
+      \            \r\n                       F_ECRITUREC.EC_No AS [N° interne], \r\
+      \n                        F_ECRITUREC.EC_Nolink AS [N° interne de lien], \r\n\
+      \                      F_ECRITUREC.EC_Date AS [Date de saisier], \r\n      \
+      \               \r\n                      \r\n                      \r\n   \
+      \                   CASE EC_POINT WHEN 0 THEN 'NON' WHEN 1 THEN 'OUI' END AS\
+      \ Pointage, \r\n                      \r\n                      F_ECRITUREC.EC_Pointage\
+      \ AS [Lettre de pointage], CASE EC_LETTRE WHEN 0 THEN 'NON' WHEN 1 THEN 'OUI'\
+      \ END AS Lettrage,\r\n                       F_ECRITUREC.EC_Lettrage AS Lettre,\
+      \ \r\n                       \r\n                      CASE YEAR(EC_ECHEANCE)\
+      \ WHEN 1900 THEN NULL ELSE EC_ECHEANCE END AS [Date d'échéance], \r\n      \
+      \                \r\n                      CASE EC_RTYPE WHEN 0 THEN 'Non Révisée'\
+      \ WHEN 1 THEN 'Révisée' ELSE 'ERREUR. Contactez votre revendeur.' END AS Révision,\
+      \ \r\n                     \r\n                      \r\n                  \
+      \    F_ECRITUREC.EC_Parite AS Parité, F_ECRITUREC.EC_Quantite AS Quantité, F_ECRITUREC.CT_NumCont\
+      \ AS [Contrepartie Tiers], \r\n                      \r\n                  \
+      \    F_ECRITUREC.TA_Code AS [Code Taxe], \r\n                      CASE EC_SENS\
+      \ WHEN 0 THEN 'Débit' WHEN 1 THEN 'Crédit' ELSE 'ERREUR. Contactez votre revendeur.'\
+      \ END AS [Sens], F_ECRITUREC.EC_Rappel AS [Niveau Rappel], \r\n\r\n        \
+      \              CASE EC_SENS WHEN 0 THEN  EC_MONTANT WHEN 1 THEN - EC_MONTANT\
+      \ ELSE 'ERREUR. Contactez votre revendeur.' END AS [Montant], \r\n\r\n     \
+      \           \r\n\r\n\r\n                      CASE EC_SENS WHEN 0 THEN - EC_DEVISE\
+      \ WHEN 1 THEN + EC_DEVISE ELSE 'ERREUR. Contactez votre revendeur.' END AS [Montnat\
+      \ en devis], \r\n                    \r\n                      \r\n \r\n \r\n\
+      \                     \r\n                      \r\n                       ISNULL(P_REGLEMENT.R_Intitule,\
+      \ 'AUCUN') \r\n                      AS [Mode de réglement], CASE WHEN EC_ANTYPE\
+      \ BETWEEN 1 AND 4 THEN 'OUI' ELSE 'NON' END AS [Type à Nouveau], \r\n      \
+      \               \r\n                      CASE EC_ANTYPE WHEN 0 THEN 'Ecriture'\
+      \ WHEN 1 THEN 'Ecriture reprise détail' WHEN 2 THEN 'Ecriture reprise solde'\
+      \ WHEN 3 THEN 'Ecriture à nouveau manuel' WHEN 4 THEN 'Ecriture à nouveau Résultat'\r\
+      \n                       ELSE 'NON' END AS [Type Ecriture], ISNULL(P_DEVISE.D_Intitule,\
+      \ 'AUCUNE') AS [Devise], F_ECRITUREC.EC_Reference AS [Référence],\r\n      \
+      \                    (SELECT DISTINCT DR_Num\r\n                           \
+      \ FROM          F_DRECOUVREMENTEC\r\n                            WHERE     \
+      \ (EC_No = F_ECRITUREC.EC_No)) AS [N° Dossier Recouvrement], \r\n          \
+      \                  \r\n                           \r\n                     \
+      \       \r\n                             CASE  F_COMPTET_1.CT_Type WHEN 0 THEN\
+      \ 'Client' WHEN 1 THEN 'Fournisseur' WHEN 2 THEN 'Salarié' WHEN 3 THEN 'Autres'\
+      \ ELSE 'Aucune' END AS [Type tiers]\r\n                           \r\n     \
+      \                       \r\n                            \r\n               \
+      \             , \r\n                         \r\n                          \
+      \  CASE N_Nature WHEN 0 THEN 'Aucune' WHEN 1 THEN 'Client' WHEN 2 THEN 'Fournisseur'\
+      \ WHEN 3 THEN 'Salarié' WHEN 4 THEN 'Banque' WHEN 5 THEN 'Caisse' WHEN 6 THEN\
+      \ 'Amortissement/Provision'\r\n                       WHEN 7 THEN 'Résultat\
+      \ - Bilan' WHEN 8 THEN 'Charge' WHEN 9 THEN 'Produit' WHEN 10 THEN 'Résultat\
+      \ - Gestion' WHEN 11 THEN 'Immobilisation' WHEN 12 THEN 'Capitaux' WHEN 13 THEN\
+      \ 'Stock'\r\n                       WHEN 14 THEN 'Titre' ELSE 'ERREUR. Contacter\
+      \ votre revendeur.' END AS [Nature Compte],\r\n                        \r\n\
+      \                          F_JOURNAUX.JO_Intitule  as [Libellé Journal], \r\n\
+      \                    \r\n                                               CASE\
+      \   F_JOURNAUX.JO_Type WHEN 0 THEN 'Achats' WHEN 1 THEN 'Ventes' WHEN 2 THEN\
+      \ 'Trésorerie' WHEN 3 THEN 'Général' WHEN 4 THEN 'Situation' END AS [Type Code\
+      \ Journal]\r\n                       \r\n\r\n                         ,(F_ECRITUREC.JM_Date)\
+      \ as Mois ,year(F_ECRITUREC.JM_Date) as Année\r\n\r\n ,F_ECRITUREC.cbModification\
+      \ [Date modification]\r\n                        FROM         F_ECRITUREC INNER\
+      \ JOIN\r\n                      F_COMPTEG AS F_COMPTEG_1 ON F_ECRITUREC.CG_Num\
+      \ = F_COMPTEG_1.CG_Num INNER JOIN\r\n                      F_JOURNAUX ON F_ECRITUREC.JO_Num\
+      \ = F_JOURNAUX.JO_Num LEFT OUTER JOIN\r\n                      P_DEVISE ON F_ECRITUREC.N_Devise\
+      \ = P_DEVISE.cbIndice LEFT OUTER JOIN\r\n                      P_REGLEMENT ON\
+      \ F_ECRITUREC.N_Reglement = P_REGLEMENT.cbIndice LEFT OUTER JOIN\r\n       \
+      \               F_COMPTET AS F_COMPTET_1 ON F_ECRITUREC.CT_Num = F_COMPTET_1.CT_Num"
+  target:
+    table: Ecritures_Comptables
+    primary_key:
+    - N° interne
+  sync_type: incremental
+  priority: normal
+  enabled: true
+  sort_order: 29
+  timestamp_column: Date modification
+  batch_size: 10000
+- name: Ecritures Analytiques
+  source:
+    query: "SELECT    \r\n \r\nF_ECRITUREA.cbMarq [N° interne] ,F_ECRITUREA.EC_No\
+      \ AS [N° interne EG], F_ECRITUREA.N_Analytique, F_ECRITUREA.EA_Ligne AS Ligne,\
+      \ F_ECRITUREA.CA_Num AS [Compte analytique], F_ECRITUREA.EA_Montant AS [Montant\
+      \ analytique], \r\nF_ECRITUREA.EA_Quantite AS Quantité, P_ANALYTIQUE.A_Intitule\
+      \ AS Intitulé, P_ANALYSE.A_Intitule [Plan analytique]\r\n \r\nFROM         \
+      \   F_ECRITUREA INNER JOIN\r\n                         F_COMPTEA ON F_ECRITUREA.N_Analytique\
+      \ = F_COMPTEA.N_Analytique AND F_ECRITUREA.CA_Num = F_COMPTEA.CA_Num INNER JOIN\r\
+      \n                         P_ANALYTIQUE ON F_COMPTEA.CA_Num = P_ANALYTIQUE.CA_Num\
+      \ INNER JOIN\r\n                         P_ANALYSE ON F_ECRITUREA.N_Analytique\
+      \ = P_ANALYSE.cbIndice"
+  target:
+    table: Ecritures_Analytiques
+    primary_key: []
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 30
+  batch_size: 10000

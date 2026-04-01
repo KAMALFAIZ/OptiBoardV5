@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Backend FastAPI
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: reporting-backend
+    restart: unless-stopped
+    environment:
+      - DB_SERVER=${DB_SERVER:-host.docker.internal}
+      - DB_NAME=${DB_NAME:-GROUPE_ALBOUGHAZE}
+      - DB_USER=${DB_USER:-sa}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DRIVER={ODBC Driver 17 for SQL Server}
+      - DEBUG=False
+      - CACHE_TTL=${CACHE_TTL:-300}
+      - MAX_ROWS=${MAX_ROWS:-10000}
+      - QUERY_TIMEOUT=${QUERY_TIMEOUT:-30}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - reporting-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend React (Nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: reporting-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - reporting-network
+
+networks:
+  reporting-network:
+    driver: bridge
