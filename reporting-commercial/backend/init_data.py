@@ -146,19 +146,9 @@ def main():
         )
         conn.commit()
 
-        # 3. Ajouter la societe Groupe ALBOUGHAZE (si pas encore)
-        add_societe(
-            cursor,
-            code="ALBG",
-            nom="Groupe ALBOUGHAZE",
-            base_donnees="GROUPE_ALBOUGHAZE",
-            serveur=None
-        )
-        conn.commit()
-
         # 4. Ajouter l'utilisateur Admin
         all_pages = ["dashboard", "ventes", "stocks", "recouvrement", "admin", "users"]
-        all_societes = ["ALBG", "ESSAIDI"]
+        all_societes = ["ESSAIDI"]
 
         add_user(
             cursor,
@@ -166,7 +156,7 @@ def main():
             password="admin123",
             nom="Administrateur",
             prenom="Systeme",
-            email="admin@groupe-alboughaze.ma",
+            email="admin@optiboard.ma",
             role="admin",
             societes=all_societes,
             pages=all_pages
@@ -182,9 +172,9 @@ def main():
             password="user123",
             nom="Utilisateur",
             prenom="Standard",
-            email="user@groupe-alboughaze.ma",
+            email="user@optiboard.ma",
             role="user",
-            societes=["ALBG"],
+            societes=["ESSAIDI"],
             pages=user_pages
         )
         conn.commit()
@@ -196,8 +186,7 @@ def main():
         print("  1. admin / admin123 (Administrateur - toutes les pages et societes)")
         print("  2. user / user123 (Utilisateur standard - pages limitees)")
         print("\nSocietes:")
-        print("  1. ALBG - Groupe ALBOUGHAZE (GROUPE_ALBOUGHAZE)")
-        print("  2. ESSAIDI - Groupe ESSAIDI (GROUPE_ESSAIDI)")
+        print("  1. ESSAIDI - Groupe ESSAIDI (GROUPE_ESSAIDI)")
 
     except Exception as e:
         print(f"Erreur: {e}")

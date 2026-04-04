@@ -2,7 +2,7 @@
 
 # Chiffre d'Affaires Queries
 CHIFFRE_AFFAIRES_GLOBAL = """
-SELECT * FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+SELECT * FROM [dbo].[DashBoard_CA]
 """
 
 CHIFFRE_AFFAIRES_PAR_PERIODE = """
@@ -14,7 +14,7 @@ SELECT
     SUM([Coût]) AS Cout_Total,
     COUNT(DISTINCT [Code client]) AS Nb_Clients,
     COUNT(*) AS Nb_Transactions
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY YEAR([Date BL]), MONTH([Date BL])
 ORDER BY Annee, Mois
@@ -33,7 +33,7 @@ SELECT
         ELSE 0
     END AS Taux_Marge,
     COUNT(*) AS Nb_Ventes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY [Catalogue 1]
 ORDER BY CA_HT DESC
@@ -46,7 +46,7 @@ SELECT
     SUM([Montant TTC Net]) AS CA_TTC,
     SUM([Coût]) AS Cout_Total,
     COUNT(DISTINCT [Code client]) AS Nb_Clients
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY [Catégorie_]
 ORDER BY CA_HT DESC
@@ -58,7 +58,7 @@ SELECT
     SUM([Montant HT Net]) AS CA_HT,
     SUM([Montant TTC Net]) AS CA_TTC,
     COUNT(DISTINCT [Code client]) AS Nb_Clients
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY [Souche]
 ORDER BY CA_HT DESC
@@ -73,7 +73,7 @@ SELECT
     SUM([Montant HT Net]) - SUM([Coût]) AS Marge_Brute,
     COUNT(DISTINCT [Code client]) AS Nb_Clients,
     COUNT(*) AS Nb_Ventes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY [Représentant]
 ORDER BY CA_HT DESC
@@ -87,7 +87,7 @@ SELECT TOP 10
     SUM([Montant HT Net]) AS CA_HT,
     SUM([Montant TTC Net]) AS CA_TTC,
     COUNT(*) AS Nb_Transactions
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY [Code client], [Intitulé client], [Représentant]
 ORDER BY CA_HT DESC
@@ -101,7 +101,7 @@ SELECT TOP 10
     SUM([Quantité]) AS Quantite_Vendue,
     SUM([Montant HT Net]) AS CA_HT,
     SUM([Coût]) AS Cout_Total
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Date BL] BETWEEN ? AND ?
 GROUP BY [Code article], [Désignation], [Catalogue 1]
 ORDER BY CA_HT DESC
@@ -128,7 +128,7 @@ SELECT
     [Intitulé tiers],
     [Code tiers],
     [Intitulé client]
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Mouvement_stock]
+FROM [dbo].[Mouvement_stock]
 """
 
 STOCK_PAR_ARTICLE = """
@@ -141,7 +141,7 @@ SELECT
     SUM(CASE WHEN [Sens de mouvement] = 'E' THEN [Quantité] ELSE -[Quantité] END) AS Stock_Actuel,
     AVG([CMUP]) AS CMUP_Moyen,
     MAX([Date Mouvement]) AS Dernier_Mouvement
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Mouvement_stock]
+FROM [dbo].[Mouvement_stock]
 GROUP BY [Code article], [Désignation], [Catalogue 1]
 ORDER BY Stock_Actuel DESC
 """
@@ -155,7 +155,7 @@ SELECT
     DATEDIFF(DAY, MAX([Date Mouvement]), GETDATE()) AS Jours_Sans_Mouvement,
     SUM(CASE WHEN [Sens de mouvement] = 'E' THEN [Quantité] ELSE -[Quantité] END) AS Stock_Actuel,
     SUM(CASE WHEN [Sens de mouvement] = 'E' THEN [Quantité] ELSE -[Quantité] END) * AVG([CMUP]) AS Valeur_Stock
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Mouvement_stock]
+FROM [dbo].[Mouvement_stock]
 GROUP BY [Code article], [Désignation], [Catalogue 1]
 HAVING DATEDIFF(DAY, MAX([Date Mouvement]), GETDATE()) > 180
 ORDER BY Valeur_Stock DESC
@@ -167,7 +167,7 @@ WITH StockData AS (
         [Catalogue 1] AS Gamme,
         SUM(CASE WHEN [Sens de mouvement] = 'S' THEN [Quantité] * [CMUP] ELSE 0 END) AS Sorties_Valeur,
         AVG(CASE WHEN [Sens de mouvement] = 'E' THEN [Quantité] * [CMUP] ELSE NULL END) AS Stock_Moyen_Valeur
-    FROM [GROUPE_ALBOUGHAZE].[dbo].[Mouvement_stock]
+    FROM [dbo].[Mouvement_stock]
     WHERE [Date Mouvement] BETWEEN ? AND ?
     GROUP BY [Catalogue 1]
 )
@@ -195,7 +195,7 @@ SELECT
     [Montant Stock],
     [Intitulé client],
     [Représentant]
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Mouvement_stock]
+FROM [dbo].[Mouvement_stock]
 WHERE [Code article] = ?
 ORDER BY [Date Mouvement] DESC
 """
@@ -213,7 +213,7 @@ SELECT
     [61-90],
     [91-120],
     [+120]
-FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+FROM [dbo].[BalanceAgee]
 """
 
 BALANCE_AGEE_PAR_COMMERCIAL = """
@@ -227,7 +227,7 @@ SELECT
     SUM([91-120]) AS Tranche_91_120,
     SUM([+120]) AS Tranche_Plus_120,
     SUM([Impayés]) AS Total_Impayes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+FROM [dbo].[BalanceAgee]
 GROUP BY [Représenant]
 ORDER BY Encours_Total DESC
 """
@@ -244,7 +244,7 @@ SELECT TOP 10
     [91-120] AS Tranche_91_120,
     [+120] AS Tranche_Plus_120,
     [Impayés] AS Impayes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+FROM [dbo].[BalanceAgee]
 ORDER BY [Solde Clôture] DESC
 """
 
@@ -256,7 +256,7 @@ SELECT
     [+120] AS Creances_Plus_120,
     [Impayés] AS Impayes,
     [Solde Clôture] AS Encours_Total
-FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+FROM [dbo].[BalanceAgee]
 WHERE [+120] > 0 OR [Impayés] > 0
 ORDER BY [+120] DESC
 """
@@ -520,7 +520,7 @@ SELECT TOP 100
     [Montant réglement],
     [Mode de réglement] AS Mode_Reglement,
     DATEDIFF(DAY, [Date document], [Date réglement]) AS Delai_Reglement_Jours
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Echéances_Ventes]
+FROM [dbo].[Echéances_Ventes]
 WHERE [Intitulé client] = ?
   AND [Date réglement] IS NOT NULL
 ORDER BY [Date réglement] DESC
@@ -598,7 +598,7 @@ SELECT DISTINCT
     [SOCIETE] AS Societe,
     [Solde Clôture] AS Encours,
     [Impayés] AS Impayes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+FROM [dbo].[BalanceAgee]
 ORDER BY [CLIENTS ]
 """
 
@@ -609,7 +609,7 @@ SELECT
     SUM([Montant HT Net]) AS CA_HT,
     SUM([Montant TTC Net]) AS CA_TTC,
     COUNT(*) AS Nb_Transactions
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Intitulé client] = ?
   AND [Date BL] BETWEEN ? AND ?
 GROUP BY YEAR([Date BL]), MONTH([Date BL])
@@ -625,7 +625,7 @@ SELECT
     SUM([Montant TTC Net]) AS CA_TTC,
     COUNT(*) AS Nb_Transactions,
     COUNT(DISTINCT [Code article]) AS Nb_Produits_Distincts
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Intitulé client] = ?
   AND [Date BL] BETWEEN ? AND ?
 GROUP BY [Code client], [Intitulé client], [Représentant]
@@ -639,7 +639,7 @@ SELECT TOP 10
     SUM([Quantité]) AS Quantite_Vendue,
     SUM([Montant HT Net]) AS CA_HT,
     COUNT(*) AS Nb_Lignes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE [Intitulé client] = ?
   AND [Date BL] BETWEEN ? AND ?
 GROUP BY [Code article], [Désignation], [Catalogue 1]
@@ -667,7 +667,7 @@ SELECT
         WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 120 THEN '91-120 jours'
         ELSE '+120 jours'
     END AS Tranche_Age
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Echéances_Ventes]
+FROM [dbo].[Echéances_Ventes]
 WHERE [Intitulé client] = ?
   AND [Montant échéance] > ISNULL([Régler], 0)
 ORDER BY [Date d'échéance] ASC
@@ -690,7 +690,7 @@ SELECT TOP 1
     [Capital_] AS Capital,
     [Forme juridique_] AS Forme_Juridique,
     [Date de création] AS Date_Creation
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Clients]
+FROM [dbo].[Clients]
 WHERE [Intitulé] = ?
 """
 
@@ -709,7 +709,7 @@ SELECT
     [Etat],
     [Code représentant] AS Code_Commercial,
     [Nom représentant] AS Commercial
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Entête_des_ventes]
+FROM [dbo].[Entête_des_ventes]
 WHERE [Intitulé client] = ?
   AND [Date] BETWEEN ? AND ?
 ORDER BY [Date] DESC
@@ -728,7 +728,7 @@ SELECT
     SUM([Montant TTC Net]) AS Total_Achats,
     SUM([Total réglement]) AS Total_Regle,
     SUM([Solde]) AS Solde
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Situation_Fournisseurs]
+FROM [dbo].[Situation_Fournisseurs]
 GROUP BY [DB], [Code fournisseur], [Intitulé fournisseur], [Acheteur]
 ORDER BY SUM([Solde]) DESC
 """
@@ -751,7 +751,7 @@ SELECT TOP 1
     [Encours de l'autorisation] AS Plafond_Autorisation,
     [Assurance],
     [Date de création] AS Date_Creation
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Fournisseurs]
+FROM [dbo].[Fournisseurs]
 WHERE [Intitulé] = ?
 """
 
@@ -769,7 +769,7 @@ SELECT
     [Statut],
     [Etat],
     [Nom acheteur] AS Acheteur
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Entête_des_achats]
+FROM [dbo].[Entête_des_achats]
 WHERE [Intitulé Fournisseur] = ?
   AND [Date] BETWEEN ? AND ?
 ORDER BY [Date] DESC
@@ -795,7 +795,7 @@ SELECT
         WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 120 THEN '91-120 jours'
         ELSE '+120 jours'
     END AS Tranche_Age
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Achats]
+FROM [dbo].[Echeances_Achats]
 WHERE [Intitulé fournisseur] = ?
   AND [Montant échéance] > ISNULL([Régler], 0)
 ORDER BY [Date d'échéance] ASC
@@ -808,7 +808,7 @@ SELECT TOP 100
     [Mode règlement] AS Mode_Reglement,
     [Montant] AS Montant_Paiement,
     [Date d'échéance] AS Date_Echeance
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Paiements_Fournisseurs]
+FROM [dbo].[Paiements_Fournisseurs]
 WHERE [Intitulé] = ?
 ORDER BY [Date] DESC
 """
@@ -820,7 +820,7 @@ SELECT
     SUM([Montant HT]) AS Montant_HT,
     SUM([Montant TTC]) AS Montant_TTC,
     COUNT(*) AS Nb_Documents
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Entête_des_achats]
+FROM [dbo].[Entête_des_achats]
 WHERE [Intitulé Fournisseur] = ?
   AND [Date] BETWEEN ? AND ?
   AND [Type Document] IN ('Facture', 'Avoir fournisseur')
@@ -834,7 +834,7 @@ SELECT
     SUM([Montant TTC]) AS Total_TTC,
     COUNT(*) AS Nb_Documents,
     COUNT(DISTINCT [Type Document]) AS Nb_Types
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Entête_des_achats]
+FROM [dbo].[Entête_des_achats]
 WHERE [Intitulé Fournisseur] = ?
   AND [Date] BETWEEN ? AND ?
 """
@@ -843,12 +843,12 @@ WHERE [Intitulé Fournisseur] = ?
 DSO_GLOBAL = """
 WITH CA_Data AS (
     SELECT SUM([Montant TTC Net]) AS CA_TTC
-    FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+    FROM [dbo].[DashBoard_CA]
     WHERE [Date BL] BETWEEN ? AND ?
 ),
 Encours_Data AS (
     SELECT SUM([Solde Clôture]) AS Encours_Total
-    FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+    FROM [dbo].[BalanceAgee]
 )
 SELECT
     Encours_Total,
@@ -864,13 +864,13 @@ FROM CA_Data, Encours_Data
 # KPIs Dashboard
 KPIS_DASHBOARD = """
 SELECT
-    (SELECT ISNULL(SUM([Montant HT Net]), 0) FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+    (SELECT ISNULL(SUM([Montant HT Net]), 0) FROM [dbo].[DashBoard_CA]
      WHERE [Date BL] BETWEEN ? AND ?) AS CA_HT,
-    (SELECT ISNULL(SUM([Montant HT Net]) - SUM([Coût]), 0) FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+    (SELECT ISNULL(SUM([Montant HT Net]) - SUM([Coût]), 0) FROM [dbo].[DashBoard_CA]
      WHERE [Date BL] BETWEEN ? AND ?) AS Marge_Brute,
-    (SELECT ISNULL(SUM([Solde Clôture]), 0) FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]) AS Encours_Clients,
-    (SELECT ISNULL(SUM([+120]), 0) FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]) AS Creances_Douteuses,
-    (SELECT COUNT(DISTINCT [Code client]) FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+    (SELECT ISNULL(SUM([Solde Clôture]), 0) FROM [dbo].[BalanceAgee]) AS Encours_Clients,
+    (SELECT ISNULL(SUM([+120]), 0) FROM [dbo].[BalanceAgee]) AS Creances_Douteuses,
+    (SELECT COUNT(DISTINCT [Code client]) FROM [dbo].[DashBoard_CA]
      WHERE [Date BL] BETWEEN ? AND ?) AS Nb_Clients_Actifs
 """
 
@@ -883,7 +883,7 @@ SELECT
     SUM([Coût]) AS Cout_Total,
     SUM([Montant HT Net]) - SUM([Coût]) AS Marge_Brute,
     COUNT(DISTINCT [Code client]) AS Nb_Clients
-FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+FROM [dbo].[DashBoard_CA]
 WHERE YEAR([Date BL]) IN (?, ?)
 GROUP BY YEAR([Date BL])
 ORDER BY Annee
@@ -1036,7 +1036,7 @@ SELECT
     [Solde Débit] - ISNULL([Solde Crédit], 0) AS Solde_Net,
     [Période] AS Periode,
     [Exercice] AS Exercice
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE 1=1
 ORDER BY [Compte]
 """
@@ -1057,7 +1057,7 @@ SELECT
     SUM([Solde Débit]) AS Total_Debit,
     SUM([Solde Crédit]) AS Total_Credit,
     SUM([Solde Débit]) - SUM(ISNULL([Solde Crédit], 0)) AS Solde_Net
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE [Exercice] = ?
 GROUP BY LEFT([Compte], 1)
 ORDER BY Classe
@@ -1071,7 +1071,7 @@ SELECT
       - SUM(CASE WHEN LEFT([Compte], 1) = '6' THEN [Solde Débit] ELSE 0 END) AS Resultat_Net,
     SUM(CASE WHEN LEFT([Compte], 1) = '5' THEN [Solde Débit] - ISNULL([Solde Crédit], 0) ELSE 0 END) AS Solde_Tresorerie,
     COUNT(DISTINCT [Compte]) AS Nb_Comptes_Actifs
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE [Exercice] = ?
 """
 
@@ -1091,7 +1091,7 @@ SELECT
     [Intitulé tiers] AS Intitule_Tiers,
     [Devise] AS Devise,
     [Lettrage] AS Code_Lettrage
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Journal_Ecritures]
+FROM [dbo].[Journal_Ecritures]
 WHERE [Date] BETWEEN ? AND ?
 ORDER BY [Date] DESC, [Journal], [N° pièce]
 """
@@ -1103,7 +1103,7 @@ SELECT
     COUNT(*) AS Nb_Ecritures,
     SUM([Débit]) AS Total_Debit,
     SUM([Crédit]) AS Total_Credit
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Journal_Ecritures]
+FROM [dbo].[Journal_Ecritures]
 WHERE [Date] BETWEEN ? AND ?
 GROUP BY [Journal], [Libellé journal]
 ORDER BY Nb_Ecritures DESC
@@ -1124,7 +1124,7 @@ SELECT
     [61-90] AS Tranche_61_90,
     [91-120] AS Tranche_91_120,
     [+120] AS Tranche_Plus_120
-FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+FROM [dbo].[BalanceAgee]
 WHERE [Solde Clôture] <> 0
 ORDER BY [Solde Clôture] DESC
 """
@@ -1139,7 +1139,7 @@ SELECT
     SUM([Montant TTC Net]) - SUM(ISNULL([Total réglement], 0)) AS Solde,
     SUM([Montant TTC Net]) AS Total_Achats,
     SUM(ISNULL([Total réglement], 0)) AS Total_Regle
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Entete_achats_fournisseur]
+FROM [dbo].[Entete_achats_fournisseur]
 GROUP BY [Code fournisseur], [Intitulé fournisseur], [DB], [Acheteur]
 HAVING SUM([Montant TTC Net]) - SUM(ISNULL([Total réglement], 0)) <> 0
 ORDER BY Solde DESC
@@ -1148,15 +1148,15 @@ ORDER BY Solde DESC
 KPIS_BALANCE_TIERS = """
 SELECT
     (SELECT ISNULL(SUM([Solde Clôture]), 0)
-     FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+     FROM [dbo].[BalanceAgee]
      WHERE [Solde Clôture] > 0) AS Encours_Clients,
     (SELECT COUNT(DISTINCT [CLIENTS ])
-     FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+     FROM [dbo].[BalanceAgee]
      WHERE [Solde Clôture] > 0) AS Nb_Clients_Encours,
     (SELECT ISNULL(SUM([+120]), 0)
-     FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]) AS Creances_Douteuses,
+     FROM [dbo].[BalanceAgee]) AS Creances_Douteuses,
     (SELECT ISNULL(SUM([Montant TTC Net]) - SUM(ISNULL([Total réglement], 0)), 0)
-     FROM [GROUPE_ALBOUGHAZE].[dbo].[Entete_achats_fournisseur]
+     FROM [dbo].[Entete_achats_fournisseur]
      WHERE [Montant TTC Net] > ISNULL([Total réglement], 0)) AS Dettes_Fournisseurs
 """
 
@@ -1175,7 +1175,7 @@ SELECT
     [Solde] AS Solde_Cumule,
     [Référence] AS Reference,
     [Rapproché] AS Rapproche
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+FROM [dbo].[Ecritures_Tresorerie]
 WHERE [Date opération] BETWEEN ? AND ?
 ORDER BY [Date opération] DESC, [Compte banque]
 """
@@ -1189,7 +1189,7 @@ SELECT
     SUM([Crédit]) AS Total_Credits,
     SUM([Débit]) - SUM(ISNULL([Crédit], 0)) AS Flux_Net,
     MAX([Solde]) AS Solde_Actuel
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+FROM [dbo].[Ecritures_Tresorerie]
 WHERE [Date opération] BETWEEN ? AND ?
 GROUP BY [Compte banque], [Banque]
 ORDER BY Solde_Actuel DESC
@@ -1203,9 +1203,9 @@ SELECT
     COUNT(DISTINCT [Compte banque]) AS Nb_Comptes_Bancaires,
     (SELECT ISNULL(SUM([Solde]), 0)
      FROM (SELECT [Compte banque], MAX([Solde]) AS [Solde]
-           FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+           FROM [dbo].[Ecritures_Tresorerie]
            GROUP BY [Compte banque]) T) AS Tresorerie_Totale
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+FROM [dbo].[Ecritures_Tresorerie]
 WHERE [Date opération] BETWEEN ? AND ?
 """
 
@@ -1234,7 +1234,7 @@ SELECT
         ELSE NULL
     END AS Evolution_Pct,
     [Exercice] AS Exercice
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE LEFT([Compte], 1) = '6'
   AND [Exercice] = ?
 ORDER BY [Compte]
@@ -1261,7 +1261,7 @@ SELECT
         ELSE NULL
     END AS Evolution_Pct,
     COUNT(*) AS Nb_Comptes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE LEFT([Compte], 1) = '6'
   AND [Exercice] = ?
 GROUP BY
@@ -1303,7 +1303,7 @@ SELECT
         ELSE NULL
     END AS Evolution_Pct,
     [Exercice] AS Exercice
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE LEFT([Compte], 1) = '7'
   AND [Exercice] = ?
 ORDER BY [Compte]
@@ -1330,7 +1330,7 @@ SELECT
         ELSE NULL
     END AS Evolution_Pct,
     COUNT(*) AS Nb_Comptes
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+FROM [dbo].[Balance_Generale]
 WHERE LEFT([Compte], 1) = '7'
   AND [Exercice] = ?
 GROUP BY
@@ -1369,7 +1369,7 @@ SELECT
         WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 30 THEN 'Sous 30 jours'
         ELSE 'Plus de 30 jours'
     END AS Urgence
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Fournisseurs]
+FROM [dbo].[Echeances_Fournisseurs]
 WHERE [Montant échéance] > ISNULL([Régler], 0)
 ORDER BY [Date d'échéance] ASC
 """
@@ -1382,7 +1382,7 @@ SELECT
     SUM([Montant échéance] - ISNULL([Régler], 0)) AS Total_A_Payer,
     MIN([Date d'échéance]) AS Prochaine_Echeance,
     SUM(CASE WHEN [Date d'échéance] < GETDATE() THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Montant_En_Retard
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Fournisseurs]
+FROM [dbo].[Echeances_Fournisseurs]
 WHERE [Montant échéance] > ISNULL([Régler], 0)
 GROUP BY [Code fournisseur], [Intitulé fournisseur]
 ORDER BY Total_A_Payer DESC
@@ -1395,7 +1395,7 @@ SELECT
     SUM(CASE WHEN [Date d'échéance] >= GETDATE() THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS A_Echoir,
     COUNT(*) AS Nb_Echeances_Ouvertes,
     COUNT(DISTINCT [Code fournisseur]) AS Nb_Fournisseurs
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Fournisseurs]
+FROM [dbo].[Echeances_Fournisseurs]
 WHERE [Montant échéance] > ISNULL([Régler], 0)
 """
 
@@ -1420,7 +1420,7 @@ SELECT
         ELSE 'Non lettré'
     END AS Statut_Lettrage,
     [Valorise CA] AS Valorise_CA
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Imputation_Factures_Ventes]
+FROM [dbo].[Imputation_Factures_Ventes]
 WHERE [Date document] BETWEEN ? AND ?
 ORDER BY [Date document] DESC, [Code client]
 """
@@ -1437,7 +1437,7 @@ SELECT
     ISNULL([Montant régler], 0) AS Montant_Lettre,
     [Montant facture TTC] - ISNULL([Montant régler], 0) AS Reste_A_Lettrer,
     DATEDIFF(DAY, [Date document], GETDATE()) AS Age_Jours
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Imputation_Factures_Ventes]
+FROM [dbo].[Imputation_Factures_Ventes]
 WHERE ([Montant régler] IS NULL OR [Montant régler] < [Montant facture TTC])
   AND [Montant facture TTC] > 0
 ORDER BY Reste_A_Lettrer DESC
@@ -1452,7 +1452,7 @@ SELECT
     SUM([Montant facture TTC]) AS Total_Factures,
     SUM(ISNULL([Montant régler], 0)) AS Total_Lettre,
     SUM([Montant facture TTC]) - SUM(ISNULL([Montant régler], 0)) AS Total_Non_Lettre
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Imputation_Factures_Ventes]
+FROM [dbo].[Imputation_Factures_Ventes]
 WHERE [Date document] BETWEEN ? AND ?
 """
 
@@ -1465,7 +1465,7 @@ SELECT
     SUM(CASE WHEN LEFT(b.[Compte], 1) = '7' THEN b.[Solde Crédit] ELSE 0 END) AS Total_Produits,
     SUM(CASE WHEN LEFT(b.[Compte], 1) = '7' THEN b.[Solde Crédit] ELSE 0 END)
       - SUM(CASE WHEN LEFT(b.[Compte], 1) = '6' THEN b.[Solde Débit] ELSE 0 END) AS Resultat
-FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale] b
+FROM [dbo].[Balance_Generale] b
 WHERE b.[Exercice] = ?
 GROUP BY b.[Exercice], b.[Periode]
 ORDER BY b.[Periode]

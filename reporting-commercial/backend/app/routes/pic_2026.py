@@ -10,7 +10,7 @@ from ..database_unified import execute_app as execute_query
 router = APIRouter(prefix="/api/pic", tags=["PIC 2026"])
 
 # Table source
-TABLE_CA = "[GROUPE_ALBOUGHAZE].[dbo].[CA_Groupe]"
+TABLE_CA = "[dbo].[CA_Groupe]"
 
 
 def safe_float(value, default=0):

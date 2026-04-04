@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     environment:
       - DB_SERVER=${DB_SERVER:-host.docker.internal}
-      - DB_NAME=${DB_NAME:-GROUPE_ALBOUGHAZE}
+      - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER:-sa}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_DRIVER={ODBC Driver 17 for SQL Server}

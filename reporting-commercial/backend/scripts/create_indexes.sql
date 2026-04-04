@@ -1,11 +1,11 @@
 -- ============================================
 -- Script de création d'index pour le Reporting Commercial
--- GROUPE ALBOUGHAZE
 -- Tables: DashBoard_CA, Mouvement_stock
+-- USAGE: Remplacer YOUR_DB_NAME par le nom de votre base de données
 -- ============================================
 
-USE [GROUPE_ALBOUGHAZE]
-GO
+-- USE [YOUR_DB_NAME]
+-- GO
 
 -- ============================================
 -- INDEX PRINCIPAL sur Date BL

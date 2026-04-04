@@ -11,7 +11,7 @@ from ..services.query_logger import query_logger
 router = APIRouter(prefix="/api/liste-ventes", tags=["Liste Ventes"])
 
 # Table source: Chiffre_Affaires_Groupe_Bis
-TABLE_SOURCE = "[GROUPE_ALBOUGHAZE].[dbo].[Chiffre_Affaires_Groupe_Bis]"
+TABLE_SOURCE = "[dbo].[Chiffre_Affaires_Groupe_Bis]"
 
 # Requete SQL pour l'aggregation (sans code client/article)
 LISTE_VENTES_AGREGEE = f"""

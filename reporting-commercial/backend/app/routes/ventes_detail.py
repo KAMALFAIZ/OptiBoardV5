@@ -39,7 +39,7 @@ async def get_detail_gamme(
             SUM([Coût]) AS Cout_Total,
             COUNT(*) AS Nb_Ventes,
             COUNT(DISTINCT [Code client]) AS Nb_Clients
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Catalogue 1] = ?
           AND [Date BL] BETWEEN ? AND ?
         GROUP BY [Code article], [Désignation]
@@ -117,7 +117,7 @@ async def get_detail_client(
             [Intitulé client] AS Nom_Client,
             [Représentant] AS Commercial,
             [Catégorie_] AS Canal
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Code client] = ?
         """
 
@@ -136,7 +136,7 @@ async def get_detail_client(
             [Quantité] AS Quantite,
             [Montant HT Net] AS Montant_HT,
             [Montant TTC Net] AS Montant_TTC
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Code client] = ?
           AND [Date BL] BETWEEN ? AND ?
         ORDER BY [Date BL] DESC
@@ -219,7 +219,7 @@ async def get_detail_produit(
             [Code article] AS Code_Article,
             [Désignation] AS Designation,
             [Catalogue 1] AS Gamme
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Code article] = ?
         """
 
@@ -238,7 +238,7 @@ async def get_detail_produit(
             [Quantité] AS Quantite,
             [Montant HT Net] AS Montant_HT,
             [Coût] AS Cout
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Code article] = ?
           AND [Date BL] BETWEEN ? AND ?
         ORDER BY [Date BL] DESC
@@ -322,7 +322,7 @@ async def get_detail_commercial(
             SUM([Coût]) AS Cout_Total,
             COUNT(DISTINCT [Code client]) AS Nb_Clients,
             COUNT(*) AS Nb_Transactions
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Représentant] = ?
           AND [Date BL] BETWEEN ? AND ?
         """
@@ -336,7 +336,7 @@ async def get_detail_commercial(
             [Intitulé client] AS Nom_Client,
             SUM([Montant HT Net]) AS CA_HT,
             COUNT(*) AS Nb_Transactions
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Représentant] = ?
           AND [Date BL] BETWEEN ? AND ?
         GROUP BY [Code client], [Intitulé client]
@@ -351,7 +351,7 @@ async def get_detail_commercial(
             [Catalogue 1] AS Gamme,
             SUM([Montant HT Net]) AS CA_HT,
             COUNT(*) AS Nb_Ventes
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Représentant] = ?
           AND [Date BL] BETWEEN ? AND ?
         GROUP BY [Catalogue 1]
@@ -366,7 +366,7 @@ async def get_detail_commercial(
             YEAR([Date BL]) AS Annee,
             MONTH([Date BL]) AS Mois,
             SUM([Montant HT Net]) AS CA_HT
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE [Représentant] = ?
           AND [Date BL] BETWEEN ? AND ?
         GROUP BY YEAR([Date BL]), MONTH([Date BL])
@@ -444,7 +444,7 @@ async def get_detail_mois(
             [Quantité] AS Quantite,
             [Montant HT Net] AS Montant_HT,
             [Montant TTC Net] AS Montant_TTC
-        FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA]
+        FROM [dbo].[DashBoard_CA]
         WHERE YEAR([Date BL]) = ? AND MONTH([Date BL]) = ?
         ORDER BY [Date BL] DESC
         """

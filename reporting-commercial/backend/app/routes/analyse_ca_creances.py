@@ -9,8 +9,8 @@ from ..services.query_logger import query_logger
 router = APIRouter(prefix="/api/analyse-ca-creances", tags=["Analyse CA Creances"])
 
 # Tables sources
-TABLE_CA = "[GROUPE_ALBOUGHAZE].[dbo].[Chiffre_Affaires_Groupe_Bis]"
-TABLE_CREANCES = "[GROUPE_ALBOUGHAZE].[dbo].[Balance_Agee_Clients_Groupe]"
+TABLE_CA = "[dbo].[Chiffre_Affaires_Groupe_Bis]"
+TABLE_CREANCES = "[dbo].[Balance_Agee_Clients_Groupe]"
 
 
 @router.get("/kpis")

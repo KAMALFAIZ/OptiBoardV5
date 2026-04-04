@@ -5,6 +5,7 @@ import sys
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
@@ -51,6 +52,9 @@ from app.routes.fiche_client import router as fiche_client_router               
 from app.routes.fiche_fournisseur import router as fiche_fournisseur_router                    # Fiche Fournisseur 360°
 from app.routes.demo_portal import router as demo_portal_router                                 # Portail Demo AgentETL
 from app.routes.comptabilite import router as comptabilite_router                               # Module Comptabilité
+from app.routes.sage_direct import router as sage_direct_router                                 # Accès direct Sage (lecture seule)
+from app.routes.weekly_digest import router as weekly_digest_router                             # Digest IA hebdomadaire
+from app.routes.two_factor import router as two_factor_router                                   # 2FA TOTP
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -79,6 +83,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compression gzip des réponses > 1 Ko (gain 60-80% bande passante)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Middleware de routage tenant (async-safe via contextvars)
 app.add_middleware(TenantContextMiddleware)
@@ -149,6 +156,9 @@ app.include_router(fiche_client_router)         # Fiche Client 360°
 app.include_router(fiche_fournisseur_router)    # Fiche Fournisseur 360°
 app.include_router(demo_portal_router)          # Portail Demo AgentETL
 app.include_router(comptabilite_router)         # Module Comptabilité
+app.include_router(sage_direct_router)          # Accès direct Sage (lecture seule, sans ETL)
+app.include_router(weekly_digest_router)        # Digest IA hebdomadaire (direction)
+app.include_router(two_factor_router)          # 2FA TOTP (admins)
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -161,6 +171,8 @@ LICENSE_EXEMPT_PATHS = {
     "/api/env/test-license-server", "/api/env/restart", "/api/env/test-smtp",
     # Portail demo : routes publiques + AgentETL exemptees de licence
     "/api/demo/register",
+    # Digest IA : trigger admin (pas besoin de vérif licence côté scheduler)
+    "/api/admin/digest/status",
 }
 
 
@@ -311,6 +323,35 @@ async def startup_event():
     except Exception as e:
         print(f"[STARTUP] APP_DWH migration error: {e}")
 
+    # Migration APP_Users (central + client DBs) : ajout colonnes 2FA
+    try:
+        from app.database_unified import write_central as _wc2
+        _wc2("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_secret') ALTER TABLE APP_Users ADD totp_secret NVARCHAR(64) NULL")
+        _wc2("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_enabled') ALTER TABLE APP_Users ADD totp_enabled BIT NOT NULL DEFAULT 0")
+        print("[STARTUP] APP_Users 2FA columns migration OK (central)")
+    except Exception as e:
+        print(f"[STARTUP] 2FA migration central error: {e}")
+
+    # Migration APP_Users (client DB) : ajout colonne onboarding_done
+    try:
+        from app.database_unified import execute_central as _ec, write_client as _wk
+        dwh_list = _ec("SELECT code FROM APP_DWH WHERE actif = 1", use_cache=False)
+        for _dwh in dwh_list:
+            _code = _dwh.get("code", "")
+            if not _code:
+                continue
+            try:
+                _wk(
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='onboarding_done') "
+                    "ALTER TABLE APP_Users ADD onboarding_done BIT NOT NULL DEFAULT 0",
+                    dwh_code=_code,
+                )
+            except Exception:
+                pass
+        print("[STARTUP] APP_Users.onboarding_done migration OK")
+    except Exception as e:
+        print(f"[STARTUP] onboarding_done migration error: {e}")
+
 
 
 @app.get("/")
@@ -394,7 +435,7 @@ async def get_societes():
 
         # Sociétés depuis DashBoard_CA
         try:
-            result = execute_query("SELECT DISTINCT [Société] FROM [GROUPE_ALBOUGHAZE].[dbo].[DashBoard_CA] WHERE [Société] IS NOT NULL")
+            result = execute_query("SELECT DISTINCT [Société] FROM [dbo].[DashBoard_CA] WHERE [Société] IS NOT NULL")
             for r in result:
                 val = r.get('Société')
                 if val and val.strip():
@@ -404,7 +445,7 @@ async def get_societes():
 
         # Sociétés depuis BalanceAgee
         try:
-            result = execute_query("SELECT DISTINCT [SOCIETE] FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee] WHERE [SOCIETE] IS NOT NULL")
+            result = execute_query("SELECT DISTINCT [SOCIETE] FROM [dbo].[BalanceAgee] WHERE [SOCIETE] IS NOT NULL")
             for r in result:
                 val = r.get('SOCIETE')
                 if val and val.strip():
