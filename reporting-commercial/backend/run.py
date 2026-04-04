@@ -50,6 +50,7 @@ from app.routes.alert_templates import router as alert_templates_router         
 from app.routes.fiche_client import router as fiche_client_router                              # Fiche Client 360°
 from app.routes.fiche_fournisseur import router as fiche_fournisseur_router                    # Fiche Fournisseur 360°
 from app.routes.demo_portal import router as demo_portal_router                                 # Portail Demo AgentETL
+from app.routes.comptabilite import router as comptabilite_router                               # Module Comptabilité
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -147,6 +148,7 @@ app.include_router(alert_templates_router)  # Templates alertes KPI (base maîtr
 app.include_router(fiche_client_router)         # Fiche Client 360°
 app.include_router(fiche_fournisseur_router)    # Fiche Fournisseur 360°
 app.include_router(demo_portal_router)          # Portail Demo AgentETL
+app.include_router(comptabilite_router)         # Module Comptabilité
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {

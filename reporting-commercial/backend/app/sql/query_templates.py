@@ -1020,3 +1020,453 @@ QUERIES_METADATA = {
         "category": "Recouvrement"
     }
 }
+
+# =============================================================================
+# COMPTABILITE — Requêtes spécifiques au module comptable
+# =============================================================================
+
+# ── Balance Générale ──────────────────────────────────────────────────────────
+BALANCE_GENERALE = """
+SELECT
+    [Compte] AS Num_Compte,
+    [Intitulé] AS Intitule,
+    [Classe] AS Classe,
+    [Solde Débit] AS Solde_Debit,
+    [Solde Crédit] AS Solde_Credit,
+    [Solde Débit] - ISNULL([Solde Crédit], 0) AS Solde_Net,
+    [Période] AS Periode,
+    [Exercice] AS Exercice
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE 1=1
+ORDER BY [Compte]
+"""
+
+BALANCE_GENERALE_PAR_CLASSE = """
+SELECT
+    LEFT([Compte], 1) AS Classe,
+    CASE LEFT([Compte], 1)
+        WHEN '1' THEN 'Capitaux propres'
+        WHEN '2' THEN 'Immobilisations'
+        WHEN '3' THEN 'Stocks'
+        WHEN '4' THEN 'Tiers'
+        WHEN '5' THEN 'Trésorerie'
+        WHEN '6' THEN 'Charges'
+        WHEN '7' THEN 'Produits'
+        ELSE 'Autre'
+    END AS Libelle_Classe,
+    SUM([Solde Débit]) AS Total_Debit,
+    SUM([Solde Crédit]) AS Total_Credit,
+    SUM([Solde Débit]) - SUM(ISNULL([Solde Crédit], 0)) AS Solde_Net
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE [Exercice] = ?
+GROUP BY LEFT([Compte], 1)
+ORDER BY Classe
+"""
+
+KPIS_BALANCE_GENERALE = """
+SELECT
+    SUM(CASE WHEN LEFT([Compte], 1) = '6' THEN [Solde Débit] ELSE 0 END) AS Total_Charges,
+    SUM(CASE WHEN LEFT([Compte], 1) = '7' THEN [Solde Crédit] ELSE 0 END) AS Total_Produits,
+    SUM(CASE WHEN LEFT([Compte], 1) = '7' THEN [Solde Crédit] ELSE 0 END)
+      - SUM(CASE WHEN LEFT([Compte], 1) = '6' THEN [Solde Débit] ELSE 0 END) AS Resultat_Net,
+    SUM(CASE WHEN LEFT([Compte], 1) = '5' THEN [Solde Débit] - ISNULL([Solde Crédit], 0) ELSE 0 END) AS Solde_Tresorerie,
+    COUNT(DISTINCT [Compte]) AS Nb_Comptes_Actifs
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE [Exercice] = ?
+"""
+
+# ── Journal des Écritures ─────────────────────────────────────────────────────
+JOURNAL_ECRITURES = """
+SELECT
+    [Journal] AS Code_Journal,
+    [Libellé journal] AS Libelle_Journal,
+    [N° pièce] AS Num_Piece,
+    [Date] AS Date_Ecriture,
+    [Compte] AS Num_Compte,
+    [Intitulé compte] AS Intitule_Compte,
+    [Libellé] AS Libelle,
+    [Débit] AS Montant_Debit,
+    [Crédit] AS Montant_Credit,
+    [Code tiers] AS Code_Tiers,
+    [Intitulé tiers] AS Intitule_Tiers,
+    [Devise] AS Devise,
+    [Lettrage] AS Code_Lettrage
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Journal_Ecritures]
+WHERE [Date] BETWEEN ? AND ?
+ORDER BY [Date] DESC, [Journal], [N° pièce]
+"""
+
+JOURNAL_ECRITURES_PAR_JOURNAL = """
+SELECT
+    [Journal] AS Code_Journal,
+    [Libellé journal] AS Libelle_Journal,
+    COUNT(*) AS Nb_Ecritures,
+    SUM([Débit]) AS Total_Debit,
+    SUM([Crédit]) AS Total_Credit
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Journal_Ecritures]
+WHERE [Date] BETWEEN ? AND ?
+GROUP BY [Journal], [Libellé journal]
+ORDER BY Nb_Ecritures DESC
+"""
+
+# ── Balance Tiers ─────────────────────────────────────────────────────────────
+BALANCE_TIERS_CLIENTS = """
+SELECT
+    [CLIENTS ] AS Code_Tiers,
+    [CLIENTS ] AS Nom_Tiers,
+    'Client' AS Type_Tiers,
+    [SOCIETE] AS Societe,
+    [Représenant] AS Gestionnaire,
+    [Solde Clôture] AS Solde,
+    [Impayés] AS Impayes,
+    [0-30] AS Tranche_0_30,
+    [31-60] AS Tranche_31_60,
+    [61-90] AS Tranche_61_90,
+    [91-120] AS Tranche_91_120,
+    [+120] AS Tranche_Plus_120
+FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+WHERE [Solde Clôture] <> 0
+ORDER BY [Solde Clôture] DESC
+"""
+
+BALANCE_TIERS_FOURNISSEURS = """
+SELECT
+    [Code fournisseur] AS Code_Tiers,
+    [Intitulé fournisseur] AS Nom_Tiers,
+    'Fournisseur' AS Type_Tiers,
+    [DB] AS Societe,
+    [Acheteur] AS Gestionnaire,
+    SUM([Montant TTC Net]) - SUM(ISNULL([Total réglement], 0)) AS Solde,
+    SUM([Montant TTC Net]) AS Total_Achats,
+    SUM(ISNULL([Total réglement], 0)) AS Total_Regle
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Entete_achats_fournisseur]
+GROUP BY [Code fournisseur], [Intitulé fournisseur], [DB], [Acheteur]
+HAVING SUM([Montant TTC Net]) - SUM(ISNULL([Total réglement], 0)) <> 0
+ORDER BY Solde DESC
+"""
+
+KPIS_BALANCE_TIERS = """
+SELECT
+    (SELECT ISNULL(SUM([Solde Clôture]), 0)
+     FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+     WHERE [Solde Clôture] > 0) AS Encours_Clients,
+    (SELECT COUNT(DISTINCT [CLIENTS ])
+     FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]
+     WHERE [Solde Clôture] > 0) AS Nb_Clients_Encours,
+    (SELECT ISNULL(SUM([+120]), 0)
+     FROM [GROUPE_ALBOUGHAZE].[dbo].[BalanceAgee]) AS Creances_Douteuses,
+    (SELECT ISNULL(SUM([Montant TTC Net]) - SUM(ISNULL([Total réglement], 0)), 0)
+     FROM [GROUPE_ALBOUGHAZE].[dbo].[Entete_achats_fournisseur]
+     WHERE [Montant TTC Net] > ISNULL([Total réglement], 0)) AS Dettes_Fournisseurs
+"""
+
+# ── Écritures de Trésorerie ───────────────────────────────────────────────────
+ECRITURES_TRESORERIE = """
+SELECT
+    [Compte banque] AS Compte_Banque,
+    [Banque] AS Libelle_Banque,
+    [Date opération] AS Date_Operation,
+    [Date valeur] AS Date_Valeur,
+    [Libellé] AS Libelle,
+    [Type] AS Type_Ecriture,
+    [Débit] AS Montant_Debit,
+    [Crédit] AS Montant_Credit,
+    [Débit] - ISNULL([Crédit], 0) AS Flux_Net,
+    [Solde] AS Solde_Cumule,
+    [Référence] AS Reference,
+    [Rapproché] AS Rapproche
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+WHERE [Date opération] BETWEEN ? AND ?
+ORDER BY [Date opération] DESC, [Compte banque]
+"""
+
+ECRITURES_TRESORERIE_PAR_BANQUE = """
+SELECT
+    [Compte banque] AS Compte_Banque,
+    [Banque] AS Libelle_Banque,
+    COUNT(*) AS Nb_Mouvements,
+    SUM([Débit]) AS Total_Debits,
+    SUM([Crédit]) AS Total_Credits,
+    SUM([Débit]) - SUM(ISNULL([Crédit], 0)) AS Flux_Net,
+    MAX([Solde]) AS Solde_Actuel
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+WHERE [Date opération] BETWEEN ? AND ?
+GROUP BY [Compte banque], [Banque]
+ORDER BY Solde_Actuel DESC
+"""
+
+KPIS_TRESORERIE = """
+SELECT
+    SUM(CASE WHEN [Débit] > 0 THEN [Débit] ELSE 0 END) AS Total_Encaissements,
+    SUM(CASE WHEN [Crédit] > 0 THEN [Crédit] ELSE 0 END) AS Total_Decaissements,
+    SUM([Débit]) - SUM(ISNULL([Crédit], 0)) AS Flux_Net_Periode,
+    COUNT(DISTINCT [Compte banque]) AS Nb_Comptes_Bancaires,
+    (SELECT ISNULL(SUM([Solde]), 0)
+     FROM (SELECT [Compte banque], MAX([Solde]) AS [Solde]
+           FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+           GROUP BY [Compte banque]) T) AS Tresorerie_Totale
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Ecritures_Tresorerie]
+WHERE [Date opération] BETWEEN ? AND ?
+"""
+
+# ── Détail des Charges ────────────────────────────────────────────────────────
+DETAIL_CHARGES = """
+SELECT
+    [Compte] AS Num_Compte,
+    [Intitulé] AS Intitule,
+    [Sous-classe] AS Sous_Classe,
+    CASE
+        WHEN LEFT([Compte], 2) IN ('60','61') THEN 'Achats et charges externes'
+        WHEN LEFT([Compte], 2) = '62' THEN 'Services extérieurs'
+        WHEN LEFT([Compte], 2) = '63' THEN 'Impôts et taxes'
+        WHEN LEFT([Compte], 2) = '64' THEN 'Charges de personnel'
+        WHEN LEFT([Compte], 2) = '65' THEN 'Autres charges'
+        WHEN LEFT([Compte], 2) = '66' THEN 'Charges financières'
+        WHEN LEFT([Compte], 2) = '67' THEN 'Charges exceptionnelles'
+        WHEN LEFT([Compte], 2) = '68' THEN 'Dotations aux amortissements'
+        ELSE 'Autres charges'
+    END AS Categorie,
+    [Solde Débit] AS Montant_Charge,
+    [Solde Débit N-1] AS Montant_Charge_N1,
+    CASE
+        WHEN ISNULL([Solde Débit N-1], 0) > 0
+        THEN ([Solde Débit] - [Solde Débit N-1]) / [Solde Débit N-1] * 100
+        ELSE NULL
+    END AS Evolution_Pct,
+    [Exercice] AS Exercice
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE LEFT([Compte], 1) = '6'
+  AND [Exercice] = ?
+ORDER BY [Compte]
+"""
+
+DETAIL_CHARGES_PAR_CATEGORIE = """
+SELECT
+    CASE
+        WHEN LEFT([Compte], 2) IN ('60','61') THEN 'Achats et charges externes'
+        WHEN LEFT([Compte], 2) = '62' THEN 'Services extérieurs'
+        WHEN LEFT([Compte], 2) = '63' THEN 'Impôts et taxes'
+        WHEN LEFT([Compte], 2) = '64' THEN 'Charges de personnel'
+        WHEN LEFT([Compte], 2) = '65' THEN 'Autres charges'
+        WHEN LEFT([Compte], 2) = '66' THEN 'Charges financières'
+        WHEN LEFT([Compte], 2) = '67' THEN 'Charges exceptionnelles'
+        WHEN LEFT([Compte], 2) = '68' THEN 'Dotations aux amortissements'
+        ELSE 'Autres'
+    END AS Categorie,
+    SUM([Solde Débit]) AS Total_Charges,
+    SUM(ISNULL([Solde Débit N-1], 0)) AS Total_Charges_N1,
+    CASE
+        WHEN SUM(ISNULL([Solde Débit N-1], 0)) > 0
+        THEN (SUM([Solde Débit]) - SUM([Solde Débit N-1])) / SUM([Solde Débit N-1]) * 100
+        ELSE NULL
+    END AS Evolution_Pct,
+    COUNT(*) AS Nb_Comptes
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE LEFT([Compte], 1) = '6'
+  AND [Exercice] = ?
+GROUP BY
+    CASE
+        WHEN LEFT([Compte], 2) IN ('60','61') THEN 'Achats et charges externes'
+        WHEN LEFT([Compte], 2) = '62' THEN 'Services extérieurs'
+        WHEN LEFT([Compte], 2) = '63' THEN 'Impôts et taxes'
+        WHEN LEFT([Compte], 2) = '64' THEN 'Charges de personnel'
+        WHEN LEFT([Compte], 2) = '65' THEN 'Autres charges'
+        WHEN LEFT([Compte], 2) = '66' THEN 'Charges financières'
+        WHEN LEFT([Compte], 2) = '67' THEN 'Charges exceptionnelles'
+        WHEN LEFT([Compte], 2) = '68' THEN 'Dotations aux amortissements'
+        ELSE 'Autres'
+    END
+ORDER BY Total_Charges DESC
+"""
+
+# ── Détail des Produits ───────────────────────────────────────────────────────
+DETAIL_PRODUITS = """
+SELECT
+    [Compte] AS Num_Compte,
+    [Intitulé] AS Intitule,
+    CASE
+        WHEN LEFT([Compte], 2) = '70' THEN 'Ventes de produits et services'
+        WHEN LEFT([Compte], 2) = '71' THEN 'Production stockée'
+        WHEN LEFT([Compte], 2) = '72' THEN 'Production immobilisée'
+        WHEN LEFT([Compte], 2) = '74' THEN 'Subventions d exploitation'
+        WHEN LEFT([Compte], 2) = '75' THEN 'Autres produits'
+        WHEN LEFT([Compte], 2) = '76' THEN 'Produits financiers'
+        WHEN LEFT([Compte], 2) = '77' THEN 'Produits exceptionnels'
+        WHEN LEFT([Compte], 2) = '78' THEN 'Reprises sur amortissements'
+        ELSE 'Autres produits'
+    END AS Categorie,
+    [Solde Crédit] AS Montant_Produit,
+    [Solde Crédit N-1] AS Montant_Produit_N1,
+    CASE
+        WHEN ISNULL([Solde Crédit N-1], 0) > 0
+        THEN ([Solde Crédit] - [Solde Crédit N-1]) / [Solde Crédit N-1] * 100
+        ELSE NULL
+    END AS Evolution_Pct,
+    [Exercice] AS Exercice
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE LEFT([Compte], 1) = '7'
+  AND [Exercice] = ?
+ORDER BY [Compte]
+"""
+
+DETAIL_PRODUITS_PAR_CATEGORIE = """
+SELECT
+    CASE
+        WHEN LEFT([Compte], 2) = '70' THEN 'Ventes de produits et services'
+        WHEN LEFT([Compte], 2) = '71' THEN 'Production stockée'
+        WHEN LEFT([Compte], 2) = '72' THEN 'Production immobilisée'
+        WHEN LEFT([Compte], 2) = '74' THEN 'Subventions d exploitation'
+        WHEN LEFT([Compte], 2) = '75' THEN 'Autres produits'
+        WHEN LEFT([Compte], 2) = '76' THEN 'Produits financiers'
+        WHEN LEFT([Compte], 2) = '77' THEN 'Produits exceptionnels'
+        WHEN LEFT([Compte], 2) = '78' THEN 'Reprises sur amortissements'
+        ELSE 'Autres produits'
+    END AS Categorie,
+    SUM([Solde Crédit]) AS Total_Produits,
+    SUM(ISNULL([Solde Crédit N-1], 0)) AS Total_Produits_N1,
+    CASE
+        WHEN SUM(ISNULL([Solde Crédit N-1], 0)) > 0
+        THEN (SUM([Solde Crédit]) - SUM([Solde Crédit N-1])) / SUM([Solde Crédit N-1]) * 100
+        ELSE NULL
+    END AS Evolution_Pct,
+    COUNT(*) AS Nb_Comptes
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale]
+WHERE LEFT([Compte], 1) = '7'
+  AND [Exercice] = ?
+GROUP BY
+    CASE
+        WHEN LEFT([Compte], 2) = '70' THEN 'Ventes de produits et services'
+        WHEN LEFT([Compte], 2) = '71' THEN 'Production stockée'
+        WHEN LEFT([Compte], 2) = '72' THEN 'Production immobilisée'
+        WHEN LEFT([Compte], 2) = '74' THEN 'Subventions d exploitation'
+        WHEN LEFT([Compte], 2) = '75' THEN 'Autres produits'
+        WHEN LEFT([Compte], 2) = '76' THEN 'Produits financiers'
+        WHEN LEFT([Compte], 2) = '77' THEN 'Produits exceptionnels'
+        WHEN LEFT([Compte], 2) = '78' THEN 'Reprises sur amortissements'
+        ELSE 'Autres produits'
+    END
+ORDER BY Total_Produits DESC
+"""
+
+# ── Échéances Fournisseurs ────────────────────────────────────────────────────
+ECHEANCES_FOURNISSEURS = """
+SELECT
+    [DB] AS Societe,
+    [Code fournisseur] AS Code_Fournisseur,
+    [Intitulé fournisseur] AS Nom_Fournisseur,
+    [N° pièce] AS Num_Piece,
+    [Type document] AS Type_Document,
+    [Date document],
+    [Date d'échéance] AS Date_Echeance,
+    [Montant échéance] AS Montant_Echeance,
+    ISNULL([Régler], 0) AS Montant_Regle,
+    [Montant échéance] - ISNULL([Régler], 0) AS Reste_A_Payer,
+    [Mode de réglement] AS Mode_Reglement,
+    DATEDIFF(DAY, GETDATE(), [Date d'échéance]) AS Jours_Avant_Echeance,
+    CASE
+        WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) < 0 THEN 'En retard'
+        WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 7 THEN 'Cette semaine'
+        WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 30 THEN 'Sous 30 jours'
+        ELSE 'Plus de 30 jours'
+    END AS Urgence
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Fournisseurs]
+WHERE [Montant échéance] > ISNULL([Régler], 0)
+ORDER BY [Date d'échéance] ASC
+"""
+
+ECHEANCES_FOURNISSEURS_PAR_FOURNISSEUR = """
+SELECT
+    [Code fournisseur] AS Code_Fournisseur,
+    [Intitulé fournisseur] AS Nom_Fournisseur,
+    COUNT(*) AS Nb_Echeances,
+    SUM([Montant échéance] - ISNULL([Régler], 0)) AS Total_A_Payer,
+    MIN([Date d'échéance]) AS Prochaine_Echeance,
+    SUM(CASE WHEN [Date d'échéance] < GETDATE() THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Montant_En_Retard
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Fournisseurs]
+WHERE [Montant échéance] > ISNULL([Régler], 0)
+GROUP BY [Code fournisseur], [Intitulé fournisseur]
+ORDER BY Total_A_Payer DESC
+"""
+
+KPIS_ECHEANCES_FOURNISSEURS = """
+SELECT
+    SUM([Montant échéance] - ISNULL([Régler], 0)) AS Total_A_Payer,
+    SUM(CASE WHEN [Date d'échéance] < GETDATE() THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Montant_En_Retard,
+    SUM(CASE WHEN [Date d'échéance] >= GETDATE() THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS A_Echoir,
+    COUNT(*) AS Nb_Echeances_Ouvertes,
+    COUNT(DISTINCT [Code fournisseur]) AS Nb_Fournisseurs
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Echeances_Fournisseurs]
+WHERE [Montant échéance] > ISNULL([Régler], 0)
+"""
+
+# ── Lettrage et Rapprochement ─────────────────────────────────────────────────
+LETTRAGE_RAPPROCHEMENT = """
+SELECT
+    [DB_Caption] AS Societe,
+    [Code client],
+    [Intitulé client],
+    [Type Document],
+    [N° pièce] AS Num_Piece,
+    [Date document],
+    [Date réglement] AS Date_Reglement,
+    [id Réglement] AS Ref_Reglement,
+    [Montant facture TTC] AS Montant_Facture,
+    [Montant régler] AS Montant_Lettre,
+    [Montant facture TTC] - ISNULL([Montant régler], 0) AS Reste_A_Lettrer,
+    [Mode de réglement] AS Mode_Reglement,
+    CASE
+        WHEN [Montant régler] >= [Montant facture TTC] THEN 'Lettré complet'
+        WHEN [Montant régler] > 0 THEN 'Lettré partiel'
+        ELSE 'Non lettré'
+    END AS Statut_Lettrage,
+    [Valorise CA] AS Valorise_CA
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Imputation_Factures_Ventes]
+WHERE [Date document] BETWEEN ? AND ?
+ORDER BY [Date document] DESC, [Code client]
+"""
+
+LETTRAGE_NON_LETTRE = """
+SELECT
+    [DB_Caption] AS Societe,
+    [Code client],
+    [Intitulé client],
+    [Type Document],
+    [N° pièce] AS Num_Piece,
+    [Date document],
+    [Montant facture TTC] AS Montant_Facture,
+    ISNULL([Montant régler], 0) AS Montant_Lettre,
+    [Montant facture TTC] - ISNULL([Montant régler], 0) AS Reste_A_Lettrer,
+    DATEDIFF(DAY, [Date document], GETDATE()) AS Age_Jours
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Imputation_Factures_Ventes]
+WHERE ([Montant régler] IS NULL OR [Montant régler] < [Montant facture TTC])
+  AND [Montant facture TTC] > 0
+ORDER BY Reste_A_Lettrer DESC
+"""
+
+KPIS_LETTRAGE = """
+SELECT
+    COUNT(*) AS Nb_Total_Pieces,
+    SUM(CASE WHEN ISNULL([Montant régler], 0) >= [Montant facture TTC] THEN 1 ELSE 0 END) AS Nb_Lettres_Complet,
+    SUM(CASE WHEN [Montant régler] > 0 AND [Montant régler] < [Montant facture TTC] THEN 1 ELSE 0 END) AS Nb_Lettres_Partiel,
+    SUM(CASE WHEN ISNULL([Montant régler], 0) = 0 THEN 1 ELSE 0 END) AS Nb_Non_Lettres,
+    SUM([Montant facture TTC]) AS Total_Factures,
+    SUM(ISNULL([Montant régler], 0)) AS Total_Lettre,
+    SUM([Montant facture TTC]) - SUM(ISNULL([Montant régler], 0)) AS Total_Non_Lettre
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Imputation_Factures_Ventes]
+WHERE [Date document] BETWEEN ? AND ?
+"""
+
+# ── Analyses Comptables — Evolution mensuelle ─────────────────────────────────
+ANALYSE_CHARGES_PRODUITS_MENSUEL = """
+SELECT
+    b.[Exercice],
+    b.[Periode] AS Mois,
+    SUM(CASE WHEN LEFT(b.[Compte], 1) = '6' THEN b.[Solde Débit] ELSE 0 END) AS Total_Charges,
+    SUM(CASE WHEN LEFT(b.[Compte], 1) = '7' THEN b.[Solde Crédit] ELSE 0 END) AS Total_Produits,
+    SUM(CASE WHEN LEFT(b.[Compte], 1) = '7' THEN b.[Solde Crédit] ELSE 0 END)
+      - SUM(CASE WHEN LEFT(b.[Compte], 1) = '6' THEN b.[Solde Débit] ELSE 0 END) AS Resultat
+FROM [GROUPE_ALBOUGHAZE].[dbo].[Balance_Generale] b
+WHERE b.[Exercice] = ?
+GROUP BY b.[Exercice], b.[Periode]
+ORDER BY b.[Periode]
+"""

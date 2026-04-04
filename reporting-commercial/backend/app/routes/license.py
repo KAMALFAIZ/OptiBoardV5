@@ -49,6 +49,26 @@ async def license_status():
     """
     settings = get_settings()
 
+    # Mode développement : licence toujours valide (cohérent avec le middleware)
+    if settings.DEBUG:
+        return {
+            "success": True,
+            "licensed": True,
+            "status": "debug",
+            "license": {
+                "org": "DEBUG MODE",
+                "plan": "premium",
+                "features": ["all"],
+                "exp": "2099-12-31",
+                "days_remaining": 99999,
+                "grace_mode": False,
+                "machine_id": get_machine_id(),
+                "mode": "on-premise",
+            },
+            "machine_id": get_machine_id(),
+            "message": "Mode développement — licence désactivée"
+        }
+
     if not settings.LICENSE_KEY:
         return {
             "success": True,

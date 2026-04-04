@@ -90,6 +90,8 @@ export default function GridViewDisplay() {
   const [columns, setColumns] = useState([])
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [debugInfo, setDebugInfo] = useState(null)
+  const [showDebug, setShowDebug] = useState(true)
 
   // Recherche globale
   const [globalSearch, setGlobalSearch] = useState('')
@@ -381,27 +383,48 @@ export default function GridViewDisplay() {
 
   const loadDataFromSource = async (sourceIdentifier, pageSize, totalColumns, context = {}, useUnifiedApi = false) => {
     setRefreshing(true)
+    const dbg = {
+      sourceIdentifier,
+      useUnifiedApi,
+      globalFilters: { ...globalFilters },
+      context: { ...context },
+      mergedContext: null,
+      endpoint: null,
+      responseTotal: null,
+      rowsReceived: null,
+      error: null,
+      ts: new Date().toISOString(),
+    }
     try {
       const isCode = typeof sourceIdentifier === 'string' && isNaN(Number(sourceIdentifier))
       const shouldUseUnified = useUnifiedApi || isCode
 
       // Fusionner les filtres globaux (dates, societe) avec les paramètres spécifiques
       const mergedContext = { ...globalFilters, ...context }
+      dbg.mergedContext = mergedContext
+      dbg.shouldUseUnified = shouldUseUnified
 
       let response
       if (shouldUseUnified) {
+        dbg.endpoint = `POST /api/datasources/unified/${sourceIdentifier}/preview`
         response = await previewUnifiedDataSource(sourceIdentifier, mergedContext, null, 0)
       } else {
+        dbg.endpoint = `POST /api/builder/datasources/${sourceIdentifier}/preview`
         response = await previewDataSource(sourceIdentifier, mergedContext, 0)
       }
 
       const sourceData = response.data.data || []
+      dbg.responseTotal = response.data.total ?? response.data.count ?? sourceData.length
+      dbg.rowsReceived = sourceData.length
+      dbg.responseKeys = response.data ? Object.keys(response.data) : []
       setAllData(sourceData)
     } catch (err) {
       console.error('Erreur chargement source:', err)
+      dbg.error = err?.response?.data?.detail || err?.message || String(err)
       setError('Erreur lors du chargement des données')
     } finally {
       setRefreshing(false)
+      setDebugInfo(dbg)
     }
   }
 
@@ -1231,6 +1254,27 @@ export default function GridViewDisplay() {
           </div>
         )}
       </div>}
+
+      {/* 🐛 DEBUG PANEL — affiche les infos de chargement des données */}
+      {showDebug && debugInfo && (
+        <div className="flex-none bg-yellow-50 border-b-2 border-yellow-400 px-4 py-2 text-xs font-mono z-10">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-bold text-yellow-800 text-sm">🐛 DEBUG — Chargement des données</span>
+            <button onClick={() => setShowDebug(false)} className="text-yellow-600 hover:text-yellow-900 font-bold text-base leading-none">✕</button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-yellow-900">
+            <div><b>Endpoint:</b> <span className="text-blue-700">{debugInfo.endpoint}</span></div>
+            <div><b>Lignes reçues:</b> <span className={debugInfo.rowsReceived === 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>{debugInfo.rowsReceived}</span> / total serveur: <b>{debugInfo.responseTotal}</b></div>
+            <div><b>globalFilters.dateDebut:</b> <span className="text-orange-700">{String(debugInfo.globalFilters?.dateDebut ?? 'undefined')}</span></div>
+            <div><b>globalFilters.dateFin:</b> <span className="text-orange-700">{String(debugInfo.globalFilters?.dateFin ?? 'undefined')}</span></div>
+            <div><b>globalFilters.societe:</b> <span className="text-orange-700">{String(debugInfo.globalFilters?.societe ?? 'undefined')}</span></div>
+            <div><b>shouldUseUnified:</b> {String(debugInfo.shouldUseUnified)}</div>
+            <div className="col-span-2"><b>mergedContext envoyé:</b> <span className="text-purple-700">{JSON.stringify(debugInfo.mergedContext)}</span></div>
+            <div className="col-span-2"><b>Clés réponse API:</b> {JSON.stringify(debugInfo.responseKeys)}</div>
+            {debugInfo.error && <div className="col-span-2 text-red-700 font-bold"><b>❌ Erreur:</b> {debugInfo.error}</div>}
+          </div>
+        </div>
+      )}
 
       {/* AG Grid */}
       <div ref={gridContainerRef} className={`flex-1 overflow-x-auto ${darkMode ? 'ag-theme-quartz-dark' : 'ag-theme-quartz'}`}>

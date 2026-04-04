@@ -52,6 +52,7 @@ import AdminSubscriptionsPage from './pages/AdminSubscriptionsPage'
 import DrillThroughPage from './pages/DrillThroughPage'
 import FicheClient from './pages/FicheClient'
 import FicheFournisseur from './pages/FicheFournisseur'
+import Comptabilite from './pages/Comptabilite'
 import DemoRegisterPage from './pages/DemoRegisterPage'
 import DemoStatusPage from './pages/DemoStatusPage'
 import DemoBoardPage from './pages/DemoBoardPage'
@@ -288,6 +289,8 @@ function AppContent() {
       <Route path="/admin/drillthrough" element={<ProtectedRoute pageCode="admin"><DrillThroughPage /></ProtectedRoute>} />
       <Route path="/fiche-client" element={<ProtectedRoute pageCode="recouvrement"><FicheClient /></ProtectedRoute>} />
       <Route path="/fiche-fournisseur" element={<ProtectedRoute pageCode="recouvrement"><FicheFournisseur /></ProtectedRoute>} />
+      <Route path="/comptabilite" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
+      <Route path="/comptabilite/:section" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       </Routes>
     </Layout>
   )

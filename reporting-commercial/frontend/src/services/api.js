@@ -426,4 +426,46 @@ export const downloadBlob = (blob, filename) => {
 export const setFirstPassword = (userId, dwhCode, newPassword) =>
   api.post('/auth/set-first-password', { user_id: userId, dwh_code: dwhCode, new_password: newPassword })
 
+// =============================================================================
+// COMPTABILITÉ
+// =============================================================================
+export const getComptabiliteKpis = (exercice) =>
+  api.get('/comptabilite/kpis', { params: exercice ? { exercice } : {} })
+
+export const getBalanceGenerale = (exercice) =>
+  api.get('/comptabilite/balance-generale', { params: exercice ? { exercice } : {} })
+
+export const getJournalEcritures = (params = {}) =>
+  api.get('/comptabilite/journal-ecritures', { params })
+
+export const getBalanceTiers = (type_tiers = 'all') =>
+  api.get('/comptabilite/balance-tiers', { params: { type_tiers } })
+
+export const getTresorerie = (params = {}) =>
+  api.get('/comptabilite/tresorerie', { params })
+
+export const getDetailCharges = (exercice) =>
+  api.get('/comptabilite/charges', { params: exercice ? { exercice } : {} })
+
+export const getDetailProduits = (exercice) =>
+  api.get('/comptabilite/produits', { params: exercice ? { exercice } : {} })
+
+export const getEcheancesClientsCompta = (params = {}) =>
+  api.get('/comptabilite/echeances-clients', { params })
+
+export const getEcheancesFournisseurs = () =>
+  api.get('/comptabilite/echeances-fournisseurs')
+
+export const getLettrage = (params = {}) =>
+  api.get('/comptabilite/lettrage', { params })
+
+export const getAnalysesComptables = (exercice) =>
+  api.get('/comptabilite/analyses', { params: exercice ? { exercice } : {} })
+
+export const seedComptabiliteDatasources = () =>
+  api.post('/comptabilite/seed-datasources')
+
+export const seedComptabiliteReports = () =>
+  api.post('/comptabilite/seed-reports')
+
 export default api
