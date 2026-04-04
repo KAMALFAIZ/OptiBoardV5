@@ -1,6 +1,6 @@
-# Reporting Commercial - GROUPE ALBOUGHAZE
+# Reporting Commercial - KAsoft
 
-Application web de Reporting Commercial de Fin d'Année pour la société GROUPE ALBOUGHAZE, spécialisée dans la fabrication et distribution d'appareils sanitaires.
+Application web de Reporting Commercial de Fin d'Année pour la société KAsoft, spécialisée dans la fabrication et distribution d'appareils sanitaires.
 
 ## Architecture
 
@@ -197,4 +197,4 @@ Une fois le backend lancé, accédez à:
 
 ## Licence
 
-Propriétaire - GROUPE ALBOUGHAZE
+Propriétaire - KAsoft

@@ -6,7 +6,7 @@ color 0A
 echo.
 echo  ╔══════════════════════════════════════════╗
 echo  ║   OptiBoard - Reporting Commercial       ║
-echo  ║   GROUPE ALBOUGHAZE                      ║
+echo  ║   KAsoft                                 ║
 echo  ╚══════════════════════════════════════════╝
 echo.
 

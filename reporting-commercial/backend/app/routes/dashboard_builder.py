@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_central as execute_master_query, central_cursor as get_master_cursor
+from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_central as execute_master_query, central_cursor as get_master_cursor, execute_dwh
 from ..services.datasource_resolver import datasource_resolver, DataSourceOrigin
 import json
 import logging
@@ -607,8 +607,8 @@ async def preview_data_source(
             except Exception:
                 pass
 
-        if effective_dwh and origin == "template":
-            # Exécuter sur le DWH client
+        if effective_dwh:
+            # Exécuter sur le DWH client (templates ET sources locales)
             logger.info(f"Executing on DWH '{effective_dwh}' (origin={origin})")
             results = DWHConnectionManager.execute_dwh_query(
                 effective_dwh, final_query, use_cache=False
@@ -695,10 +695,12 @@ async def get_dwh_tables(dwh_code: Optional[str] = None):
 # ===================== QUERY BUILDER =====================
 
 @router.get("/query-builder/tables")
-async def get_database_tables():
-    """Recupere la liste des tables et vues de la base de donnees"""
+async def get_database_tables(
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Recupere la liste des tables et vues de la base de donnees DWH"""
     try:
-        results = execute_query(
+        results = execute_dwh(
             """SELECT TABLE_NAME as name, TABLE_TYPE as type
                FROM INFORMATION_SCHEMA.TABLES
                WHERE (TABLE_TYPE = 'BASE TABLE' OR TABLE_TYPE = 'VIEW')
@@ -706,6 +708,7 @@ async def get_database_tables():
                AND TABLE_NAME NOT LIKE 'Temp_%'
                AND TABLE_NAME NOT LIKE 'sys%'
                ORDER BY TABLE_TYPE, TABLE_NAME""",
+            dwh_code=dwh_code,
             use_cache=False
         )
         return {"success": True, "tables": results}
@@ -714,10 +717,13 @@ async def get_database_tables():
 
 
 @router.get("/query-builder/tables/{table_name}/columns")
-async def get_table_columns(table_name: str):
-    """Recupere les colonnes d'une table"""
+async def get_table_columns(
+    table_name: str,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Recupere les colonnes d'une table du DWH"""
     try:
-        results = execute_query(
+        results = execute_dwh(
             """SELECT
                 COLUMN_NAME as name,
                 DATA_TYPE as type,
@@ -728,6 +734,7 @@ async def get_table_columns(table_name: str):
                WHERE TABLE_NAME = ?
                ORDER BY ORDINAL_POSITION""",
             (table_name,),
+            dwh_code=dwh_code,
             use_cache=False
         )
         return {"success": True, "columns": results}
@@ -736,10 +743,13 @@ async def get_table_columns(table_name: str):
 
 
 @router.get("/query-builder/tables/{table_name}/relations")
-async def get_table_relations(table_name: str):
-    """Recupere les relations (foreign keys) d'une table"""
+async def get_table_relations(
+    table_name: str,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Recupere les relations (foreign keys) d'une table du DWH"""
     try:
-        results = execute_query(
+        results = execute_dwh(
             """SELECT
                 fk.name AS constraint_name,
                 tp.name AS parent_table,
@@ -754,6 +764,7 @@ async def get_table_relations(table_name: str):
                INNER JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
                WHERE tp.name = ? OR tr.name = ?""",
             (table_name, table_name),
+            dwh_code=dwh_code,
             use_cache=False
         )
         return {"success": True, "relations": results}

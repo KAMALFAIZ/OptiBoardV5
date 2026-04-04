@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   X, Database, Table2, Columns, Plus, Trash2, Play, Save, Search,
-  Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout
+  Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout, Maximize2, Minimize2
 } from 'lucide-react'
 import {
   getQueryBuilderTables, getTableColumns, previewBuilderQuery, createDataSource, getDataSource,
@@ -46,6 +46,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
 
   // Vue active
   const [activeTab, setActiveTab] = useState('tables') // tables, columns, joins, where, query
+  const [sqlFullscreen, setSqlFullscreen] = useState(false)
 
   // Reset l'état quand le modal se ferme
   useEffect(() => {
@@ -671,7 +672,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
         {/* Contenu principal */}
         <div className="flex-1 flex overflow-hidden">
           {/* Panneau gauche - Tables */}
-          <div className="w-64 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+          <div className={`${sqlFullscreen ? 'hidden' : 'w-64'} border-r border-gray-200 dark:border-gray-700 flex flex-col`}>
             <div className="p-2 border-b border-gray-200 dark:border-gray-700">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -713,7 +714,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
           {/* Zone centrale - Configuration */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Tabs */}
-            <div className="flex border-b border-gray-200 dark:border-gray-700 px-4">
+            <div className={`${sqlFullscreen ? 'hidden' : 'flex'} border-b border-gray-200 dark:border-gray-700 px-4`}>
               {[
                 { id: 'tables', label: 'Tables', icon: Table2 },
                 { id: 'visual', label: 'Visuel', icon: Layout },
@@ -746,7 +747,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
             </div>
 
             {/* Contenu des tabs */}
-            <div className="flex-1 overflow-auto p-4">
+            <div className={`${sqlFullscreen ? 'hidden' : 'flex-1 overflow-auto p-4'}`}>
               {/* Tab Tables */}
               {activeTab === 'tables' && (
                 <div className="space-y-4">

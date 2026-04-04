@@ -438,5 +438,5 @@
 
 ---
 
-> **Document genere pour OptiBoard - GROUPE ALBOUGHAZE**
+> **Document genere pour OptiBoard - KAsoft**
 > Derniere mise a jour : 14/02/2026
