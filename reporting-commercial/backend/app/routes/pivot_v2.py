@@ -2278,6 +2278,167 @@ def _generate_pdf(pivot_data, row_fields, pivot_columns, value_fields, col_field
     return output
 
 
+def _generate_pptx(pivot_data, row_fields, pivot_columns, value_fields, col_field, title="Pivot"):
+    """Génère un fichier PowerPoint avec python-pptx."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    BLUE      = RGBColor(0x25, 0x63, 0xEB)
+    DARK_BLUE = RGBColor(0x1E, 0x40, 0xAF)
+    WHITE     = RGBColor(0xFF, 0xFF, 0xFF)
+    GRAY_LIGHT = RGBColor(0xF3, 0xF4, 0xF6)
+    GRAY_ROW   = RGBColor(0xE5, 0xE7, 0xEB)
+
+    prs = Presentation()
+    prs.slide_width  = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+
+    # ── Slide 1 : titre ──────────────────────────────────────────────────────
+    blank = prs.slide_layouts[6]  # layout totalement vide
+    slide = prs.slides.add_slide(blank)
+    bg = slide.background.fill
+    bg.solid()
+    bg.fore_color.rgb = DARK_BLUE
+
+    # Titre principal
+    txb = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11.33), Inches(1.2))
+    tf = txb.text_frame
+    tf.word_wrap = False
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    run = p.add_run()
+    run.text = title
+    run.font.size = Pt(36)
+    run.font.bold = True
+    run.font.color.rgb = WHITE
+
+    # Sous-titre date
+    txb2 = slide.shapes.add_textbox(Inches(1), Inches(3.9), Inches(11.33), Inches(0.5))
+    tf2 = txb2.text_frame
+    p2 = tf2.paragraphs[0]
+    p2.alignment = PP_ALIGN.CENTER
+    r2 = p2.add_run()
+    r2.text = f"Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}  —  OptiBoard"
+    r2.font.size = Pt(14)
+    r2.font.color.rgb = RGBColor(0xBF, 0xDB, 0xFE)  # blue-200
+
+    # ── Slides données (max 20 lignes / slide) ───────────────────────────────
+    headers = _build_export_headers(row_fields, pivot_columns, value_fields, col_field)
+    num_row_fields = len(row_fields)
+    ROWS_PER_SLIDE = 20
+
+    # Filtrer les lignes grand-total pour les garder en fin de chaque slide
+    data_rows = [r for r in pivot_data if not r.get("__isGrandTotal__")]
+    grand_rows = [r for r in pivot_data if r.get("__isGrandTotal__")]
+
+    chunks = []
+    for i in range(0, max(len(data_rows), 1), ROWS_PER_SLIDE):
+        chunk = data_rows[i:i + ROWS_PER_SLIDE]
+        if i + ROWS_PER_SLIDE >= len(data_rows):
+            chunk = chunk + grand_rows
+        chunks.append(chunk)
+
+    if not chunks:
+        chunks = [grand_rows or []]
+
+    total_slides = len(chunks)
+    for slide_idx, chunk in enumerate(chunks):
+        slide = prs.slides.add_slide(blank)
+
+        # En-tête de slide
+        hdr = slide.shapes.add_textbox(Inches(0.3), Inches(0.15), Inches(9), Inches(0.4))
+        tf_h = hdr.text_frame
+        p_h = tf_h.paragraphs[0]
+        r_h = p_h.add_run()
+        r_h.text = title
+        r_h.font.size = Pt(11)
+        r_h.font.bold = True
+        r_h.font.color.rgb = DARK_BLUE
+
+        if total_slides > 1:
+            pag = slide.shapes.add_textbox(Inches(10), Inches(0.15), Inches(3), Inches(0.4))
+            tf_p = pag.text_frame
+            p_p = tf_p.paragraphs[0]
+            p_p.alignment = PP_ALIGN.RIGHT
+            r_p = p_p.add_run()
+            r_p.text = f"{slide_idx + 1} / {total_slides}"
+            r_p.font.size = Pt(9)
+            r_p.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+        # Tableau
+        num_cols = len(headers)
+        num_rows_table = len(chunk) + 1  # +1 header
+
+        if num_rows_table < 2:
+            no_data = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(11), Inches(1))
+            no_data.text_frame.paragraphs[0].add_run().text = "Aucune donnée"
+            continue
+
+        left   = Inches(0.3)
+        top    = Inches(0.65)
+        width  = Inches(12.73)
+        height = Inches(6.6)
+
+        table = slide.shapes.add_table(num_rows_table, num_cols, left, top, width, height).table
+
+        # Largeur colonnes : row_fields plus larges, value_fields plus étroites
+        total_w = width
+        rfw = Inches(1.8)
+        vfw = (total_w - rfw * num_row_fields) // max(num_cols - num_row_fields, 1) if num_cols > num_row_fields else total_w // num_cols
+        for ci in range(num_cols):
+            table.columns[ci].width = rfw if ci < num_row_fields else vfw
+
+        # Header row
+        for ci, h in enumerate(headers):
+            cell = table.cell(0, ci)
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = BLUE
+            p_cell = cell.text_frame.paragraphs[0]
+            p_cell.alignment = PP_ALIGN.CENTER
+            run_c = p_cell.add_run()
+            run_c.text = str(h)
+            run_c.font.size = Pt(8)
+            run_c.font.bold = True
+            run_c.font.color.rgb = WHITE
+
+        # Data rows
+        for ri, row in enumerate(chunk):
+            values = _build_export_row(row, row_fields, pivot_columns, value_fields, col_field)
+            is_grand   = row.get("__isGrandTotal__", False)
+            is_subtotal = row.get("__isSubtotal__", False)
+
+            for ci, val in enumerate(values):
+                cell = table.cell(ri + 1, ci)
+                cell.fill.solid()
+                if is_grand:
+                    cell.fill.fore_color.rgb = DARK_BLUE
+                elif is_subtotal:
+                    cell.fill.fore_color.rgb = GRAY_ROW
+                elif ri % 2 == 0:
+                    cell.fill.fore_color.rgb = GRAY_LIGHT
+                else:
+                    cell.fill.fore_color.rgb = WHITE
+
+                is_num = ci >= num_row_fields and isinstance(val, (int, float, Decimal))
+                p_cell = cell.text_frame.paragraphs[0]
+                p_cell.alignment = PP_ALIGN.RIGHT if is_num else PP_ALIGN.LEFT
+                run_c = p_cell.add_run()
+                run_c.text = f"{val:,.2f}" if is_num else str(val or "")
+                run_c.font.size = Pt(8)
+                if is_grand:
+                    run_c.font.bold = True
+                    run_c.font.color.rgb = WHITE
+                elif is_subtotal:
+                    run_c.font.bold = True
+
+    output = io.BytesIO()
+    prs.save(output)
+    output.seek(0)
+    return output
+
+
 @router.post("/{pivot_id}/export")
 async def export_pivot(
     pivot_id: int,
@@ -2345,6 +2506,14 @@ async def export_pivot(
                 output,
                 media_type="application/pdf",
                 headers={"Content-Disposition": f'attachment; filename="pivot_{pivot_id}.pdf"'}
+            )
+
+        if format == "pptx":
+            output = _generate_pptx(pivot_data, row_fields, pivot_columns, value_fields, col_field, title=pivot_name)
+            return StreamingResponse(
+                output,
+                media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                headers={"Content-Disposition": f'attachment; filename="pivot_{pivot_id}.pptx"'}
             )
 
         return {"success": False, "error": f"Format non supporte: {format}"}

@@ -4,6 +4,7 @@ import Loading from '../components/common/Loading'
 import { getBuilderDashboards } from '../services/api'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import OnboardingWizard from '../components/onboarding/OnboardingWizard'
 import {
   LayoutGrid, Star, Clock, Table, BarChart2, GitBranch,
   ChevronRight, StarOff, Users
@@ -77,6 +78,14 @@ export default function HomePage() {
   const [roleReports, setRoleReports] = useState([])
   const [showPersonal, setShowPersonal] = useState(false)
   const [activeTab, setActiveTab] = useState('role')
+  const [showOnboarding, setShowOnboarding] = useState(false)
+
+  // Afficher le wizard si l'utilisateur n'a pas encore fait l'onboarding
+  useEffect(() => {
+    if (user && user.onboarding_done === false) {
+      setShowOnboarding(true)
+    }
+  }, [user])
 
   useEffect(() => {
     const init = async () => {
@@ -165,6 +174,10 @@ export default function HomePage() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
+      {/* Onboarding wizard — premier login uniquement */}
+      {showOnboarding && (
+        <OnboardingWizard onClose={() => setShowOnboarding(false)} />
+      )}
       {/* En-tête */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">

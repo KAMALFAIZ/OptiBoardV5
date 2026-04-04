@@ -30,6 +30,102 @@ const TRANCHE_COLORS = {
   '+120j': '#ef4444',
 }
 
+// ─── Score de Santé Client ────────────────────────────────────────────────────
+function computeHealthScore(kpis) {
+  let score = 100
+  const flags = []
+
+  const dso           = parseFloat(kpis.dso_client || 0)
+  const encours       = parseFloat(kpis.encours || 0)
+  const plafond       = parseFloat(kpis.plafond || 0)
+  const tranche120    = parseFloat(kpis.tranche_plus_120 || 0)
+  const nbImpayes     = parseInt(kpis.nb_factures_impayees || 0)
+  const tauxReglement = parseFloat(kpis.taux_reglement || 100)
+
+  if (dso > 90)      { score -= 35; flags.push(`DSO critique : ${Math.round(dso)}j`) }
+  else if (dso > 60) { score -= 25; flags.push(`DSO élevé : ${Math.round(dso)}j`) }
+  else if (dso > 30) { score -= 12; flags.push(`DSO modéré : ${Math.round(dso)}j`) }
+
+  if (plafond > 0) {
+    const ratio = encours / plafond
+    if (ratio > 1.0)      { score -= 25; flags.push(`Encours dépasse le plafond (${Math.round(ratio * 100)}%)`) }
+    else if (ratio > 0.85){ score -= 15; flags.push(`Encours à ${Math.round(ratio * 100)}% du plafond`) }
+  }
+
+  if (tranche120 > 10000) { score -= 20; flags.push(`Retard >120j : ${tranche120.toLocaleString('fr-FR')} €`) }
+  else if (tranche120 > 0){ score -= 10; flags.push(`Retard >120j : ${tranche120.toLocaleString('fr-FR')} €`) }
+
+  if (nbImpayes > 10)     { score -= Math.min(nbImpayes * 2, 15); flags.push(`${nbImpayes} factures impayées`) }
+  else if (nbImpayes > 3) { score -= 5;  flags.push(`${nbImpayes} factures impayées`) }
+
+  if (tauxReglement < 50)      { score -= 15; flags.push(`Taux règlement faible : ${Math.round(tauxReglement)}%`) }
+  else if (tauxReglement < 75) { score -= 7;  flags.push(`Taux règlement : ${Math.round(tauxReglement)}%`) }
+
+  score = Math.max(0, Math.min(100, score))
+
+  let niveau, couleur, libelle
+  if (score >= 70)      { niveau = 'Vert';   couleur = '#10b981'; libelle = 'Bon payeur' }
+  else if (score >= 40) { niveau = 'Orange'; couleur = '#f59e0b'; libelle = 'À surveiller' }
+  else                  { niveau = 'Rouge';  couleur = '#ef4444'; libelle = 'Risque élevé' }
+
+  return { score, niveau, couleur, libelle, flags }
+}
+
+function HealthScoreBadge({ kpis }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!kpis || Object.keys(kpis).length === 0) return null
+
+  const { score, couleur, libelle, flags } = computeHealthScore(kpis)
+
+  const bgClass =
+    score >= 70 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40' :
+    score >= 40 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40' :
+                  'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40'
+
+  const textClass =
+    score >= 70 ? 'text-emerald-700 dark:text-emerald-400' :
+    score >= 40 ? 'text-amber-700 dark:text-amber-400' :
+                  'text-red-700 dark:text-red-400'
+
+  return (
+    <div className={`relative inline-block`}>
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-semibold transition-all hover:shadow-sm ${bgClass} ${textClass}`}
+      >
+        {/* Arc de cercle SVG */}
+        <svg width="32" height="32" viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="15" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+          <circle
+            cx="18" cy="18" r="15" fill="none"
+            stroke={couleur} strokeWidth="3"
+            strokeDasharray={`${(score / 100) * 94.2} 94.2`}
+            strokeLinecap="round"
+            transform="rotate(-90 18 18)"
+          />
+          <text x="18" y="22" textAnchor="middle" fontSize="10" fontWeight="700" fill={couleur}>{score}</text>
+        </svg>
+        <span>{libelle}</span>
+        <Shield className="w-3.5 h-3.5 opacity-60" />
+      </button>
+
+      {expanded && flags.length > 0 && (
+        <div className="absolute right-0 top-full mt-2 z-20 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3">
+          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Points de vigilance</div>
+          <ul className="space-y-1.5">
+            {flags.map((f, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-500" />
+                {f}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const formatCurrency = (v) =>
   (v || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -433,6 +529,7 @@ export default function FicheClient() {
                         {risk.label}
                       </span>
                     )}
+                    <HealthScoreBadge kpis={kpis} />
                   </div>
                   <div className="flex flex-wrap gap-3 mt-1 text-sm text-gray-500 dark:text-gray-400">
                     {client.commercial && (

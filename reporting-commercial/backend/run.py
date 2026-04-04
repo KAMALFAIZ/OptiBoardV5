@@ -55,6 +55,8 @@ from app.routes.comptabilite import router as comptabilite_router               
 from app.routes.sage_direct import router as sage_direct_router                                 # Accès direct Sage (lecture seule)
 from app.routes.weekly_digest import router as weekly_digest_router                             # Digest IA hebdomadaire
 from app.routes.two_factor import router as two_factor_router                                   # 2FA TOTP
+from app.routes.ai_presentation import router as ai_presentation_router                         # Générateur IA de documents
+from app.routes.ai_deck import router as ai_deck_router, init_deck_tables                        # Deck IA interactif
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -78,7 +80,7 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:3004", "http://localhost:3005", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:3001", "http://127.0.0.1:3002", "http://127.0.0.1:3003", "http://127.0.0.1:3004", "http://127.0.0.1:3005", "http://127.0.0.1:5173", "http://localhost:8083", "http://127.0.0.1:8083"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:3004", "http://localhost:3005", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:3001", "http://127.0.0.1:3002", "http://127.0.0.1:3003", "http://127.0.0.1:3004", "http://127.0.0.1:3005", "http://127.0.0.1:5173", "http://localhost:8084", "http://127.0.0.1:8084"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -159,6 +161,8 @@ app.include_router(comptabilite_router)         # Module Comptabilité
 app.include_router(sage_direct_router)          # Accès direct Sage (lecture seule, sans ETL)
 app.include_router(weekly_digest_router)        # Digest IA hebdomadaire (direction)
 app.include_router(two_factor_router)          # 2FA TOTP (admins)
+app.include_router(ai_presentation_router)    # Générateur IA de documents (PPTX/Excel)
+app.include_router(ai_deck_router)            # Deck IA interactif (plan + données DWH + narration)
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -305,6 +309,12 @@ async def startup_event():
         print("[STARTUP] Favorites tables initialized successfully")
     except Exception as e:
         print(f"[STARTUP] Error initializing Favorites tables: {e}")
+
+    try:
+        init_deck_tables()
+        print("[STARTUP] AI Deck tables initialized successfully")
+    except Exception as e:
+        print(f"[STARTUP] Error initializing AI Deck tables: {e}")
 
     # Migration schema ETL_Tables_Config (ajout colonnes manquantes)
     try:
@@ -470,6 +480,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "run:app",
         host="127.0.0.1",
-        port=8083,
+        port=8084,
         reload=settings.DEBUG
     )

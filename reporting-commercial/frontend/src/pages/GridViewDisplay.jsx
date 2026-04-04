@@ -4,11 +4,11 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { AgGridReact } from 'ag-grid-react'
 import {
   Table, RefreshCw, Edit, AlertCircle, Download, Settings2, Eye, Search, X, Filter,
-  Columns, Layers, RotateCcw, ArrowRight, TrendingUp
+  Columns, Layers, RotateCcw, ArrowRight, TrendingUp, Presentation
 } from 'lucide-react'
 import Loading from '../components/common/Loading'
 import CheckboxListFilter from '../components/common/CheckboxListFilter'
-import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions } from '../services/api'
+import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions, exportGridPptx } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { mapColumnsToColDefs, buildTotalsRow, columnStateToPrefs, prefsToColumnState } from '../utils/agGridColumnMapper'
@@ -819,6 +819,26 @@ export default function GridViewDisplay() {
     })
   }, [grid?.nom])
 
+  // Export PowerPoint
+  const [exportingPptx, setExportingPptx] = useState(false)
+  const exportPptx = useCallback(async () => {
+    if (!grid?.id) return
+    setExportingPptx(true)
+    try {
+      const res = await exportGridPptx(grid.id)
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${grid.nom || 'grille'}.pptx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Erreur export PPTX:', err)
+    } finally {
+      setExportingPptx(false)
+    }
+  }, [grid?.id, grid?.nom])
+
   // Écouter l'événement export depuis le FAB mobile
   useEffect(() => {
     if (!isMobile) return
@@ -1097,14 +1117,26 @@ export default function GridViewDisplay() {
 
             {/* Export */}
             {features.show_export && (
-              <button
-                onClick={exportCSV}
-                disabled={!allData.length}
-                className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
-                title="Exporter CSV"
-              >
-                <Download className="w-4 h-4" />
-              </button>
+              <>
+                <button
+                  onClick={exportCSV}
+                  disabled={!allData.length}
+                  className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
+                  title="Exporter CSV"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={exportPptx}
+                  disabled={exportingPptx}
+                  className="p-1.5 rounded-lg text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors disabled:opacity-40"
+                  title="Exporter PowerPoint (.pptx)"
+                >
+                  {exportingPptx
+                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                    : <Presentation className="w-4 h-4" />}
+                </button>
+              </>
             )}
 
             {/* Auto-size */}

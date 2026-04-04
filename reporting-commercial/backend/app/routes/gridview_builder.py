@@ -628,6 +628,188 @@ async def export_grid_data(
 
 
 # =============================================================================
+# EXPORT POWERPOINT GRILLE
+# =============================================================================
+
+@router.get("/grids/{grid_id}/export/pptx")
+async def export_grid_pptx(
+    grid_id: int,
+    dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
+    user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
+):
+    """Génère un fichier PowerPoint à partir des données de la grille (chargées côté serveur)."""
+    from fastapi.responses import StreamingResponse
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from datetime import datetime
+    from ..services.parameter_resolver import inject_params
+    import io
+
+    BLUE       = RGBColor(0x25, 0x63, 0xEB)
+    DARK_BLUE  = RGBColor(0x1E, 0x40, 0xAF)
+    WHITE      = RGBColor(0xFF, 0xFF, 0xFF)
+    GRAY_LIGHT = RGBColor(0xF3, 0xF4, 0xF6)
+
+    try:
+        # ── Récupérer config grille ──
+        grid_rows = execute_query("SELECT * FROM APP_GridViews WHERE id = ?", (grid_id,), use_cache=False)
+        if not grid_rows:
+            raise HTTPException(status_code=404, detail="Grille non trouvée")
+
+        grid = grid_rows[0]
+        grid_title = grid.get("nom") or "Grille"
+        datasource_id   = grid.get("data_source_id")
+        datasource_code = grid.get("data_source_code")
+
+        # ── Colonnes depuis la config ──
+        raw_cols = json.loads(grid.get("columns_config") or "[]")
+        columns = [
+            {"field": c.get("field", ""), "headerName": c.get("header") or c.get("headerName") or c.get("field", "")}
+            for c in raw_cols
+            if c.get("visible", True) and c.get("field")
+        ]
+
+        # ── Résoudre la source de données ──
+        origin = None
+        try:
+            if datasource_code:
+                datasource = datasource_resolver.resolve_by_code(datasource_code, dwh_code)
+            elif datasource_id:
+                datasource = datasource_resolver.resolve_by_id(datasource_id, dwh_code)
+            else:
+                raise HTTPException(status_code=404, detail="Source de données non configurée")
+            query = datasource.query_template
+            origin = datasource.origin.value
+        except ValueError:
+            source = execute_query("SELECT * FROM APP_DataSources WHERE id = ?", (datasource_id,), use_cache=False)
+            if not source:
+                raise HTTPException(status_code=404, detail="Source non trouvée")
+            query = source[0]["query_template"]
+
+        query = inject_params(query, {})
+
+        effective_dwh = dwh_code
+        if not effective_dwh and origin == "template":
+            try:
+                dwh_list = execute_master_query("SELECT TOP 1 code FROM APP_DWH WHERE actif = 1 ORDER BY id", use_cache=True)
+                if dwh_list:
+                    effective_dwh = dwh_list[0]["code"]
+            except Exception:
+                pass
+
+        if effective_dwh and origin == "template":
+            rows = DWHConnectionManager.execute_dwh_query(effective_dwh, query, use_cache=False)
+        else:
+            rows = execute_query(query, use_cache=False)
+
+        # Si pas de colonnes définies, les déduire des données
+        if not columns and rows:
+            columns = [{"field": k, "headerName": k} for k in rows[0].keys()]
+
+        prs = Presentation()
+        prs.slide_width  = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        blank = prs.slide_layouts[6]
+
+        # ── Slide titre ──
+        slide = prs.slides.add_slide(blank)
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = DARK_BLUE
+
+        txb = slide.shapes.add_textbox(Inches(1), Inches(2.6), Inches(11.33), Inches(1.2))
+        p = txb.text_frame.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        run = p.add_run()
+        run.text = grid_title
+        run.font.size = Pt(36); run.font.bold = True; run.font.color.rgb = WHITE
+
+        txb2 = slide.shapes.add_textbox(Inches(1), Inches(4), Inches(11.33), Inches(0.5))
+        p2 = txb2.text_frame.paragraphs[0]
+        p2.alignment = PP_ALIGN.CENTER
+        r2 = p2.add_run()
+        r2.text = f"Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}  —  OptiBoard"
+        r2.font.size = Pt(14); r2.font.color.rgb = RGBColor(0xBF, 0xDB, 0xFE)
+
+        if not columns or not rows:
+            output = io.BytesIO()
+            prs.save(output); output.seek(0)
+            return StreamingResponse(output,
+                media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                headers={"Content-Disposition": f'attachment; filename="grille_{grid_id}.pptx"'})
+
+        # ── Slides données ──
+        ROWS_PER_SLIDE = 22
+        num_cols = len(columns)
+        headers  = [c.get("headerName") or c.get("field", "") for c in columns]
+        fields   = [c.get("field", "") for c in columns]
+
+        chunks = [rows[i:i+ROWS_PER_SLIDE] for i in range(0, max(len(rows),1), ROWS_PER_SLIDE)]
+        if not chunks:
+            chunks = [[]]
+
+        total_slides = len(chunks)
+        for si, chunk in enumerate(chunks):
+            slide = prs.slides.add_slide(blank)
+
+            hdr = slide.shapes.add_textbox(Inches(0.3), Inches(0.15), Inches(9), Inches(0.4))
+            rh = hdr.text_frame.paragraphs[0].add_run()
+            rh.text = grid_title; rh.font.size = Pt(11); rh.font.bold = True; rh.font.color.rgb = DARK_BLUE
+
+            if total_slides > 1:
+                pag = slide.shapes.add_textbox(Inches(10), Inches(0.15), Inches(3), Inches(0.4))
+                pg = pag.text_frame.paragraphs[0]
+                pg.alignment = PP_ALIGN.RIGHT
+                rp = pg.add_run(); rp.text = f"{si+1} / {total_slides}"
+                rp.font.size = Pt(9); rp.font.color.rgb = RGBColor(0x6B,0x72,0x80)
+
+            num_rows_table = len(chunk) + 1
+            if num_rows_table < 2:
+                continue
+
+            table = slide.shapes.add_table(
+                num_rows_table, num_cols,
+                Inches(0.3), Inches(0.65), Inches(12.73), Inches(6.6)
+            ).table
+
+            col_w = Inches(12.73) // num_cols
+            for ci in range(num_cols):
+                table.columns[ci].width = col_w
+
+            for ci, h in enumerate(headers):
+                cell = table.cell(0, ci)
+                cell.fill.solid(); cell.fill.fore_color.rgb = BLUE
+                p = cell.text_frame.paragraphs[0]
+                p.alignment = PP_ALIGN.CENTER
+                r = p.add_run(); r.text = str(h)
+                r.font.size = Pt(8); r.font.bold = True; r.font.color.rgb = WHITE
+
+            for ri, row_data in enumerate(chunk):
+                for ci, field in enumerate(fields):
+                    val = row_data.get(field, "")
+                    cell = table.cell(ri + 1, ci)
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = GRAY_LIGHT if ri % 2 == 0 else WHITE
+                    p = cell.text_frame.paragraphs[0]
+                    is_num = isinstance(val, (int, float)) and not isinstance(val, bool)
+                    p.alignment = PP_ALIGN.RIGHT if is_num else PP_ALIGN.LEFT
+                    r = p.add_run()
+                    r.text = f"{val:,.2f}" if is_num else str(val if val is not None else "")
+                    r.font.size = Pt(8)
+
+        output = io.BytesIO()
+        prs.save(output); output.seek(0)
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f'attachment; filename="grille_{grid_id}.pptx"'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # PREFERENCES UTILISATEUR PAR GRILLE
 # =============================================================================
 

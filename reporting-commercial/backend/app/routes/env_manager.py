@@ -89,7 +89,7 @@ ENV_SCHEMA = [
         "icon": "settings",
         "fields": [
             {"key": "APP_NAME",      "label": "Nom de l'application", "type": "text",    "placeholder": "OptiBoard"},
-            {"key": "APP_URL",       "label": "URL publique du serveur (API)", "type": "text", "placeholder": "http://localhost:8083"},
+            {"key": "APP_URL",       "label": "URL publique du serveur (API)", "type": "text", "placeholder": "http://localhost:8084"},
             {"key": "FRONTEND_URL",  "label": "URL publique du frontend", "type": "text", "placeholder": "http://localhost:3003"},
             {"key": "DEBUG",         "label": "Mode debug",           "type": "boolean"},
             {"key": "CACHE_TTL",     "label": "Cache TTL (secondes)", "type": "number",  "min": 0, "max": 3600},

@@ -39,6 +39,16 @@ def start_scheduler():
     )
     print("[SCHEDULER] Job abonnements enregistré (quotidien à 07h00)")
 
+    # Digest IA hebdomadaire chaque lundi à 8h00
+    scheduler.add_job(
+        send_weekly_digests,
+        trigger=CronTrigger(day_of_week="mon", hour=8, minute=0),
+        id="weekly_ai_digest",
+        name="Digest IA Hebdomadaire (Direction)",
+        replace_existing=True
+    )
+    print("[SCHEDULER] Job digest IA hebdomadaire enregistré (lundi à 08h00)")
+
 
 def stop_scheduler():
     """Arrete le scheduler"""
@@ -144,6 +154,16 @@ async def execute_scheduled_report(schedule_id: int):
 
     except Exception as e:
         print(f"[SCHEDULER] Erreur execution rapport {schedule_id}: {e}")
+
+
+async def send_weekly_digests():
+    """Envoie le digest IA hebdomadaire à tous les DWH actifs (lundi 8h)."""
+    from .weekly_digest_service import send_all_digests
+    try:
+        result = await send_all_digests()
+        print(f"[SCHEDULER] Digest IA: {result['success']}/{result['total_dwh']} DWH envoyés")
+    except Exception as e:
+        print(f"[SCHEDULER] Erreur digest IA hebdomadaire: {e}")
 
 
 async def deliver_subscriptions():

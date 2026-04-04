@@ -20,7 +20,7 @@ import {
   Loader2, RefreshCw, Download, Table2, BarChart3, LayoutGrid,
   RotateCcw, FileSpreadsheet, FileText, Settings2, X,
   GripVertical, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Check,
-  ChevronDown
+  ChevronDown, Presentation
 } from 'lucide-react'
 
 const VIEW_MODES = [
@@ -516,7 +516,7 @@ export default function PivotViewerV2() {
         dateFin: globalFilters?.dateFin,
         societe: globalFilters?.societe,
       }
-      const isBlob = format === 'excel' || format === 'pdf'
+      const isBlob = format === 'excel' || format === 'pdf' || format === 'pptx'
       const res = await exportPivotV2(id, ctx, format, isBlob)
 
       if (isBlob && res.data instanceof Blob) {
@@ -530,7 +530,7 @@ export default function PivotViewerV2() {
             }
           } catch (_) { }
         }
-        const ext = format === 'excel' ? 'xlsx' : 'pdf'
+        const ext = format === 'excel' ? 'xlsx' : format === 'pptx' ? 'pptx' : 'pdf'
         const url = URL.createObjectURL(res.data)
         const a = document.createElement('a')
         a.href = url
@@ -811,6 +811,13 @@ export default function PivotViewerV2() {
                   className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
                 >
                   <FileText size={13} /> Export PDF
+                </button>
+                <div className="my-0.5 border-t border-gray-100 dark:border-gray-700" />
+                <button
+                  onClick={() => handleExport('pptx')}
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors font-medium"
+                >
+                  <Presentation size={13} /> PowerPoint (.pptx)
                 </button>
               </div>
             )}

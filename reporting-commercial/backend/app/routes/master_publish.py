@@ -187,7 +187,12 @@ def _test_client_connection(client_info: Dict) -> bool:
 # Colonnes ajoutees progressivement au schema — auto-migration avant publication
 _MIGRATION_COLUMNS: Dict[str, List[tuple]] = {
     'menus': [
+        # Colonne code : absente dans les vieux schemas (init_all_tables.sql)
+        # CRITIQUE : sans cette colonne, le SELECT code echoue → existing_map
+        # reste vide → tous les menus re-inseres comme nouveaux → doublons !
+        ('code',          "VARCHAR(100) NOT NULL DEFAULT ''"),
         ('target_id',     'INT NULL'),
+        ('target_code',   'VARCHAR(100) NULL'),
         ('roles',         'NVARCHAR(MAX) NULL'),
         ('parent_code',   'VARCHAR(100) NULL'),   # code texte du parent (source hierarchie)
         ('parent_id',     'INT NULL'),             # FK resolue apres insertion
@@ -318,13 +323,21 @@ def _publish_entities_to_client(
         conn.autocommit = False  # Transaction pour DML
 
         # ── 3) Lire TOUS les codes existants + is_customized en 1 requete ─
-        existing_map = {}  # code -> is_customized
+        # IMPORTANT : si cette requete echoue (colonne code absente sur vieux schema),
+        # existing_map resterait vide et TOUS les menus seraient re-inseres → doublons.
+        # La migration au-dessus doit avoir ajoute la colonne code ; si ca echoue quand meme,
+        # on BLOQUE l'insertion pour eviter les doublons (safer que tout reinserrer).
+        existing_map = {}   # code -> is_customized
+        existing_map_ok = False
         try:
-            cursor.execute(f"SELECT code, ISNULL(is_customized, 0) FROM {target_table} WHERE code IS NOT NULL")
+            cursor.execute(f"SELECT code, ISNULL(is_customized, 0) FROM {target_table} WHERE code IS NOT NULL AND code != ''")
             for row in cursor.fetchall():
                 existing_map[row[0]] = row[1]
+            existing_map_ok = True
         except Exception as e:
-            logger.warning(f"Lecture existants {table}: {e}")
+            logger.error(f"[PUBLISH] Impossible de lire les codes existants ({target_table}): {e} — publication annulee pour eviter les doublons")
+            results['errors'].append(f"Lecture codes existants impossible: {str(e)[:120]}")
+            return results  # Sortie propre : ne pas inserer sans verifier les doublons
 
         # ── 4) Separer INSERT vs UPDATE vs SKIP ──────────────────────────
         to_insert = []
@@ -386,11 +399,13 @@ def _publish_entities_to_client(
                 conn.commit()
                 conn.autocommit = False
 
-                # ── Reinitialiser tous les parent_id ──────────────────────────
+                # ── Reinitialiser parent_id UNIQUEMENT pour les menus master ──
+                # Les menus locaux client (is_custom=1) gardent leur parent_id
+                # pour eviter les doublons visuels en racine.
                 cursor.execute(
-                    "UPDATE APP_Menus SET parent_id = NULL"
+                    "UPDATE APP_Menus SET parent_id = NULL WHERE ISNULL(is_custom, 0) = 0"
                 )
-                logger.info(f"[MENUS REMAP] parent_id reinitialise pour tous les menus")
+                logger.info(f"[MENUS REMAP] parent_id reinitialise pour les menus master (is_custom=0)")
 
                 # ── Self-join: parent_id = id du parent dont code = parent_code ─
                 cursor.execute("""
@@ -419,6 +434,72 @@ def _publish_entities_to_client(
                 conn.commit()
                 conn.autocommit = False
                 logger.info(f"[MENUS REMAP] Commit OK — hierarchie reconstruite")
+
+                # ── Remap target_id : le menu pointe vers l'ID master du rapport,
+                #    mais le client a des IDs auto-generes differents.
+                #    Strategie : lire les codes depuis MASTER, puis les resoudre
+                #    vers les IDs client via le code (cle metier stable).
+                try:
+                    # 1. Charger depuis MASTER : (type, master_id) → code
+                    master_code_map = {}
+                    for mtype, master_table in [
+                        ('gridview',  'APP_GridViews'),
+                        ('pivot-v2',  'APP_Pivots_V2'),
+                        ('pivot',     'APP_Pivots_V2'),
+                        ('dashboard', 'APP_Dashboards'),
+                    ]:
+                        try:
+                            rows = execute_master_query(
+                                f"SELECT id, code FROM {master_table} WHERE code IS NOT NULL AND code != ''",
+                                use_cache=False
+                            )
+                            for r in (rows or []):
+                                master_code_map[(mtype, r['id'])] = r['code']
+                        except Exception:
+                            pass
+
+                    # 2. Pour chaque type, resoudre master_id → client_id via code
+                    total_fixed = 0
+                    for mtype, client_table in [
+                        ('gridview',  'APP_GridViews'),
+                        ('pivot-v2',  'APP_Pivots_V2'),
+                        ('pivot',     'APP_Pivots_V2'),
+                        ('dashboard', 'APP_Dashboards'),
+                    ]:
+                        # Charger le mapping code → client_id
+                        try:
+                            cursor.execute(
+                                f"SELECT code, id FROM {client_table} WHERE code IS NOT NULL AND code != ''"
+                            )
+                            client_id_map = {row[0]: row[1] for row in cursor.fetchall()}
+                        except Exception:
+                            client_id_map = {}
+
+                        # Lire les menus a remaier pour ce type
+                        cursor.execute(
+                            "SELECT id, target_id FROM APP_Menus WHERE type = ? AND target_id IS NOT NULL",
+                            (mtype,)
+                        )
+                        for menu_row in cursor.fetchall():
+                            menu_id, master_target_id = menu_row[0], menu_row[1]
+                            code = master_code_map.get((mtype, master_target_id))
+                            if not code:
+                                continue
+                            client_target_id = client_id_map.get(code)
+                            if client_target_id and client_target_id != master_target_id:
+                                cursor.execute(
+                                    "UPDATE APP_Menus SET target_id = ? WHERE id = ?",
+                                    (client_target_id, menu_id)
+                                )
+                                total_fixed += 1
+
+                    conn.commit()
+                    conn.autocommit = False
+                    logger.info(f"[MENUS REMAP] target_id remap OK — {total_fixed} menus corriges")
+                except Exception as te:
+                    logger.warning(f"[MENUS REMAP] target_id remap erreur: {te}")
+                    results['errors'].append(f"Remap target_id: {str(te)[:150]}")
+
             except Exception as e:
                 logger.warning(f"[MENUS REMAP] Erreur: {e}")
                 results['errors'].append(f"Remapping parent_id: {str(e)[:150]}")
@@ -930,4 +1011,82 @@ async def get_menus_sync_status():
 
     except Exception as e:
         logger.error(f"Erreur menus-sync-status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cleanup-menus/{client_code}")
+async def cleanup_client_menus(client_code: str):
+    """
+    Nettoie les menus en double dans la base d'un client.
+    - Supprime les doublons par code (garde le plus recent = id MAX)
+    - Supprime les menus sans code ET sans nom (orphelins vides)
+    - Retourne le nombre de lignes supprimees
+    """
+    try:
+        def _cleanup():
+            import pyodbc
+
+            clients = _get_client_connection_info()
+            client_info = next((c for c in clients if c['code'].upper() == client_code.upper()), None)
+            if not client_info:
+                raise ValueError(f"Client '{client_code}' introuvable dans APP_DWH")
+
+            conn_str = _build_conn_str(
+                client_info['db_server'], client_info['db_name'],
+                client_info['db_user'], client_info['db_password']
+            )
+            conn = pyodbc.connect(conn_str, timeout=30)
+            conn.autocommit = False
+            cursor = conn.cursor()
+
+            # 1. Compter avant
+            cursor.execute("SELECT COUNT(*) FROM APP_Menus")
+            total_avant = cursor.fetchone()[0]
+
+            # 2. Supprimer les doublons par code (garde MAX id = plus recent)
+            cursor.execute("""
+                WITH CTE AS (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY code
+                               ORDER BY id DESC
+                           ) AS rn
+                    FROM APP_Menus
+                    WHERE code IS NOT NULL AND code != ''
+                )
+                DELETE FROM CTE WHERE rn > 1
+            """)
+            supprimes_doublons = cursor.rowcount
+
+            # 3. Supprimer les menus is_custom=0 sans code (menus master mal inseres
+            #    avant la migration de la colonne code — ils sont inutilisables)
+            cursor.execute("""
+                DELETE FROM APP_Menus
+                WHERE ISNULL(is_custom, 0) = 0
+                  AND (code IS NULL OR code = '')
+            """)
+            supprimes_vides = cursor.rowcount
+
+            conn.commit()
+            cursor.execute("SELECT COUNT(*) FROM APP_Menus")
+            total_apres = cursor.fetchone()[0]
+            conn.close()
+
+            return {
+                "client": client_code,
+                "avant": total_avant,
+                "apres": total_apres,
+                "supprimes_doublons": supprimes_doublons,
+                "supprimes_vides": supprimes_vides,
+                "total_supprime": total_avant - total_apres,
+            }
+
+        result = await asyncio.to_thread(_cleanup)
+        logger.info(f"[CLEANUP] {client_code}: {result}")
+        return {"success": True, "data": result}
+
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Erreur cleanup-menus {client_code}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

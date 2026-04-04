@@ -337,6 +337,200 @@ async def export_dashboard_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/pptx/dashboard")
+async def export_dashboard_pptx(
+    date_debut: Optional[date] = Query(None),
+    date_fin: Optional[date] = Query(None),
+    periode: Optional[str] = Query("annee_courante")
+):
+    """Génère un PowerPoint du tableau de bord exécutif."""
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
+        from pptx.enum.text import PP_ALIGN
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+        from io import BytesIO
+
+        BLUE      = RGBColor(0x25, 0x63, 0xEB)
+        DARK_BLUE = RGBColor(0x1E, 0x40, 0xAF)
+        GREEN     = RGBColor(0x05, 0x96, 0x69)
+        ORANGE    = RGBColor(0xD9, 0x77, 0x06)
+        WHITE     = RGBColor(0xFF, 0xFF, 0xFF)
+        GRAY_LIGHT = RGBColor(0xF3, 0xF4, 0xF6)
+
+        if not date_debut or not date_fin:
+            date_debut_str, date_fin_str = get_periode_dates(periode)
+        else:
+            date_debut_str = date_debut.strftime("%Y-%m-%d")
+            date_fin_str   = date_fin.strftime("%Y-%m-%d")
+
+        par_periode    = execute_query(CHIFFRE_AFFAIRES_PAR_PERIODE,    (date_debut_str, date_fin_str))
+        par_commercial = execute_query(CHIFFRE_AFFAIRES_PAR_COMMERCIAL, (date_debut_str, date_fin_str))
+        top_clients    = execute_query(TOP_CLIENTS,                     (date_debut_str, date_fin_str))
+        balance        = execute_query(BALANCE_AGEE)
+
+        ca_total      = sum(r.get('CA_HT', 0) or 0 for r in par_periode)
+        encours_total = sum(r.get('Solde_Cloture', 0) or 0 for r in balance)
+        nb_clients    = len(top_clients)
+
+        prs = Presentation()
+        prs.slide_width  = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        blank = prs.slide_layouts[6]
+
+        def add_text(slide, text, left, top, width, height, size=12, bold=False, color=None, align=PP_ALIGN.LEFT):
+            txb = slide.shapes.add_textbox(left, top, width, height)
+            tf  = txb.text_frame
+            tf.word_wrap = True
+            p   = tf.paragraphs[0]
+            p.alignment = align
+            run = p.add_run()
+            run.text = text
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            if color:
+                run.font.color.rgb = color
+
+        # ── Slide 1 : Titre ─────────────────────────────────────────────────
+        slide = prs.slides.add_slide(blank)
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = DARK_BLUE
+
+        add_text(slide, "Tableau de Bord Exécutif", Inches(1), Inches(2.2), Inches(11.33), Inches(1.3),
+                 size=38, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        add_text(slide, f"Période : {date_debut_str}  →  {date_fin_str}",
+                 Inches(1), Inches(3.7), Inches(11.33), Inches(0.6),
+                 size=16, color=RGBColor(0xBF,0xDB,0xFE), align=PP_ALIGN.CENTER)
+        add_text(slide, f"Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}  —  OptiBoard",
+                 Inches(1), Inches(4.5), Inches(11.33), Inches(0.5),
+                 size=11, color=RGBColor(0x93,0xC5,0xFD), align=PP_ALIGN.CENTER)
+
+        # ── Slide 2 : KPIs ──────────────────────────────────────────────────
+        slide = prs.slides.add_slide(blank)
+        add_text(slide, "Indicateurs Clés", Inches(0.4), Inches(0.2), Inches(8), Inches(0.5),
+                 size=18, bold=True, color=DARK_BLUE)
+        add_text(slide, f"{date_debut_str}  →  {date_fin_str}",
+                 Inches(0.4), Inches(0.7), Inches(8), Inches(0.35), size=10, color=RGBColor(0x6B,0x72,0x80))
+
+        def kpi_card(slide, label, value, left, top, color):
+            from pptx.util import Emu
+            from pptx.enum.shapes import PP_PLACEHOLDER
+            w, h = Inches(3.8), Inches(2.2)
+            # MSO_AUTO_SHAPE_TYPE.RECTANGLE = 1
+            box = slide.shapes.add_shape(1, left, top, w, h)
+            box.fill.solid(); box.fill.fore_color.rgb = color
+            box.line.fill.background()
+            txb = slide.shapes.add_textbox(left + Inches(0.2), top + Inches(0.25), w - Inches(0.4), Inches(0.5))
+            p = txb.text_frame.paragraphs[0]
+            r = p.add_run(); r.text = label
+            r.font.size = Pt(13); r.font.color.rgb = RGBColor(0xFF,0xFF,0xFF); r.font.bold = False
+            txb2 = slide.shapes.add_textbox(left + Inches(0.2), top + Inches(0.9), w - Inches(0.4), Inches(0.9))
+            p2 = txb2.text_frame.paragraphs[0]
+            r2 = p2.add_run(); r2.text = value
+            r2.font.size = Pt(26); r2.font.bold = True; r2.font.color.rgb = WHITE
+
+        kpi_card(slide, "Chiffre d'Affaires HT",  f"{ca_total:,.0f} MAD",       Inches(0.4),  Inches(1.3), BLUE)
+        kpi_card(slide, "Encours Clients",          f"{encours_total:,.0f} MAD", Inches(4.75), Inches(1.3), GREEN)
+        kpi_card(slide, "Nombre de Clients actifs", str(nb_clients),             Inches(9.1),  Inches(1.3), ORANGE)
+
+        # ── Slide 3 : CA Mensuel ─────────────────────────────────────────────
+        if par_periode:
+            slide = prs.slides.add_slide(blank)
+            add_text(slide, "Évolution du Chiffre d'Affaires Mensuel",
+                     Inches(0.4), Inches(0.2), Inches(12), Inches(0.5), size=18, bold=True, color=DARK_BLUE)
+
+            headers = ["Période", "CA HT", "Coût", "Marge Brute", "Nb Clients"]
+            rows_data = []
+            for r in par_periode[:20]:
+                ca   = r.get('CA_HT', 0) or 0
+                cout = r.get('Cout_Total', 0) or 0
+                rows_data.append([
+                    f"{r['Annee']}-{str(r['Mois']).zfill(2)}",
+                    f"{ca:,.2f}",
+                    f"{cout:,.2f}",
+                    f"{ca-cout:,.2f}",
+                    str(r.get('Nb_Clients', 0) or 0)
+                ])
+
+            nc = len(headers)
+            nr = len(rows_data) + 1
+            table = slide.shapes.add_table(nr, nc, Inches(0.4), Inches(0.9), Inches(12.53), Inches(6.3)).table
+            col_widths = [Inches(1.8), Inches(2.5), Inches(2.5), Inches(2.5), Inches(1.5)]
+            for ci in range(nc):
+                table.columns[ci].width = col_widths[ci] if ci < len(col_widths) else Inches(2)
+
+            for ci, h in enumerate(headers):
+                cell = table.cell(0, ci)
+                cell.fill.solid(); cell.fill.fore_color.rgb = BLUE
+                p = cell.text_frame.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
+                r = p.add_run(); r.text = h; r.font.size = Pt(9); r.font.bold = True; r.font.color.rgb = WHITE
+
+            for ri, row_vals in enumerate(rows_data):
+                for ci, val in enumerate(row_vals):
+                    cell = table.cell(ri+1, ci)
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = GRAY_LIGHT if ri % 2 == 0 else WHITE
+                    p = cell.text_frame.paragraphs[0]
+                    p.alignment = PP_ALIGN.RIGHT if ci > 0 else PP_ALIGN.LEFT
+                    r = p.add_run(); r.text = val; r.font.size = Pt(8)
+
+        # ── Slide 4 : Top Clients ────────────────────────────────────────────
+        if top_clients:
+            slide = prs.slides.add_slide(blank)
+            add_text(slide, "Top Clients par Chiffre d'Affaires",
+                     Inches(0.4), Inches(0.2), Inches(12), Inches(0.5), size=18, bold=True, color=DARK_BLUE)
+
+            top20 = top_clients[:20]
+            col_keys = list(top20[0].keys()) if top20 else []
+            nc = min(len(col_keys), 6)
+            col_keys = col_keys[:nc]
+            nr = len(top20) + 1
+
+            table = slide.shapes.add_table(nr, nc, Inches(0.4), Inches(0.9), Inches(12.53), Inches(6.3)).table
+            cw = Inches(12.53) // nc
+            for ci in range(nc):
+                table.columns[ci].width = cw
+
+            for ci, key in enumerate(col_keys):
+                cell = table.cell(0, ci)
+                cell.fill.solid(); cell.fill.fore_color.rgb = BLUE
+                p = cell.text_frame.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
+                r = p.add_run(); r.text = str(key); r.font.size = Pt(9); r.font.bold = True; r.font.color.rgb = WHITE
+
+            for ri, row_data in enumerate(top20):
+                for ci, key in enumerate(col_keys):
+                    val = row_data.get(key, "")
+                    cell = table.cell(ri+1, ci)
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = GRAY_LIGHT if ri % 2 == 0 else WHITE
+                    p = cell.text_frame.paragraphs[0]
+                    is_num = isinstance(val, (int, float)) and not isinstance(val, bool)
+                    p.alignment = PP_ALIGN.RIGHT if is_num else PP_ALIGN.LEFT
+                    r = p.add_run()
+                    r.text = f"{val:,.2f}" if is_num else str(val if val is not None else "")
+                    r.font.size = Pt(8)
+
+        filename = f"dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx"
+        filepath = os.path.join(EXPORT_DIR, filename)
+
+        output = BytesIO()
+        prs.save(output)
+        output.seek(0)
+
+        with open(filepath, 'wb') as f:
+            f.write(output.getvalue())
+
+        return FileResponse(
+            filepath,
+            media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            filename=filename
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/csv/{table}")
 async def export_csv(
     table: str,

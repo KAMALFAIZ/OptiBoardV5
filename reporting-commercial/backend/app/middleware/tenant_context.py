@@ -67,6 +67,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         dwh_code = request.headers.get("x-dwh-code") or None
         user_id_str = request.headers.get("x-user-id")
         societe_code = request.headers.get("x-societe-code") or None
+        data_source = request.headers.get("x-data-source") or None  # "dwh" | "sage"
 
         # Fallback : utiliser DWH_CODE depuis .env si défini (standalone ou démo)
         if dwh_code is None:
@@ -95,12 +96,14 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         request.state.dwh_code = dwh_code
         request.state.user_id = user_id
         request.state.has_client_db = has_client_db
+        request.state.data_source = data_source
 
         # Injecter dans contextvars (async-safe)
         tokens = set_tenant_context(
             dwh_code=dwh_code,
             user_id=user_id,
-            societe=societe_code
+            societe=societe_code,
+            data_source=data_source
         )
 
         try:

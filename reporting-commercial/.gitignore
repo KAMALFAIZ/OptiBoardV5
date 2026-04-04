@@ -39,3 +39,13 @@ nssm_*.log
 # Build
 dist/
 build/
+
+# Exports DB (versionnés séparément dans sql/exports/)
+# Les exports contiennent des données — on les inclut volontairement
+# mais on exclut les éventuels dumps complets avec mots de passe
+backend/sql/exports/data_users_full.sql
+backend/sql/exports/data_dwh_full.sql
+
+# Fichiers temporaires export
+*.bak
+*.dump

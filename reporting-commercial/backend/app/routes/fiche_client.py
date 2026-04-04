@@ -18,6 +18,8 @@ from ..services.calculs import get_periode_dates, parse_number
 
 router = APIRouter(prefix="/api/fiche-client", tags=["Fiche Client"])
 
+from ..services.client_health_service import compute_health_score
+
 
 def _parse_balance_row(row: dict) -> dict:
     return {
@@ -304,6 +306,35 @@ async def get_fiche_client(
                 }
                 for r in reglements
             ],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code_client}/health-score")
+async def get_client_health_score(
+    code_client: str,
+    periode: Optional[str] = Query("annee_courante"),
+):
+    """
+    Calcule le score de santé financière d'un client (0–100).
+    Réutilise les KPIs de la fiche client sans requête supplémentaire.
+    """
+    try:
+        # Réutiliser la logique de get_fiche_client pour avoir les KPIs
+        fiche_response = await get_fiche_client(code_client, periode=periode)
+
+        kpis = fiche_response.get("kpis", {})
+        health = compute_health_score(kpis)
+
+        return {
+            "success": True,
+            "code_client": code_client,
+            "periode": periode,
+            "health_score": health,
         }
 
     except HTTPException:

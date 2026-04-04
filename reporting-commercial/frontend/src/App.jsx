@@ -7,6 +7,7 @@ import { GlobalFilterProvider } from './context/GlobalFilterContext'
 import { LicenseProvider, useLicense } from './context/LicenseContext'
 import { ChatProvider } from './context/ChatContext'
 import { DWHProvider, useDWH } from './context/DWHContext'
+import { DataSourceProvider } from './context/DataSourceContext'
 import Layout from './components/common/Layout'
 import MobileLayout from './components/mobile/MobileLayout'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -53,6 +54,11 @@ import DrillThroughPage from './pages/DrillThroughPage'
 import FicheClient from './pages/FicheClient'
 import FicheFournisseur from './pages/FicheFournisseur'
 import Comptabilite from './pages/Comptabilite'
+import SageDirect from './pages/SageDirect'
+import DigestAdmin from './pages/DigestAdmin'
+import AIPresentationBuilder from './pages/AIPresentationBuilder'
+import AIDeckBuilder from './pages/AIDeckBuilder'
+import Setup2FAPage from './pages/Setup2FAPage'
 import DemoRegisterPage from './pages/DemoRegisterPage'
 import DemoStatusPage from './pages/DemoStatusPage'
 import DemoBoardPage from './pages/DemoBoardPage'
@@ -277,6 +283,8 @@ function AppContent() {
       <Route path="/pivot-builder-v2" element={<ProtectedRoute pageCode="admin"><PivotBuilderV2 /></ProtectedRoute>} />
       <Route path="/pivot-v2/:id" element={<ProtectedRoute pageCode="dashboard"><PivotViewerV2 /></ProtectedRoute>} />
       <Route path="/ai-assistant" element={<ProtectedRoute pageCode="dashboard"><AIAssistantPage /></ProtectedRoute>} />
+      <Route path="/ai-presentation" element={<ProtectedRoute pageCode="dashboard"><AIPresentationBuilder /></ProtectedRoute>} />
+      <Route path="/ai-deck" element={<ProtectedRoute pageCode="dashboard"><AIDeckBuilder /></ProtectedRoute>} />
       <Route path="/admin/etl-colonnes" element={<ProtectedRoute pageCode="etl_admin"><ETLColonnesPage /></ProtectedRoute>} />
       <Route path="/updates" element={<ProtectedRoute pageCode="dashboard"><UpdateManagerPage /></ProtectedRoute>} />
       <Route path="/admin/ai-library" element={<ProtectedRoute pageCode="admin"><AIQueryLibraryPage /></ProtectedRoute>} />
@@ -291,6 +299,9 @@ function AppContent() {
       <Route path="/fiche-fournisseur" element={<ProtectedRoute pageCode="recouvrement"><FicheFournisseur /></ProtectedRoute>} />
       <Route path="/comptabilite" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       <Route path="/comptabilite/:section" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
+      <Route path="/sage-direct" element={<ProtectedRoute pageCode="etl_admin"><SageDirect /></ProtectedRoute>} />
+      <Route path="/admin/digest" element={<ProtectedRoute pageCode="admin"><DigestAdmin /></ProtectedRoute>} />
+      <Route path="/setup-2fa" element={<ProtectedRoute><Setup2FAPage /></ProtectedRoute>} />
       </Routes>
     </Layout>
   )
@@ -317,7 +328,9 @@ function AppRoot() {
             <GlobalFilterProvider>
               <ChatProvider>
                 <DWHProvider>
-                  <AppContent />
+                  <DataSourceProvider>
+                    <AppContent />
+                  </DataSourceProvider>
                 </DWHProvider>
               </ChatProvider>
             </GlobalFilterProvider>

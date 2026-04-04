@@ -1,6 +1,6 @@
 @echo off
 REM ==========================================
-REM Redemarrage du Backend OptiBoard
+REM Redemarrage du Backend OptiBoard (port 8084)
 REM ==========================================
 
 echo.
@@ -9,58 +9,40 @@ echo   Redemarrage Backend OptiBoard
 echo ============================================
 echo.
 
-cd /d "D:\FinAnnee\reporting-commercial\backend"
+cd /d "D:\OptiBoard v5\reporting-commercial\backend"
 
-REM Arreter les processus Python existants sur le port 8080
-echo [1/3] Arret des processus existants...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8080 ^| findstr LISTENING') do (
+REM Arreter tous les processus Python sur le port 8084
+echo [1/3] Arret des processus existants sur port 8084...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8084 ^| findstr LISTENING') do (
     echo       Arret du processus PID: %%a
     taskkill /F /PID %%a 2>nul
 )
 
-REM Tuer tous les processus python run.py
-taskkill /F /IM python.exe /FI "WINDOWTITLE eq *run.py*" 2>nul
-taskkill /F /IM pythonw.exe 2>nul
-
-REM Attendre un peu
-timeout /t 3 /nobreak >nul
-
-REM Verifier les fichiers corrigés
-echo [2/3] Verification des corrections...
-findstr /C:"_execute_query(" "app\services\agent_auth.py" >nul
-if errorlevel 1 (
-    echo       [ERREUR] agent_auth.py n'est pas corrige!
-) else (
-    echo       [OK] agent_auth.py corrige
+REM Arreter aussi les anciens processus sur 8083 si present
+echo       Nettoyage ancien port 8083...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8083 ^| findstr LISTENING') do (
+    echo       Arret ancien processus PID: %%a
+    taskkill /F /PID %%a 2>nul
 )
 
-findstr /C:"_execute_query(" "app\routes\agent_api.py" >nul
-if errorlevel 1 (
-    echo       [ERREUR] agent_api.py n'est pas corrige!
-) else (
-    echo       [OK] agent_api.py corrige
-)
-
-REM Demarrer le backend
-echo [3/3] Demarrage du backend...
-echo.
+REM Attendre
+timeout /t 2 /nobreak >nul
 
 REM Activer l'environnement virtuel si existant
+echo [2/3] Activation environnement...
 if exist "venv\Scripts\activate.bat" (
     call venv\Scripts\activate.bat
 )
 
-REM Demarrer avec Python directement dans une nouvelle fenetre
-start "OptiBoard Backend" cmd /k "cd /d D:\FinAnnee\reporting-commercial\backend && python run.py"
+REM Demarrer le backend sur port 8084
+echo [3/3] Demarrage du backend sur port 8084...
+echo.
+
+start "OptiBoard Backend 8084" cmd /k "cd /d "D:\OptiBoard v5\reporting-commercial\backend" && python run.py"
 
 echo.
 echo ============================================
-echo   Backend demarre!
+echo   Backend demarre sur http://localhost:8084
 echo ============================================
-echo.
-echo Le backend devrait etre accessible sur:
-echo   http://localhost:8080
-echo.
-echo Pour tester l'agent: python test_agent_api.py
 echo.
 pause

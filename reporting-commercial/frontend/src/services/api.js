@@ -29,6 +29,15 @@ api.interceptors.request.use((config) => {
       }
     } catch (e) { /* ignore */ }
   }
+  // Data Source — bascule DWH / Sage Direct
+  if (!config.headers['X-Data-Source']) {
+    try {
+      const ds = localStorage.getItem('dataSource')
+      if (ds === 'sage') {
+        config.headers['X-Data-Source'] = 'sage'
+      }
+    } catch (e) { /* ignore */ }
+  }
   // User ID — pour la vérification des permissions côté backend
   if (!config.headers['X-User-Id']) {
     try {
@@ -89,6 +98,7 @@ export const getStocksParGamme = () => api.get('/stocks/par-gamme')
 // Fiche Client APIs
 export const getFicheClientListe = () => api.get('/fiche-client/liste')
 export const getFicheClient = (codeClient, params = {}) => api.get(`/fiche-client/${encodeURIComponent(codeClient)}`, { params })
+export const getFicheClientHealthScore = (codeClient, params = {}) => api.get(`/fiche-client/${encodeURIComponent(codeClient)}/health-score`, { params })
 
 // Fiche Fournisseur APIs
 export const getFicheFournisseurListe = () => api.get('/fiche-fournisseur/liste')
@@ -126,6 +136,28 @@ export const exportRapportComplet = (params = {}) => {
 export const exportDashboardPDF = (params = {}) => {
   return api.get('/export/pdf/dashboard', { params, responseType: 'blob' })
 }
+export const exportDashboardPptx = (params = {}) => {
+  return api.get('/export/pptx/dashboard', { params, responseType: 'blob' })
+}
+
+// AI Presentation Builder
+export const aiGenerateDocument = (templateId, formData, docType) =>
+  api.post('/ai/presentation/generate', { template_id: templateId, form_data: formData, doc_type: docType },
+    { responseType: 'blob', timeout: 90000 })
+
+// AI Deck Builder
+export const aiDeckPlan = (userRequest) =>
+  api.post('/ai/deck/plan', { user_request: userRequest }, { timeout: 90000 })
+export const aiDeckCreate = (title, userRequest, slides) =>
+  api.post('/ai/deck', { title, user_request: userRequest, slides })
+export const aiDeckList = () => api.get('/ai/deck')
+export const aiDeckGet = (id) => api.get(`/ai/deck/${id}`)
+export const aiDeckUpdate = (id, data) => api.put(`/ai/deck/${id}`, data)
+export const aiDeckDelete = (id) => api.delete(`/ai/deck/${id}`)
+export const aiDeckGenerateSlide = (deckId, slideIdx) =>
+  api.post(`/ai/deck/${deckId}/slide/${slideIdx}/generate`, {}, { timeout: 120000 })
+export const aiDeckSlideChat = (deckId, slideIdx, message, chatHistory) =>
+  api.post(`/ai/deck/${deckId}/slide/${slideIdx}/chat`, { message, chat_history: chatHistory }, { timeout: 60000 })
 export const exportCSV = (table, params = {}) => {
   return api.get(`/export/csv/${table}`, { params, responseType: 'blob' })
 }
@@ -279,6 +311,9 @@ export const updateGridView = (id, data) => api.put(`/gridview/grids/${id}`, dat
 export const deleteGridView = (id) => api.delete(`/gridview/grids/${id}`)
 export const getGridData = (id, request = {}) => api.post(`/gridview/grids/${id}/data`, request)
 export const exportGridData = (id, format) => api.post(`/gridview/grids/${id}/export`, { format })
+export const exportGridPptx = (id) =>
+  api.get(`/gridview/grids/${id}/export/pptx`,
+    { headers: getDWHHeaders(), responseType: 'blob', timeout: 120000 })
 export const getUserGridPrefs = (gridId, userId) => api.get(`/gridview/grids/${gridId}/user-prefs/${userId}`)
 export const saveUserGridPrefs = (gridId, userId, columns) => api.put(`/gridview/grids/${gridId}/user-prefs/${userId}`, { columns })
 export const resetUserGridPrefs = (gridId, userId) => api.delete(`/gridview/grids/${gridId}/user-prefs/${userId}`)
@@ -331,6 +366,7 @@ export const getMasterClients = () => api.get('/master/clients')
 export const publishEntities = (data) => api.post('/master/publish', data, { timeout: 300000 })
 export const publishAllEntities = (data) => api.post('/master/publish-all', data, { timeout: 300000 })
 export const getMenusSyncStatus = () => api.get('/master/menus-sync-status', { timeout: 120000 })
+export const cleanupClientMenus = (clientCode) => api.post(`/master/cleanup-menus/${clientCode}`, {}, { timeout: 60000 })
 
 // Update Manager — Pull menus depuis base maître (portail client)
 export const pullBuilderMenus = () => api.post('/updates/pull/builder', {}, { timeout: 60000 })
@@ -467,5 +503,12 @@ export const seedComptabiliteDatasources = () =>
 
 export const seedComptabiliteReports = () =>
   api.post('/comptabilite/seed-reports')
+
+// AI Presentation Builder
+export const aiPresentationChat = (message, type = 'pptx') =>
+  api.post('/ai/presentation/chat', { message, type })
+
+export const aiPresentationGenerate = (slides, type = 'pptx') =>
+  api.post('/ai/presentation/generate', { slides, type }, { responseType: 'blob' })
 
 export default api

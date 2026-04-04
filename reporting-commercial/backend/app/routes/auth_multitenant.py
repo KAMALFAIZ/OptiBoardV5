@@ -97,7 +97,7 @@ def _query_client_user(dwh_code: str, username: str) -> Optional[Dict[str, Any]]
     try:
         from ..database_unified import execute_client
         rows = execute_client(
-            "SELECT id, username, password_hash, nom, prenom, email, role_dwh, actif, ISNULL(must_change_password,0) AS must_change_password FROM APP_Users WHERE username = ?",
+            "SELECT id, username, password_hash, nom, prenom, email, role_dwh, actif, ISNULL(must_change_password,0) AS must_change_password, ISNULL(onboarding_done,0) AS onboarding_done, totp_secret, ISNULL(totp_enabled,0) AS totp_enabled FROM APP_Users WHERE username = ?",
             (username,),
             dwh_code=dwh_code,
             use_cache=False,
@@ -301,6 +301,40 @@ async def login(request: LoginRequest, http_request: Request):
         effective_dwh  = {"code": context.current_dwh_code, "nom": context.current_dwh_nom} if context.current_dwh_code else None
         effective_role = context.role_dwh
 
+    # ── 2FA : bloquer les admins si totp_enabled = 1 ────────────────────────────
+    _admin_roles = {"admin", "superadmin"}
+    user_role = user.get("role_dwh") or user.get("role_global") or ""
+    if user_role in _admin_roles and user.get("totp_enabled"):
+        from .two_factor import create_temp_token
+        # Construire le payload login_data complet — sera retourné après vérification
+        _login_payload = {
+            "user": {
+                "id": user["id"],
+                "username": user["username"],
+                "nom":    user.get("nom")    or "",
+                "prenom": user.get("prenom") or "",
+                "email":  user.get("email")  or "",
+                "role_global": user.get("role_global") or user.get("role_dwh", "user"),
+                "from_client_db": from_client_db,
+                "onboarding_done": bool(user.get("onboarding_done", True) if not from_client_db else user.get("onboarding_done", False)),
+            },
+            "context": {
+                "current_dwh": effective_dwh if from_client_db and request.dwh_code else ({"code": context.current_dwh_code, "nom": context.current_dwh_nom} if context.current_dwh_code else None),
+                "role_dwh":    user.get("role_dwh", "user") if from_client_db else context.role_dwh,
+                "dwh_accessibles":      context.dwh_accessibles,
+                "societes_accessibles": context.societes_accessibles,
+                "pages_accessibles":    context.pages_accessibles,
+                "has_client_db": True if from_client_db else (client_manager.has_client_db(context.current_dwh_code) if context.current_dwh_code else False),
+            },
+            "totp_secret": user["totp_secret"],   # stocké côté serveur uniquement
+        }
+        temp_token = create_temp_token(user["id"], user["username"], _login_payload)
+        return LoginResponse(
+            success=True,
+            message="Code 2FA requis",
+            user={"requires_2fa": True, "temp_token": temp_token},
+        )
+
     return LoginResponse(
         success=True,
         message="Connexion réussie",
@@ -312,6 +346,7 @@ async def login(request: LoginRequest, http_request: Request):
             "email":  user.get("email")  or "",
             "role_global": user.get("role_global") or user.get("role_dwh", "user"),
             "from_client_db": from_client_db,
+            "onboarding_done": bool(user.get("onboarding_done", True) if not from_client_db else user.get("onboarding_done", False)),
         },
         context={
             "current_dwh": effective_dwh,
@@ -322,6 +357,31 @@ async def login(request: LoginRequest, http_request: Request):
             "has_client_db": has_client_db,
         },
     )
+
+
+# =============================================================================
+# ROUTE — ONBOARDING
+# =============================================================================
+
+class OnboardingDoneRequest(BaseModel):
+    user_id: int
+    dwh_code: str
+
+@router.patch("/me/onboarding-done")
+async def mark_onboarding_done(body: OnboardingDoneRequest):
+    """
+    Marque l'onboarding comme terminé pour l'utilisateur.
+    Appelé par le frontend quand l'utilisateur clique "Terminer" dans le wizard.
+    """
+    try:
+        write_client(
+            "UPDATE APP_Users SET onboarding_done = 1 WHERE id = ?",
+            (body.user_id,),
+            dwh_code=body.dwh_code,
+        )
+        return {"success": True, "message": "Onboarding marqué comme terminé"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================

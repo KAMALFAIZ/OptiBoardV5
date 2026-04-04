@@ -79,10 +79,13 @@ import {
   SlidersHorizontal,
   Bell,
   GitBranch,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getUserMenus } from '../../services/api'
 import { useSettings } from '../../context/SettingsContext'
+import { useDataSource } from '../../context/DataSourceContext'
 import ChatWidget from '../ai/ChatWidget'
 import AlertBell from './AlertBell'
 import Watermark from './Watermark'
@@ -120,6 +123,7 @@ const adminNavigation = [
     children: [
       { name: 'Base de Données', href: '/admin/database', icon: Database,       pageCode: 'admin', superadminOnly: true },
       { name: 'ETL Admin',       href: '/admin/etl',      icon: ArrowRightLeft, pageCode: 'etl_admin' },
+      { name: 'Accès Direct Sage', href: '/sage-direct', icon: Database,       pageCode: 'etl_admin', subtitle: 'Live · Sans sync' },
     ]
   },
   // ── Reporting & Alertes ───────────────────────────────────────────────────
@@ -132,6 +136,7 @@ const adminNavigation = [
       { name: 'Alertes KPI',    href: '/admin/alerts',           icon: Bell,      pageCode: 'admin' },
       { name: 'Abonnements',    href: '/admin/subscriptions',    icon: Activity,  pageCode: 'admin', subtitle: 'Self-service' },
       { name: 'Envois Planifiés', href: '/admin/report-scheduler', icon: Mail,   pageCode: 'report_scheduler', subtitle: 'Push → destinataires' },
+      { name: 'Digest IA',      href: '/admin/digest',           icon: Brain,     pageCode: 'admin', subtitle: 'Résumé hebdo direction' },
       { name: 'Drill-through',  href: '/admin/drillthrough',     icon: GitBranch, pageCode: 'admin' },
     ]
   },
@@ -157,6 +162,8 @@ const adminNavigation = [
       { name: 'Pivot Builder', href: '/pivot-builder-v2', icon: Table2, pageCode: 'admin' },
       { name: 'GridView Builder', href: '/gridview-builder', icon: Table, pageCode: 'admin' },
       { name: 'DataSource Templates', href: '/admin/datasources', icon: Database, pageCode: 'admin' },
+      { name: 'Créateur IA', href: '/ai-presentation', icon: Sparkles, pageCode: 'dashboard', subtitle: 'PPTX & Excel par IA' },
+      { name: 'Deck IA', href: '/ai-deck', icon: Sparkles, pageCode: 'dashboard', subtitle: 'Présentation interactive' },
     ]
   },
   {
@@ -440,6 +447,7 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
   const location = useLocation()
   const navigate = useNavigate()
   const { settings } = useSettings()
+  const { dataSource, toggleDataSource, isSageDirect } = useDataSource()
   // Lire le DWH courant depuis localStorage (pas de DWHProvider dans l'arbre)
   const [currentDWH, setCurrentDWH] = useState(() => {
     try { return JSON.parse(localStorage.getItem('currentDWH')) } catch { return null }
@@ -840,6 +848,21 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
             </div>
 
             <div className="flex items-center gap-1">
+              {/* Toggle DWH / Sage Direct */}
+              <button
+                onClick={toggleDataSource}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 border ${
+                  isSageDirect
+                    ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700'
+                    : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                }`}
+                title={isSageDirect ? 'Mode Sage Direct (live) — cliquer pour DWH' : 'Mode DWH (synchronisé) — cliquer pour Sage Direct'}
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>{isSageDirect ? 'Sage Live' : 'DWH'}</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${isSageDirect ? 'bg-orange-500 animate-pulse' : 'bg-blue-500'}`} />
+              </button>
+
               {/* Cloche alertes KPI */}
               <AlertBell />
 
@@ -912,6 +935,16 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
                             <Bell className="w-4 h-4" style={{ color: 'var(--color-primary-500)' }} />
                             Mes Abonnements
                           </Link>
+                          {(isSuperAdmin || isAdminClient) && (
+                            <Link
+                              to="/setup-2fa"
+                              onClick={() => setUserMenuOpen(false)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                            >
+                              <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                              Sécurité (2FA)
+                            </Link>
+                          )}
                           <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
                           <button
                             onClick={() => {

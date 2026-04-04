@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/demo", tags=["Demo Portal"])
 
 DEMO_DURATION_DAYS = 7
-APP_URL = os.getenv("APP_URL", "http://localhost:8083")
+APP_URL = os.getenv("APP_URL", "http://localhost:8084")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3003")
 
 # ── Base dédiée demo ──────────────────────────────────────────────────────────

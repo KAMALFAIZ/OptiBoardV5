@@ -17,7 +17,7 @@ import {
 import {
   getMasterMenus, getMasterMenusFlat, createMasterMenu, updateMasterMenu,
   deleteMasterMenu, getMasterMenuTargets, getMasterClients,
-  publishEntities, publishAllEntities, getMenusSyncStatus
+  publishEntities, publishAllEntities, getMenusSyncStatus, cleanupClientMenus
 } from '../services/api'
 
 const ICONS = [
@@ -148,6 +148,8 @@ export default function MenuMasterManagement() {
   const [selectedClients, setSelectedClients] = useState([])
   const [publishing, setPublishing] = useState(false)
   const [publishResult, setPublishResult] = useState(null)
+  const [cleaningClient, setCleaningClient] = useState(null)  // code du client en cours de nettoyage
+  const [cleanupResults, setCleanupResults] = useState({})    // code → résultat
 
   useEffect(() => { loadData() }, [])
 
@@ -415,6 +417,20 @@ export default function MenuMasterManagement() {
       setPublishResult({ success: false, error: err.message })
     } finally {
       setPublishing(false)
+    }
+  }
+
+  const handleCleanupClient = async (clientCode) => {
+    if (!confirm(`Nettoyer les menus en double pour le client ${clientCode} ?`)) return
+    setCleaningClient(clientCode)
+    try {
+      const res = await cleanupClientMenus(clientCode)
+      setCleanupResults(prev => ({ ...prev, [clientCode]: res.data?.data || res.data }))
+      await loadSyncStatus()
+    } catch (err) {
+      setCleanupResults(prev => ({ ...prev, [clientCode]: { error: err.message } }))
+    } finally {
+      setCleaningClient(null)
     }
   }
 
@@ -829,8 +845,8 @@ export default function MenuMasterManagement() {
               ) : syncStatus?.clients?.length > 0 ? (
                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
                   {syncStatus.clients.map(client => (
+                    <div key={client.code}>
                     <div
-                      key={client.code}
                       className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
                         selectedClients.includes(client.code) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''
                       }`}
@@ -874,6 +890,38 @@ export default function MenuMasterManagement() {
                       </div>
 
                       {getStatusBadge(client.status)}
+
+                      {/* Bouton nettoyer */}
+                      <button
+                        onClick={() => handleCleanupClient(client.code)}
+                        disabled={cleaningClient === client.code}
+                        title="Supprimer les menus en double dans cette base client"
+                        className="ml-2 flex items-center gap-1 px-2 py-1 text-xs font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded hover:bg-orange-100 disabled:opacity-50 transition-colors dark:text-orange-300 dark:bg-orange-900/20 dark:border-orange-700"
+                      >
+                        {cleaningClient === client.code
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <RefreshCw className="w-3 h-3" />
+                        }
+                        Nettoyer
+                      </button>
+                    </div>
+
+                    {/* Résultat nettoyage */}
+                    {cleanupResults[client.code] && (
+                      <div className={`mx-4 mb-2 px-3 py-2 rounded-lg text-xs ${
+                        cleanupResults[client.code].error
+                          ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
+                          : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300'
+                      }`}>
+                        {cleanupResults[client.code].error
+                          ? `Erreur : ${cleanupResults[client.code].error}`
+                          : `Nettoyage OK — ${cleanupResults[client.code].total_supprime} supprimé(s) `
+                            + `(doublons: ${cleanupResults[client.code].supprimes_doublons}, `
+                            + `vides: ${cleanupResults[client.code].supprimes_vides}) `
+                            + `| ${cleanupResults[client.code].apres} menus restants`
+                        }
+                      </div>
+                    )}
                     </div>
                   ))}
                 </div>

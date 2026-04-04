@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Eye, EyeOff, LogIn, AlertCircle, XCircle, KeyRound, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, LogIn, AlertCircle, XCircle, KeyRound, ShieldCheck, Smartphone } from 'lucide-react'
 import { login, getClientInfo, getDwhList, extractErrorMessage, setFirstPassword } from '../services/api'
+import api from '../services/api'
 
 // ── Écran d'erreur pleine page (code invalide ou base absente) ──────────────
 function EcranErreurClient({ code, message }) {
@@ -105,6 +106,95 @@ function SetPasswordForm({ userId, dwhCode, clientInfo, onDone }) {
   )
 }
 
+// ── Formulaire 2FA ───────────────────────────────────────────────────────────
+function TwoFactorForm({ tempToken, clientInfo, rememberMe, onLogin, onCancel }) {
+  const [code, setCode]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError]   = useState(null)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (code.length !== 6) { setError('Le code doit contenir 6 chiffres'); return }
+    setLoading(true); setError(null)
+    try {
+      const res = await api.post('/auth/2fa/verify', { temp_token: tempToken, totp_code: code })
+      if (res.data.success && res.data.verified) {
+        const store = (key, value) => {
+          if (rememberMe) { localStorage.setItem(key, value); sessionStorage.removeItem(key) }
+          else { sessionStorage.setItem(key, value); localStorage.removeItem(key) }
+        }
+        store('user', JSON.stringify(res.data.user))
+        if (res.data.token) store('token', res.data.token)
+        onLogin(res.data.user)
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Code invalide'
+      setError(msg)
+      setCode('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+      <div className="flex flex-col items-center mb-6">
+        <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900 rounded-full flex items-center justify-center mb-3">
+          <Smartphone className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />
+        </div>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white text-center">
+          Vérification en 2 étapes
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">
+          Ouvrez votre application d'authentification et entrez le code à 6 chiffres
+        </p>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-400">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <span className="text-sm">{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 text-center">
+            Code à 6 chiffres
+          </label>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            value={code}
+            onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoFocus
+            placeholder="000000"
+            className="w-full px-4 py-3 border border-indigo-300 dark:border-indigo-600 rounded-lg focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-center text-2xl font-mono tracking-widest transition-colors"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading || code.length !== 6}
+          className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+        >
+          {loading
+            ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Vérification...</>
+            : <><ShieldCheck className="w-5 h-5" />Vérifier</>}
+        </button>
+      </form>
+
+      <div className="mt-4 text-center">
+        <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          ← Retour à la connexion
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Page de login principale ─────────────────────────────────────────────────
 export default function LoginPage({ onLogin, appName }) {
   const clientCode = new URLSearchParams(window.location.search).get('client')?.toUpperCase() || null
@@ -118,6 +208,8 @@ export default function LoginPage({ onLogin, appName }) {
   // Premier login
   const [firstLoginUserId, setFirstLoginUserId] = useState(null)
   const [firstLoginDone, setFirstLoginDone]     = useState(false)
+  // 2FA
+  const [twoFactorToken, setTwoFactorToken]     = useState(null)
 
   // Infos branding client
   const [clientInfo, setClientInfo]         = useState(null)
@@ -179,6 +271,31 @@ export default function LoginPage({ onLogin, appName }) {
     )
   }
 
+  // ── 2FA : afficher le formulaire de code TOTP ────────────────────────────
+  if (twoFactorToken) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-600 via-primary-700 to-primary-800 p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full shadow-lg mb-4">
+              <span className="text-primary-600 font-extrabold text-3xl">K</span>
+            </div>
+            <h1 className="text-2xl font-bold text-white">{clientInfo?.nom || 'OptiBoard'}</h1>
+            <p className="text-primary-200 mt-1">Sécurité renforcée — Administration</p>
+          </div>
+          <TwoFactorForm
+            tempToken={twoFactorToken}
+            clientInfo={clientInfo}
+            rememberMe={rememberMe}
+            onLogin={onLogin}
+            onCancel={() => setTwoFactorToken(null)}
+          />
+          <p className="text-center text-primary-200 text-sm mt-6">© 2026 KAsoft — Reporting Commercial</p>
+        </div>
+      </div>
+    )
+  }
+
   // ── A) Code invalide → écran d'erreur immédiat ──────────────────────────
   if (clientCode && !clientLoading && clientNotFound) {
     return (
@@ -214,6 +331,12 @@ export default function LoginPage({ onLogin, appName }) {
         // ── Premier login : forcer création mot de passe ──────────────────────
         if (response.data.must_change_password) {
           setFirstLoginUserId(response.data.first_login_user_id)
+          return
+        }
+
+        // ── 2FA requis ────────────────────────────────────────────────────────
+        if (response.data.user?.requires_2fa) {
+          setTwoFactorToken(response.data.user.temp_token)
           return
         }
 

@@ -69,12 +69,14 @@ class TenantContextError(Exception):
 current_dwh_code: ContextVar[Optional[str]] = ContextVar('current_dwh_code', default=None)
 current_user_id: ContextVar[Optional[int]] = ContextVar('current_user_id', default=None)
 current_societe: ContextVar[Optional[str]] = ContextVar('current_societe', default=None)
+current_data_source: ContextVar[Optional[str]] = ContextVar('current_data_source', default=None)
 
 
 def set_tenant_context(
     dwh_code: Optional[str] = None,
     user_id: Optional[int] = None,
-    societe: Optional[str] = None
+    societe: Optional[str] = None,
+    data_source: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Definit le contexte tenant pour la coroutine courante.
@@ -87,6 +89,8 @@ def set_tenant_context(
         tokens['user'] = current_user_id.set(user_id)
     if societe is not None:
         tokens['societe'] = current_societe.set(societe)
+    if data_source is not None:
+        tokens['data_source'] = current_data_source.set(data_source)
     return tokens
 
 
@@ -98,6 +102,8 @@ def reset_tenant_context(tokens: Dict[str, Any]):
         current_user_id.reset(tokens['user'])
     if 'societe' in tokens:
         current_societe.reset(tokens['societe'])
+    if 'data_source' in tokens:
+        current_data_source.reset(tokens['data_source'])
 
 
 def clear_tenant_context():
@@ -602,9 +608,35 @@ def execute_app(
     Execute une requete sur la base client OptiBoard_XXX si disponible,
     sinon sur CENTRAL. Utiliser pour les tables APP_ specifiques au client.
 
+    Si X-Data-Source: sage est actif et la requete reference des tables
+    DWH connues, route vers Sage Direct (lecture seule).
+
     C'est le SEUL fallback autorise. Il est logue pour faciliter la migration.
     """
     code = dwh_code or current_dwh_code.get()
+
+    # ── Sage Direct : intercepter si data_source == "sage" ──
+    data_source = current_data_source.get()
+    if data_source == "sage" and code:
+        try:
+            from .sage_direct.executor import execute_sage_direct
+            from .sage_direct.config import KNOWN_TABLES
+            import re
+
+            # Vérifier si la requête référence au moins une table DWH connue
+            has_known_table = False
+            for table in KNOWN_TABLES:
+                if f'[dbo].[{table}]' in query or re.search(
+                    rf'(?:FROM|JOIN)\s+{re.escape(table)}\b', query, re.IGNORECASE
+                ):
+                    has_known_table = True
+                    break
+
+            if has_known_table:
+                return execute_sage_direct(query, params, dwh_code=code)
+        except Exception as e:
+            logger.error(f"[SAGE DIRECT] Erreur, fallback DWH: {e}")
+            # Fallback vers le mode DWH normal en cas d'erreur
 
     if code and client_manager.has_client_db(code):
         return execute_client(query, params, dwh_code=code,
