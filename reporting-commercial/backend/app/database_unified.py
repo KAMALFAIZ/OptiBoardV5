@@ -332,6 +332,72 @@ def execute_dwh(
         DWHNotFoundError: Si le DWH n'existe pas
     """
     code = dwh_code or require_dwh_code()
+
+    # ── Sage Direct : intercepter si data_source == "sage" ──
+    data_source = current_data_source.get()
+
+    # DEBUG fichier
+    try:
+        with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+            _f.write(f"\n--- execute_dwh ---\n")
+            _f.write(f"data_source={data_source!r} code={code!r}\n")
+            _f.write(f"query[:400]={query[:400]}\n")
+    except Exception:
+        pass
+
+    if data_source == "sage" and code:
+        try:
+            from .sage_direct.executor import execute_sage_direct
+            from .sage_direct import db_store
+            import re as _re
+
+            has_known_table = False
+            matched_table = None
+            query_lower = query.lower()
+            known = list(db_store.get_known_tables())
+            for table in known:
+                table_lower = table.lower()
+                if f'[dbo].[{table_lower}]' in query_lower or _re.search(
+                    rf'(?:FROM|JOIN)\s+\[?{_re.escape(table_lower)}\]?\b',
+                    query_lower, _re.IGNORECASE
+                ):
+                    has_known_table = True
+                    matched_table = table
+                    break
+
+            try:
+                with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(f"known_tables={known}\n")
+                    _f.write(f"has_known_table={has_known_table} matched={matched_table}\n")
+            except Exception:
+                pass
+
+            if has_known_table:
+                try:
+                    return execute_sage_direct(query, params, dwh_code=code)
+                except Exception as sage_err:
+                    # Mode Sage Live explicite : pas de fallback silencieux vers DWH.
+                    logger.error(f"[SAGE DIRECT] Echec: {sage_err}")
+                    try:
+                        with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                            _f.write(f"SAGE_DIRECT_FAILED (no fallback): {sage_err}\n")
+                    except Exception:
+                        pass
+                    raise RuntimeError(
+                        f"Sage Live: impossible d'exécuter la requête sur Sage. "
+                        f"Vérifiez que toutes les tables référencées sont mappées "
+                        f"dans la configuration Sage Direct. Détails: {sage_err}"
+                    ) from sage_err
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.error(f"[SAGE DIRECT] Erreur détection tables: {e}")
+            try:
+                with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(f"DETECTION_ERROR: {e}\n")
+            except Exception:
+                pass
+
     cache_key = f"dwh:{code}:{query}"
 
     if use_cache:
@@ -620,23 +686,37 @@ def execute_app(
     if data_source == "sage" and code:
         try:
             from .sage_direct.executor import execute_sage_direct
-            from .sage_direct.config import KNOWN_TABLES
+            from .sage_direct import db_store
             import re
 
             # Vérifier si la requête référence au moins une table DWH connue
+            # (matching insensible à la casse)
             has_known_table = False
-            for table in KNOWN_TABLES:
-                if f'[dbo].[{table}]' in query or re.search(
-                    rf'(?:FROM|JOIN)\s+{re.escape(table)}\b', query, re.IGNORECASE
+            query_lower = query.lower()
+            for table in db_store.get_known_tables():
+                table_lower = table.lower()
+                if f'[dbo].[{table_lower}]' in query_lower or re.search(
+                    rf'(?:FROM|JOIN)\s+\[?{re.escape(table_lower)}\]?\b',
+                    query_lower, re.IGNORECASE
                 ):
                     has_known_table = True
                     break
 
             if has_known_table:
-                return execute_sage_direct(query, params, dwh_code=code)
+                try:
+                    return execute_sage_direct(query, params, dwh_code=code)
+                except Exception as sage_err:
+                    logger.error(f"[SAGE DIRECT] Echec: {sage_err}")
+                    raise RuntimeError(
+                        f"Sage Live: impossible d'exécuter la requête sur Sage. "
+                        f"Vérifiez que toutes les tables référencées sont mappées "
+                        f"dans la configuration Sage Direct. Détails: {sage_err}"
+                    ) from sage_err
+        except RuntimeError:
+            raise
         except Exception as e:
-            logger.error(f"[SAGE DIRECT] Erreur, fallback DWH: {e}")
-            # Fallback vers le mode DWH normal en cas d'erreur
+            logger.error(f"[SAGE DIRECT] Erreur détection: {e}")
+            # Fallback vers le mode DWH normal uniquement si détection échoue
 
     if code and client_manager.has_client_db(code):
         return execute_client(query, params, dwh_code=code,

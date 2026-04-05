@@ -12,8 +12,15 @@
       "name": "Reporting - Backend API (FastAPI)",
       "runtimeExecutable": "python",
       "runtimeArgs": ["run.py"],
-      "port": 8082,
+      "port": 8084,
       "cwd": "reporting-commercial/backend"
+    },
+    {
+      "name": "KAsoft Website (Vite/React)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "3010"],
+      "port": 3010,
+      "cwd": "kasoft-website"
     },
     {
       "name": "License Server (FastAPI)",

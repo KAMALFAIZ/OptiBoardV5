@@ -302,12 +302,15 @@ export default function GridViewDisplay() {
           if (paramList.length > 0) {
             const defaults = {}
             paramList.forEach(p => {
+              const key = p.name.replace('@', '')
+              // Priorité : valeur par défaut définie → globalFilters → vide
+              const globalVal = globalFilters?.[key]
               if (p.type === 'multiselect') {
                 defaults[p.name] = []
               } else if (p.type === 'date') {
-                defaults[p.name] = resolveDateMacro(p.default) || ''
+                defaults[p.name] = resolveDateMacro(p.default) || (globalVal ? String(globalVal) : '')
               } else {
-                defaults[p.name] = p.default || ''
+                defaults[p.name] = p.default || (globalVal != null ? String(globalVal) : '')
               }
             })
             setParamValues(defaults)
@@ -315,7 +318,7 @@ export default function GridViewDisplay() {
             setPendingPageSize(gridData.page_size || 25)
             setPendingTotalColumns(gridData.total_columns || [])
 
-            // Auto-execute si tous les params requis ont des valeurs par defaut
+            // Auto-execute si tous les params requis ont des valeurs (défaut ou globalFilters)
             const allRequiredHaveDefaults = paramList
               .filter(p => p.required)
               .every(p => {
@@ -963,7 +966,7 @@ export default function GridViewDisplay() {
           <div className="flex items-center gap-1.5">
             {/* Paramètres globaux — masqué si le datasource a ses propres params */}
             {sourceParams.length === 0 && (
-              <GlobalFilterBar showSociete={true} openOnMount triggerOpen={openParamsCount} onFilterChange={() => {
+              <GlobalFilterBar showSociete={true} triggerOpen={openParamsCount} onFilterChange={() => {
                 if (!grid) return
                 const hasSourceCode = grid.data_source_code && grid.data_source_code.trim() !== ''
                 const sourceIdentifier = hasSourceCode ? grid.data_source_code : grid.data_source_id

@@ -21,7 +21,9 @@ export default function JoinDesigner({
   tables,
   joins,
   onJoinsChange,
-  onColumnSelect
+  onColumnSelect,
+  onTableRemove,
+  onAllColumnsToggle
 }) {
   const containerRef = useRef(null)
   const [tablePositions, setTablePositions] = useState({})
@@ -366,11 +368,21 @@ export default function JoinDesigner({
             >
               {/* Header de la table */}
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-t-lg border-b border-gray-200 dark:border-primary-600 cursor-move">
-                <GripVertical className="w-4 h-4 text-gray-400" />
-                <Table2 className="w-4 h-4 text-primary-500" />
-                <span className="font-semibold text-sm text-gray-800 dark:text-white truncate">
+                <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <Table2 className="w-4 h-4 text-primary-500 flex-shrink-0" />
+                <span className="font-semibold text-sm text-gray-800 dark:text-white truncate flex-1">
                   {table.name}
                 </span>
+                {onTableRemove && (
+                  <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onTableRemove(table.name) }}
+                    className="flex-shrink-0 p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-gray-400 hover:text-red-500"
+                    title="Supprimer la table"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               {/* Checkbox * (All Columns) */}
@@ -378,12 +390,10 @@ export default function JoinDesigner({
                 <label className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={table.columns.every(col =>
-                      onColumnSelect && table._selectedAll
-                    )}
+                    checked={!!table._selectedAll}
                     onChange={(e) => {
-                      if (onColumnSelect) {
-                        table.columns.forEach(col => onColumnSelect(table.name, col, e.target.checked))
+                      if (onAllColumnsToggle) {
+                        onAllColumnsToggle(table.name, table.columns, e.target.checked)
                       }
                     }}
                     className="rounded border-primary-300 text-primary-500 focus:ring-primary-500"

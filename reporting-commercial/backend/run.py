@@ -57,6 +57,7 @@ from app.routes.weekly_digest import router as weekly_digest_router             
 from app.routes.two_factor import router as two_factor_router                                   # 2FA TOTP
 from app.routes.ai_presentation import router as ai_presentation_router                         # Générateur IA de documents
 from app.routes.ai_deck import router as ai_deck_router, init_deck_tables                        # Deck IA interactif
+from app.routes.sage_config_admin import router as sage_config_admin_router                       # Admin Sage Direct config
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -163,6 +164,7 @@ app.include_router(weekly_digest_router)        # Digest IA hebdomadaire (direct
 app.include_router(two_factor_router)          # 2FA TOTP (admins)
 app.include_router(ai_presentation_router)    # Générateur IA de documents (PPTX/Excel)
 app.include_router(ai_deck_router)            # Deck IA interactif (plan + données DWH + narration)
+app.include_router(sage_config_admin_router)   # Admin Sage Direct mappings
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -263,6 +265,13 @@ async def startup_event():
         print("[STARTUP] GridView tables initialized successfully")
     except Exception as e:
         print(f"[STARTUP] Error initializing gridview tables: {e}")
+
+    try:
+        from app.sage_direct.db_store import init_sage_config_table
+        init_sage_config_table()
+        print("[STARTUP] Sage View Config table initialized successfully")
+    except Exception as e:
+        print(f"[STARTUP] Error initializing Sage View Config table: {e}")
 
     try:
         init_pivot_v2_tables()

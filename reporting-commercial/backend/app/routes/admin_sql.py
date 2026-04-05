@@ -1,10 +1,10 @@
 """Admin SQL API routes - Visualisation des requêtes"""
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header
 from typing import Optional
 import time
 import re
 
-from ..database_unified import execute_app as execute_query, execute_central
+from ..database_unified import execute_app as execute_query, execute_central, execute_dwh
 from ..sql.query_templates import (
     CHIFFRE_AFFAIRES_GLOBAL,
     CHIFFRE_AFFAIRES_PAR_PERIODE,
@@ -235,7 +235,8 @@ async def get_query_detail(query_id: str):
 @router.post("/queries/execute")
 async def execute_custom_query(
     query: str = Query(..., description="Requête SQL à exécuter"),
-    limit: int = Query(100, ge=1, le=1000, description="Nombre max de lignes")
+    limit: int = Query(100, ge=1, le=1000, description="Nombre max de lignes"),
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
     """
     Exécute une requête SQL personnalisée (lecture seule).
@@ -263,12 +264,18 @@ async def execute_custom_query(
             query = query.replace("SELECT", f"SELECT TOP {limit}", 1)
 
         start_time = time.time()
-        # Essayer d'abord la base client, puis fallback vers la base centrale
-        # (nécessaire pour les tables comme APP_DWH, APP_Users qui sont en central)
-        try:
-            data = execute_query(query)
-        except Exception:
-            data = execute_central(query)
+        # Si un DWH est spécifié, exécuter sur le DWH (pour les options des paramètres)
+        # Sinon fallback: base client puis base centrale
+        if dwh_code:
+            try:
+                data = execute_dwh(query, dwh_code=dwh_code)
+            except Exception:
+                data = execute_central(query)
+        else:
+            try:
+                data = execute_query(query)
+            except Exception:
+                data = execute_central(query)
         execution_time = time.time() - start_time
 
         # Log

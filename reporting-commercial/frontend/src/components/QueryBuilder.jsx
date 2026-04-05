@@ -67,6 +67,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
       setSourceDescription('')
       setActiveTab('tables')
       setInitializing(false)
+      setSqlFullscreen(false)
     } else {
       loadTables()
     }
@@ -712,7 +713,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
           </div>
 
           {/* Zone centrale - Configuration */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Tabs */}
             <div className={`${sqlFullscreen ? 'hidden' : 'flex'} border-b border-gray-200 dark:border-gray-700 px-4`}>
               {[
@@ -747,7 +748,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
             </div>
 
             {/* Contenu des tabs */}
-            <div className={`${sqlFullscreen ? 'hidden' : 'flex-1 overflow-auto p-4'}`}>
+            <div className={`${sqlFullscreen ? 'hidden' : activeTab === 'query' ? 'flex-1 min-h-0 flex flex-col' : 'flex-1 overflow-auto p-4'}`}>
               {/* Tab Tables */}
               {activeTab === 'tables' && (
                 <div className="space-y-4">
@@ -830,6 +831,19 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
                     }))}
                     joins={joins}
                     onJoinsChange={setJoins}
+                    onTableRemove={(tableName) => removeTable(tableName)}
+                    onAllColumnsToggle={(tableName, columns, isSelected) => {
+                      if (isSelected) {
+                        setSelectedColumns(prev => {
+                          const newCols = columns
+                            .filter(col => !prev.find(c => c.key === `${tableName}.${col.name}`))
+                            .map(col => ({ key: `${tableName}.${col.name}`, table: tableName, name: col.name, type: col.type, alias: '', aggregate: '', groupBy: false }))
+                          return [...prev, ...newCols]
+                        })
+                      } else {
+                        setSelectedColumns(prev => prev.filter(c => c.table !== tableName))
+                      }
+                    }}
                     onColumnSelect={(tableName, column, isSelected) => {
                       const key = `${tableName}.${column.name}`
                       if (isSelected) {
@@ -1205,20 +1219,29 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
 
               {/* Tab SQL */}
               {activeTab === 'query' && (
-                <div className="h-full flex flex-col -m-4">
-                  <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+                <div className="flex-1 min-h-0 flex flex-col">
+                  <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
                     <h3 className="text-sm font-semibold text-gray-300">
                       Éditeur SQL
                     </h3>
-                    <button
-                      onClick={generateQuery}
-                      className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-1"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      Régénérer
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={generateQuery}
+                        className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        Régénérer
+                      </button>
+                      <button
+                        onClick={() => setSqlFullscreen(true)}
+                        title="Plein écran"
+                        className="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 text-white rounded flex items-center gap-1"
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 relative">
+                  <div className="flex-1 min-h-0 relative overflow-hidden">
                     <textarea
                       value={generatedQuery}
                       onChange={(e) => setGeneratedQuery(e.target.value)}
@@ -1228,7 +1251,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
                     />
                   </div>
                   {error && (
-                    <div className="p-3 bg-red-900/50 border-t border-red-700 text-red-300 text-sm">
+                    <div className="p-3 bg-red-900/50 border-t border-red-700 text-red-300 text-sm flex-shrink-0">
                       {error}
                     </div>
                   )}
@@ -1236,8 +1259,46 @@ export default function QueryBuilder({ isOpen, onClose, onSave, targetType = 'pi
               )}
             </div>
 
+            {/* SQL Plein écran */}
+            {sqlFullscreen && (
+              <div className="flex-1 min-h-0 flex flex-col bg-gray-900">
+                <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+                  <h3 className="text-sm font-semibold text-gray-300">Éditeur SQL</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={generateQuery}
+                      className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Régénérer
+                    </button>
+                    <button
+                      onClick={() => setSqlFullscreen(false)}
+                      title="Réduire"
+                      className="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 text-white rounded flex items-center gap-1"
+                    >
+                      <Minimize2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={generatedQuery}
+                  onChange={(e) => setGeneratedQuery(e.target.value)}
+                  placeholder="-- Écrivez votre SQL ici"
+                  className="flex-1 min-h-0 w-full p-4 bg-gray-900 text-green-400 font-mono text-sm resize-none border-0 focus:outline-none focus:ring-0"
+                  spellCheck={false}
+                  autoFocus
+                />
+                {error && (
+                  <div className="p-3 bg-red-900/50 border-t border-red-700 text-red-300 text-sm flex-shrink-0">
+                    {error}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Aperçu */}
-            {showPreview && previewData.length > 0 && (
+            {!sqlFullscreen && showPreview && previewData.length > 0 && (
               <div className="border-t border-gray-200 dark:border-gray-700 max-h-64 overflow-auto">
                 <div className="sticky top-0 bg-gray-100 dark:bg-gray-700 px-4 py-2 flex items-center justify-between">
                   <span className="text-sm font-medium">Aperçu ({previewData.length} lignes)</span>

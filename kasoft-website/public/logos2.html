@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KAsoft — Nouvelles Propositions</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; padding: 36px 20px; }
+    h1 { text-align: center; color: #1e3a8a; font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
+    p.sub { text-align: center; color: #64748b; font-size: 0.85rem; margin-bottom: 40px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; max-width: 1060px; margin: 0 auto; }
+    .card { background: white; border-radius: 18px; padding: 32px 28px; box-shadow: 0 2px 8px rgba(0,0,0,.07); border: 1px solid #e2e8f0; }
+    .badge { display: inline-block; background: #eff6ff; color: #1e40af; font-size: 0.65rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+    .name { font-size: 1rem; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
+    .desc { font-size: 0.8rem; color: #64748b; line-height: 1.55; margin-bottom: 20px; }
+    .sep { height: 1px; background: #f1f5f9; margin-bottom: 20px; }
+    .preview { display: flex; align-items: center; justify-content: center; border-radius: 12px; padding: 22px; margin-bottom: 10px; }
+    .bg-white { background: #fff; border: 1px solid #e2e8f0; }
+    .bg-dark  { background: #0f172a; }
+    .bg-blue  { background: #1e40af; }
+    .row { display: flex; gap: 8px; }
+    .row .preview { flex: 1; margin-bottom: 0; padding: 16px 10px; }
+    lbl { display: block; font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+
+<h1>KAsoft — Nouvelles Propositions</h1>
+<p class="sub">4 nouveaux concepts · Série 2</p>
+
+<div class="grid">
+
+  <!-- ═══ Option 5 : Wordmark Bold ═══ -->
+  <div class="card">
+    <span class="badge">Option 5</span>
+    <div class="name">Wordmark Typographique</div>
+    <div class="desc">Pas d'icône — juste le nom en typographie forte avec un accent couleur sur "soft". Style SAP, IBM, Sage. Confiance, autorité, simplicité.</div>
+    <div class="sep"></div>
+    <lbl>Fond blanc</lbl>
+    <div class="preview bg-white" style="margin-bottom:10px">
+      <svg width="200" height="52" viewBox="0 0 200 52" fill="none">
+        <defs>
+          <linearGradient id="wg1" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#1e3a8a"/>
+            <stop offset="100%" stop-color="#1d4ed8"/>
+          </linearGradient>
+        </defs>
+        <!-- KA in deep blue -->
+        <text x="0" y="40" font-family="system-ui,-apple-system,sans-serif" font-weight="900" font-size="44" fill="url(#wg1)">KA</text>
+        <!-- soft in lighter blue -->
+        <text x="104" y="40" font-family="system-ui,-apple-system,sans-serif" font-weight="400" font-size="44" fill="#3b82f6">soft</text>
+        <!-- Underline accent -->
+        <rect x="0" y="45" width="200" height="3" rx="1.5" fill="#dbeafe"/>
+        <rect x="0" y="45" width="60" height="3" rx="1.5" fill="#1d4ed8"/>
+      </svg>
+    </div>
+    <lbl>Fonds variés</lbl>
+    <div class="row">
+      <div class="preview bg-dark">
+        <svg width="130" height="34" viewBox="0 0 200 52" fill="none">
+          <text x="0" y="40" font-family="system-ui,sans-serif" font-weight="900" font-size="44" fill="white">KA</text>
+          <text x="104" y="40" font-family="system-ui,sans-serif" font-weight="400" font-size="44" fill="#60a5fa">soft</text>
+          <rect x="0" y="45" width="200" height="3" rx="1.5" fill="#1e40af"/>
+          <rect x="0" y="45" width="60" height="3" rx="1.5" fill="#60a5fa"/>
+        </svg>
+      </div>
+      <div class="preview bg-blue">
+        <svg width="130" height="34" viewBox="0 0 200 52" fill="none">
+          <text x="0" y="40" font-family="system-ui,sans-serif" font-weight="900" font-size="44" fill="white">KA</text>
+          <text x="104" y="40" font-family="system-ui,sans-serif" font-weight="400" font-size="44" fill="#bfdbfe">soft</text>
+          <rect x="0" y="45" width="200" height="3" rx="1.5" fill="rgba(255,255,255,0.2)"/>
+          <rect x="0" y="45" width="60" height="3" rx="1.5" fill="white"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Option 6 : Shield / Bouclier ═══ -->
+  <div class="card">
+    <span class="badge">Option 6</span>
+    <div class="name">Bouclier Technologique</div>
+    <div class="desc">Un bouclier avec le K — évoque sécurité, fiabilité, protection des données. Très parlant pour des décideurs (DAF, DSI) dans l'industrie marocaine.</div>
+    <div class="sep"></div>
+    <lbl>Fond blanc</lbl>
+    <div class="preview bg-white" style="margin-bottom:10px">
+      <svg width="195" height="58" viewBox="0 0 195 58" fill="none">
+        <defs>
+          <linearGradient id="sg1" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#1d4ed8"/>
+            <stop offset="100%" stop-color="#1e3a8a"/>
+          </linearGradient>
+        </defs>
+        <!-- Shield shape -->
+        <path d="M26 4 L48 4 L48 32 Q48 46 37 52 Q26 46 26 32 Z" fill="url(#sg1)"/>
+        <!-- Shield inner highlight -->
+        <path d="M29 8 L45 8 L45 31 Q45 42 37 47 Q31 43 29 31 Z" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+        <!-- K inside shield -->
+        <rect x="33" y="16" width="3.5" height="22" rx="1.5" fill="white"/>
+        <path d="M36.5 27 L44 18" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+        <path d="M36.5 27 L44 38" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+        <!-- Text -->
+        <text x="60" y="36" font-family="system-ui,sans-serif" font-weight="800" font-size="26" fill="#0f172a">KA<tspan fill="#1d4ed8">soft</tspan></text>
+        <text x="61" y="50" font-family="system-ui,sans-serif" font-weight="500" font-size="9" fill="#94a3b8" letter-spacing="1.5">SÉCURISÉ · FIABLE · PERFORMANT</text>
+      </svg>
+    </div>
+    <lbl>Fonds variés</lbl>
+    <div class="row">
+      <div class="preview bg-dark">
+        <svg width="130" height="40" viewBox="0 0 195 58" fill="none">
+          <path d="M26 4 L48 4 L48 32 Q48 46 37 52 Q26 46 26 32 Z" fill="#2563eb"/>
+          <path d="M29 8 L45 8 L45 31 Q45 42 37 47 Q31 43 29 31 Z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+          <rect x="33" y="16" width="3.5" height="22" rx="1.5" fill="white"/>
+          <path d="M36.5 27 L44 18" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+          <path d="M36.5 27 L44 38" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+          <text x="60" y="36" font-family="system-ui,sans-serif" font-weight="800" font-size="26" fill="white">KA<tspan fill="#93c5fd">soft</tspan></text>
+        </svg>
+      </div>
+      <div class="preview bg-blue">
+        <svg width="130" height="40" viewBox="0 0 195 58" fill="none">
+          <path d="M26 4 L48 4 L48 32 Q48 46 37 52 Q26 46 26 32 Z" fill="rgba(255,255,255,0.2)"/>
+          <path d="M29 8 L45 8 L45 31 Q45 42 37 47 Q31 43 29 31 Z" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/>
+          <rect x="33" y="16" width="3.5" height="22" rx="1.5" fill="white"/>
+          <path d="M36.5 27 L44 18" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+          <path d="M36.5 27 L44 38" stroke="white" stroke-width="3.5" stroke-linecap="round"/>
+          <text x="60" y="36" font-family="system-ui,sans-serif" font-weight="800" font-size="26" fill="white">KA<tspan fill="#bfdbfe">soft</tspan></text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Option 7 : Pulse / Signal ═══ -->
+  <div class="card">
+    <span class="badge">Option 7</span>
+    <div class="name">K Signal & Pulse</div>
+    <div class="desc">Le K traversé par une ligne de signal data (style ECG/analytics). Évoque les données en temps réel, les alertes, la vitalité de l'entreprise.</div>
+    <div class="sep"></div>
+    <lbl>Fond blanc</lbl>
+    <div class="preview bg-white" style="margin-bottom:10px">
+      <svg width="200" height="56" viewBox="0 0 200 56" fill="none">
+        <defs>
+          <linearGradient id="pg1" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#1e40af"/>
+            <stop offset="60%" stop-color="#2563eb"/>
+            <stop offset="100%" stop-color="#60a5fa" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <!-- K letter bold -->
+        <rect x="2" y="8" width="9" height="40" rx="3" fill="#1e3a8a"/>
+        <path d="M11 28 L34 8" stroke="#1e3a8a" stroke-width="9" stroke-linecap="round"/>
+        <path d="M11 28 L34 48" stroke="#1e3a8a" stroke-width="9" stroke-linecap="round"/>
+
+        <!-- Pulse line through the K -->
+        <path d="M0 28 H8 L12 18 L16 38 L20 22 L24 28 H48"
+              stroke="url(#pg1)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+        <!-- Dot at end of pulse -->
+        <circle cx="48" cy="28" r="3.5" fill="#3b82f6" opacity="0.6"/>
+        <circle cx="48" cy="28" r="2" fill="#2563eb"/>
+
+        <!-- Text -->
+        <text x="60" y="35" font-family="system-ui,sans-serif" font-weight="800" font-size="25" fill="#0f172a">KA<tspan fill="#2563eb">soft</tspan></text>
+        <text x="61" y="48" font-family="system-ui,sans-serif" font-size="9" font-weight="500" fill="#94a3b8" letter-spacing="1.2">REAL-TIME BUSINESS INTELLIGENCE</text>
+      </svg>
+    </div>
+    <lbl>Fonds variés</lbl>
+    <div class="row">
+      <div class="preview bg-dark">
+        <svg width="130" height="38" viewBox="0 0 200 56" fill="none">
+          <defs>
+            <linearGradient id="pg2" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#60a5fa"/>
+              <stop offset="100%" stop-color="#60a5fa" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="8" width="9" height="40" rx="3" fill="#3b82f6"/>
+          <path d="M11 28 L34 8" stroke="#3b82f6" stroke-width="9" stroke-linecap="round"/>
+          <path d="M11 28 L34 48" stroke="#60a5fa" stroke-width="9" stroke-linecap="round"/>
+          <path d="M0 28 H8 L12 18 L16 38 L20 22 L24 28 H48" stroke="url(#pg2)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <circle cx="48" cy="28" r="2" fill="#93c5fd"/>
+          <text x="60" y="35" font-family="system-ui,sans-serif" font-weight="800" font-size="25" fill="white">KA<tspan fill="#93c5fd">soft</tspan></text>
+        </svg>
+      </div>
+      <div class="preview bg-blue">
+        <svg width="130" height="38" viewBox="0 0 200 56" fill="none">
+          <defs>
+            <linearGradient id="pg3" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="white"/>
+              <stop offset="100%" stop-color="white" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="8" width="9" height="40" rx="3" fill="white"/>
+          <path d="M11 28 L34 8" stroke="white" stroke-width="9" stroke-linecap="round"/>
+          <path d="M11 28 L34 48" stroke="#bfdbfe" stroke-width="9" stroke-linecap="round"/>
+          <path d="M0 28 H8 L12 18 L16 38 L20 22 L24 28 H48" stroke="url(#pg3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <circle cx="48" cy="28" r="2" fill="white"/>
+          <text x="60" y="35" font-family="system-ui,sans-serif" font-weight="800" font-size="25" fill="white">KA<tspan fill="#bfdbfe">soft</tspan></text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Option 8 : Diamond / Losange ═══ -->
+  <div class="card">
+    <span class="badge">Option 8</span>
+    <div class="name">Losange & K Négatif</div>
+    <div class="desc">Un losange (diamant) bicolore avec le K en espace négatif blanc. Élégance, précision, premium. Se démarque dans le marché marocain B2B.</div>
+    <div class="sep"></div>
+    <lbl>Fond blanc</lbl>
+    <div class="preview bg-white" style="margin-bottom:10px">
+      <svg width="195" height="58" viewBox="0 0 195 58" fill="none">
+        <defs>
+          <linearGradient id="dg1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#1d4ed8"/>
+            <stop offset="100%" stop-color="#1e3a8a"/>
+          </linearGradient>
+          <linearGradient id="dg2" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="100%" stop-color="#1d4ed8"/>
+          </linearGradient>
+        </defs>
+        <!-- Diamond top half -->
+        <polygon points="30,4 52,4 52,30 30,30" fill="url(#dg1)" transform="rotate(-45 41 17)"/>
+        <!-- Diamond shape via path -->
+        <path d="M37 5 L53 21 L37 37 L21 21 Z" fill="url(#dg1)"/>
+        <!-- Second overlapping diamond accent -->
+        <path d="M43 11 L53 21 L43 31 L33 21 Z" fill="url(#dg2)" opacity="0.7"/>
+
+        <!-- K in negative space -->
+        <rect x="31" y="15" width="3" height="12" rx="1" fill="white"/>
+        <path d="M34 21 L41 15" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M34 21 L41 27" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+
+        <!-- Text -->
+        <text x="62" y="29" font-family="system-ui,sans-serif" font-weight="800" font-size="26" fill="#0f172a">KA<tspan fill="#1d4ed8">soft</tspan></text>
+        <text x="63" y="43" font-family="system-ui,sans-serif" font-weight="500" font-size="9" fill="#94a3b8" letter-spacing="1.5">SOLUTIONS INFORMATIQUES · MAROC</text>
+      </svg>
+    </div>
+    <lbl>Fonds variés</lbl>
+    <div class="row">
+      <div class="preview bg-dark">
+        <svg width="130" height="40" viewBox="0 0 195 58" fill="none">
+          <path d="M37 5 L53 21 L37 37 L21 21 Z" fill="#2563eb"/>
+          <path d="M43 11 L53 21 L43 31 L33 21 Z" fill="#3b82f6" opacity="0.8"/>
+          <rect x="31" y="15" width="3" height="12" rx="1" fill="white"/>
+          <path d="M34 21 L41 15" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M34 21 L41 27" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <text x="62" y="29" font-family="system-ui,sans-serif" font-weight="800" font-size="26" fill="white">KA<tspan fill="#93c5fd">soft</tspan></text>
+        </svg>
+      </div>
+      <div class="preview bg-blue">
+        <svg width="130" height="40" viewBox="0 0 195 58" fill="none">
+          <path d="M37 5 L53 21 L37 37 L21 21 Z" fill="rgba(255,255,255,0.25)"/>
+          <path d="M43 11 L53 21 L43 31 L33 21 Z" fill="rgba(255,255,255,0.15)"/>
+          <rect x="31" y="15" width="3" height="12" rx="1" fill="white"/>
+          <path d="M34 21 L41 15" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M34 21 L41 27" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <text x="62" y="29" font-family="system-ui,sans-serif" font-weight="800" font-size="26" fill="white">KA<tspan fill="#bfdbfe">soft</tspan></text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="text-align:center;margin-top:44px;padding:20px;background:white;border-radius:16px;max-width:600px;margin-left:auto;margin-right:auto;margin-top:36px;border:1px solid #e2e8f0">
+  <p style="color:#1e3a8a;font-weight:700;margin-bottom:6px">Quelle option choisissez-vous ?</p>
+  <p style="color:#64748b;font-size:0.82rem">Dites-moi le numéro (5, 6, 7 ou 8) — je l'intègre dans le site, la navbar et génère le favicon.</p>
+</div>
+
+</body>
+</html>

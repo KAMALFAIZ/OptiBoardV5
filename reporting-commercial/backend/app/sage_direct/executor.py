@@ -14,7 +14,7 @@ from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Tuple
 
 from ..database_unified import execute_central, require_dwh_code
-from .config import SAGE_VIEW_CONFIG, KNOWN_TABLES
+from . import db_store
 
 logger = logging.getLogger(__name__)
 
@@ -66,20 +66,24 @@ def _detect_tables(query: str) -> List[str]:
     """
     Détecte les tables DWH référencées dans la requête SQL.
     Cherche les patterns [dbo].[TableName] et FROM TableName.
+    Matching insensible à la casse.
     """
     found = set()
+    # Map case-insensitive name -> nom exact (PascalCase) du config
+    known_tables = db_store.get_known_tables()
+    known_lower = {t.lower(): t for t in known_tables}
 
-    # Pattern 1: [dbo].[TableName]
-    for match in re.finditer(r'\[dbo\]\.\[([^\]]+)\]', query):
-        name = match.group(1)
-        if name in KNOWN_TABLES:
-            found.add(name)
+    # Pattern 1: [dbo].[TableName] ou [schema].[TableName]
+    for match in re.finditer(r'\[[^\]]+\]\.\[([^\]]+)\]', query):
+        name = match.group(1).lower()
+        if name in known_lower:
+            found.add(known_lower[name])
 
-    # Pattern 2: FROM/JOIN TableName (sans [dbo])
-    for match in re.finditer(r'(?:FROM|JOIN)\s+(\w+)', query, re.IGNORECASE):
-        name = match.group(1)
-        if name in KNOWN_TABLES:
-            found.add(name)
+    # Pattern 2: FROM/JOIN TableName (avec ou sans crochets)
+    for match in re.finditer(r'(?:FROM|JOIN)\s+\[?(\w+)\]?', query, re.IGNORECASE):
+        name = match.group(1).lower()
+        if name in known_lower:
+            found.add(known_lower[name])
 
     return list(found)
 
@@ -89,7 +93,7 @@ def _build_cte(table_name: str, societes: List[Dict[str, Any]]) -> str:
     Construit une CTE UNION ALL pour une table donnée,
     en combinant toutes les sociétés sur le même serveur.
     """
-    config = SAGE_VIEW_CONFIG.get(table_name)
+    config = db_store.get_all_mappings().get(table_name)
     if not config:
         return ""
 
@@ -109,13 +113,33 @@ def _build_cte(table_name: str, societes: List[Dict[str, Any]]) -> str:
 def _rewrite_query(query: str, tables: List[str]) -> str:
     """
     Réécrit la requête SQL :
-    - Remplace [dbo].[TableName] par TableName (nom CTE)
+    - Remplace [schema].[TableName] (toutes casses) par TableName (nom CTE)
+    - Remplace FROM/JOIN TableName (avec ou sans crochets)
     - Gère le cas où la requête commence déjà par WITH
     """
     rewritten = query
     for table in tables:
-        # Remplacer [dbo].[TableName] par le nom CTE
-        rewritten = rewritten.replace(f'[dbo].[{table}]', table)
+        # Remplacer [schema].[TableName] insensible à la casse
+        rewritten = re.sub(
+            rf'\[[^\]]+\]\.\[{re.escape(table)}\]',
+            table,
+            rewritten,
+            flags=re.IGNORECASE,
+        )
+        # Remplacer [TableName] tout seul (insensible casse)
+        rewritten = re.sub(
+            rf'(?<![\w\.])\[{re.escape(table)}\](?!\.)',
+            table,
+            rewritten,
+            flags=re.IGNORECASE,
+        )
+        # Remplacer TableName sans crochets après FROM/JOIN
+        rewritten = re.sub(
+            rf'((?:FROM|JOIN)\s+){re.escape(table)}\b',
+            rf'\1{table}',
+            rewritten,
+            flags=re.IGNORECASE,
+        )
 
     return rewritten
 
@@ -149,8 +173,19 @@ def execute_sage_direct(
     """
     code = dwh_code or require_dwh_code()
 
+    # DEBUG fichier
+    def _dbg(msg):
+        try:
+            with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                _f.write(f"[EXECUTOR] {msg}\n")
+        except Exception:
+            pass
+    _dbg(f"START dwh_code={code}")
+    _dbg(f"query[:400]={query[:400]}")
+
     # 1. Détecter les tables utilisées
     tables = _detect_tables(query)
+    _dbg(f"detected tables={tables}")
     if not tables:
         logger.warning(
             f"[SAGE DIRECT] Aucune table DWH détectée dans la requête, "
@@ -158,9 +193,48 @@ def execute_sage_direct(
         )
         return []
 
+    # Détecter les tables référencées mais NON mappées (qui feraient échouer la requête sur Sage)
+    # On ne cherche QU'après FROM/JOIN pour éviter les faux positifs (colonnes [Table].[Col])
+    referenced_all = set()
+    # Pattern 1: FROM/JOIN [schema].[table]  -> group(2) = table
+    for m in re.finditer(r'(?:FROM|JOIN)\s+\[([^\]]+)\]\.\[([^\]]+)\]', query, re.IGNORECASE):
+        referenced_all.add(m.group(2))
+    # Pattern 2: FROM/JOIN [table_avec_espaces_ou_special]
+    for m in re.finditer(r'(?:FROM|JOIN)\s+\[([^\]]+)\]', query, re.IGNORECASE):
+        name = m.group(1)
+        if '.' not in name:  # déjà traité par pattern 1
+            referenced_all.add(name)
+    # Pattern 3: FROM/JOIN word_simple (sans crochets)
+    for m in re.finditer(r'(?:FROM|JOIN)\s+(\w+)\b', query, re.IGNORECASE):
+        referenced_all.add(m.group(1))
+    known_lower = {t.lower(): t for t in db_store.get_known_tables()}
+    unmapped = []
+    for ref in referenced_all:
+        if ref.lower() in known_lower:
+            continue
+        # Ignorer les tables Sage natives (F_xxx, P_xxx, T_xxx) et aliases courts
+        if re.match(r'^(F_|P_|T_|CT_|#)', ref, re.IGNORECASE):
+            continue
+        if len(ref) <= 2:  # alias SQL (li, en, etc.)
+            continue
+        # Ignorer mots-clés SQL courants
+        if ref.upper() in ('SELECT', 'WHERE', 'INNER', 'LEFT', 'RIGHT', 'OUTER',
+                           'ON', 'AND', 'OR', 'AS', 'GROUP', 'ORDER', 'BY', 'HAVING'):
+            continue
+        # Table style DWH (PascalCase ou avec _) non trouvée dans les mappings
+        if '_' in ref or (ref and ref[0].isupper()):
+            unmapped.append(ref)
+    if unmapped:
+        _dbg(f"unmapped tables detected: {unmapped}")
+        raise RuntimeError(
+            f"Tables référencées mais non mappées en Sage Direct: {', '.join(unmapped)}. "
+            f"Ajoutez un mapping dans la configuration Sage pour activer cette requête."
+        )
+
     # Vérifier si toutes les tables sont des stubs
+    _mappings = db_store.get_all_mappings()
     all_stubs = all(
-        SAGE_VIEW_CONFIG.get(t, {}).get('stub', False) for t in tables
+        _mappings.get(t, {}).get('stub', False) for t in tables
     )
     if all_stubs:
         logger.info(
@@ -211,6 +285,9 @@ def execute_sage_direct(
     prefix = "SET DATEFORMAT YMD; SET ANSI_WARNINGS OFF; SET ARITHABORT OFF;\n"
     final_sql = prefix + final_sql
 
+    _dbg(f"final_sql FULL=\n{final_sql}")
+    _dbg(f"params={params}")
+
     # 6. Exécuter sur le serveur Sage
     conn = None
     try:
@@ -233,14 +310,33 @@ def execute_sage_direct(
                 d[col_name] = _serialize_value(val)
             results.append(d)
 
+        # Debug: si 0 rows, faire un diagnostic automatique
+        if len(results) == 0:
+            _dbg("=== DIAGNOSTIC 0 rows ===")
+            try:
+                # Test 1: combien de factures existent dans Sage (ignore filtres)?
+                diag_sql = f"""SELECT COUNT(*) as nb FROM [{same_server[0]['base_sage']}].[dbo].[F_DOCLIGNE] WHERE DO_Domaine=0 AND DO_Type IN (6,7)"""
+                cursor.execute(diag_sql)
+                nb_fact = cursor.fetchone()[0]
+                _dbg(f"Nb lignes de factures (DO_Type 6/7) dans Sage: {nb_fact}")
+                # Test 2: min/max dates documents
+                diag_sql2 = f"""SELECT MIN(DO_Date) as min_dt, MAX(DO_Date) as max_dt FROM [{same_server[0]['base_sage']}].[dbo].[F_DOCENTETE] WHERE DO_Domaine=0 AND DO_Type IN (6,7)"""
+                cursor.execute(diag_sql2)
+                row = cursor.fetchone()
+                _dbg(f"Dates factures: min={row[0]} max={row[1]}")
+            except Exception as diag_err:
+                _dbg(f"diagnostic error: {diag_err}")
+
         logger.info(
             f"[SAGE DIRECT] OK — {len(results)} rows, "
             f"tables={tables}, societes={[s['code_societe'] for s in same_server]}"
         )
+        _dbg(f"OK rows={len(results)} columns={columns}")
         return results
 
     except Exception as e:
         logger.error(f"[SAGE DIRECT] Erreur exécution: {e}")
+        _dbg(f"EXCEPTION: {e}")
         logger.debug(f"[SAGE DIRECT] SQL:\n{final_sql[:500]}...")
         raise
     finally:

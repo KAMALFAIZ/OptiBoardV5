@@ -14,7 +14,7 @@ import {
   getGridViews, getGridView, createGridView, updateGridView, deleteGridView,
   getGridData, getDataSources, getDataSource, executeQuery, deleteDataSource,
   getUnifiedDataSourceFields, previewUnifiedDataSource, getUnifiedDataSource,
-  getUserGridPrefs, saveUserGridPrefs
+  getUserGridPrefs, saveUserGridPrefs, getSocietes
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -543,11 +543,8 @@ export default function GridViewBuilder() {
 
   // Charger les options pour les paramètres de type select ou multiselect
   const loadSelectOptions = async () => {
-    // Supporter à la fois query (nouveau format) et defaultValue (ancien format)
     const selectParams = sourceParams.filter(p =>
-      (p.type === 'select' || p.type === 'multiselect') &&
-      (p.query || p.defaultValue) &&
-      p.source === 'query'
+      p.type === 'select' || p.type === 'multiselect'
     )
     if (selectParams.length === 0) return
 
@@ -556,25 +553,33 @@ export default function GridViewBuilder() {
 
     for (const param of selectParams) {
       try {
-        // Utiliser query (nouveau) ou defaultValue (ancien)
-        const queryToExecute = param.query || param.defaultValue
-        const response = await executeQuery(queryToExecute, 500)
-        if (response.data.success && response.data.data) {
-          // La requête doit retourner des colonnes "value" et "label"
-          let options = response.data.data.map(row => ({
-            value: row.value ?? row.Value ?? row.VALUE ?? row.code ?? row.Code ?? Object.values(row)[0],
-            label: row.label ?? row.Label ?? row.LABEL ?? row.libelle ?? row.Libelle ?? Object.values(row)[1] ?? Object.values(row)[0]
-          }))
-
-          // Ajouter l'option "Tous" si allow_null est true
-          if (param.allow_null !== false) {
-            options = [
-              { value: '', label: param.null_label || '(Tous)' },
-              ...options
-            ]
+        if (param.query || param.defaultValue) {
+          // SQL query définie : l'utiliser en priorité (même pour source 'societe')
+          const queryToExecute = param.query || param.defaultValue
+          const response = await executeQuery(queryToExecute, 500)
+          if (response.data.success && response.data.data) {
+            let options = response.data.data.map(row => ({
+              value: row.value ?? row.Value ?? row.VALUE ?? row.code ?? row.Code ?? Object.values(row)[0],
+              label: row.label ?? row.Label ?? row.LABEL ?? row.libelle ?? row.Libelle ?? Object.values(row)[1] ?? Object.values(row)[0]
+            }))
+            if (param.allow_null !== false) {
+              options = [{ value: '', label: param.null_label || '(Tous)' }, ...options]
+            }
+            newOptions[param.name] = options
           }
-
-          newOptions[param.name] = options
+        } else if (param.source === 'societe') {
+          // Pas de requête SQL : charger la liste des sociétés depuis l'API
+          const response = await getSocietes()
+          if (response.data.success && response.data.data) {
+            let options = response.data.data.map(s => ({
+              value: s.code ?? Object.values(s)[0],
+              label: s.nom ?? s.code ?? Object.values(s)[0]
+            }))
+            if (param.allow_null !== false) {
+              options = [{ value: '', label: param.null_label || '(Toutes)' }, ...options]
+            }
+            newOptions[param.name] = options
+          }
         }
       } catch (error) {
         console.error(`Erreur chargement options pour ${param.name}:`, error)
@@ -1088,22 +1093,22 @@ export default function GridViewBuilder() {
                   </label>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
+                      <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10 text-xs">
                         <tr>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Visible</th>
+                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-8">Visible</th>
                           <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Champ</th>
                           <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">En-tête</th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Format</th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Align.</th>
-                          <th className="px-2 py-1 text-center bg-gray-100 dark:bg-gray-700" title="Figer la colonne à gauche"><Pin className="w-3 h-3 inline" /></th>
-                          <th className="px-2 py-1 text-center bg-gray-100 dark:bg-gray-700" title="Grouper par cette colonne"><Layers className="w-3 h-3 inline" /></th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Tri</th>
-                          {config.show_totals && <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Total</th>}
+                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-32">Format</th>
+                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-20">Align.</th>
+                          <th className="px-2 py-1 text-center bg-gray-100 dark:bg-gray-700 w-6" title="Figer la colonne à gauche"><Pin className="w-3 h-3 inline" /></th>
+                          <th className="px-2 py-1 text-center bg-gray-100 dark:bg-gray-700 w-6" title="Grouper par cette colonne"><Layers className="w-3 h-3 inline" /></th>
+                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-6">Tri</th>
+                          {config.show_totals && <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-6">Total</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {config.columns.map((col, i) => (
-                          <tr key={col.field} className="border-b border-gray-100 dark:border-gray-700">
+                          <tr key={col.field} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
                             <td className="px-2 py-1">
                               <button
                                 onClick={() => toggleColumnVisibility(i)}
@@ -1112,7 +1117,7 @@ export default function GridViewBuilder() {
                                 {col.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                               </button>
                             </td>
-                            <td className="px-2 py-1 text-gray-600 dark:text-gray-400">{col.field}</td>
+                            <td className="px-2 py-1 text-gray-600 dark:text-gray-400 text-xs max-w-[140px] truncate">{col.field}</td>
                             <td className="px-2 py-1">
                               <input
                                 type="text"
@@ -1138,7 +1143,7 @@ export default function GridViewBuilder() {
                                   <button
                                     key={a.value}
                                     onClick={() => updateColumn(i, { align: a.value })}
-                                    className={`p-1 rounded ${col.align === a.value ? 'bg-primary-100 text-primary-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                    className={`p-0.5 rounded ${col.align === a.value ? 'bg-primary-100 text-primary-600' : 'text-gray-400 hover:text-gray-600'}`}
                                   >
                                     <a.icon className="w-3 h-3" />
                                   </button>
@@ -1163,7 +1168,7 @@ export default function GridViewBuilder() {
                                 title="Grouper par cette colonne"
                               />
                             </td>
-                            <td className="px-2 py-1">
+                            <td className="px-2 py-1 text-center">
                               <input
                                 type="checkbox"
                                 checked={col.sortable}
@@ -1172,7 +1177,7 @@ export default function GridViewBuilder() {
                               />
                             </td>
                             {config.show_totals && (
-                              <td className="px-2 py-1">
+                              <td className="px-2 py-1 text-center">
                                 <input
                                   type="checkbox"
                                   checked={config.total_columns.includes(col.field)}

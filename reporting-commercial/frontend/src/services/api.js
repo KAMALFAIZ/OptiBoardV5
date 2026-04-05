@@ -511,4 +511,29 @@ export const aiPresentationChat = (message, type = 'pptx') =>
 export const aiPresentationGenerate = (slides, type = 'pptx') =>
   api.post('/ai/presentation/generate', { slides, type }, { responseType: 'blob' })
 
+// Sage Direct Config Admin
+export const getSageConfigMappings = (includeInactive = true) =>
+  api.get('/admin/sage-config', { params: { include_inactive: includeInactive } })
+
+export const getSageConfigMapping = (id) =>
+  api.get(`/admin/sage-config/${id}`)
+
+export const createSageMapping = (payload) =>
+  api.post('/admin/sage-config', payload)
+
+export const updateSageMapping = (id, payload) =>
+  api.put(`/admin/sage-config/${id}`, payload)
+
+export const deleteSageMapping = (id) =>
+  api.delete(`/admin/sage-config/${id}`)
+
+export const resetSageMappings = () =>
+  api.post('/admin/sage-config/reset')
+
+export const invalidateSageCache = () =>
+  api.post('/admin/sage-config/invalidate-cache')
+
+export const testSageSql = (sageSql, dbName = 'ESSAIDI2022', societeCode = 'TEST') =>
+  api.post('/admin/sage-config/test-sql', { sage_sql: sageSql, db_name: dbName, societe_code: societeCode })
+
 export default api

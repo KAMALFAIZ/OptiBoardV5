@@ -466,7 +466,7 @@ async def get_grid_data(
 
         # Router vers le DWH pour les datasources template
         effective_dwh = dwh_code or _ctx_dwh.get()
-        if not effective_dwh and origin == "template":
+        if not effective_dwh:
             try:
                 dwh_list = execute_master_query(
                     "SELECT TOP 1 code FROM APP_DWH WHERE actif = 1 ORDER BY id",
@@ -477,7 +477,7 @@ async def get_grid_data(
             except Exception:
                 pass
 
-        if effective_dwh and origin == "template":
+        if effective_dwh:
             all_data = DWHConnectionManager.execute_dwh_query(
                 effective_dwh, final_query, use_cache=False
             )
@@ -598,7 +598,7 @@ async def export_grid_data(
 
         # Router vers le bon DWH si template
         effective_dwh = dwh_code
-        if not effective_dwh and origin == "template":
+        if not effective_dwh:
             try:
                 dwh_list = execute_master_query(
                     "SELECT TOP 1 code FROM APP_DWH WHERE actif = 1 ORDER BY id",
@@ -610,7 +610,7 @@ async def export_grid_data(
                 pass
 
         # Executer la requete complete
-        if effective_dwh and origin == "template":
+        if effective_dwh:
             data = DWHConnectionManager.execute_dwh_query(effective_dwh, query, use_cache=False)
         else:
             data = execute_query(query, use_cache=False)
@@ -691,7 +691,7 @@ async def export_grid_pptx(
         query = inject_params(query, {})
 
         effective_dwh = dwh_code
-        if not effective_dwh and origin == "template":
+        if not effective_dwh:
             try:
                 dwh_list = execute_master_query("SELECT TOP 1 code FROM APP_DWH WHERE actif = 1 ORDER BY id", use_cache=True)
                 if dwh_list:
@@ -699,7 +699,7 @@ async def export_grid_pptx(
             except Exception:
                 pass
 
-        if effective_dwh and origin == "template":
+        if effective_dwh:
             rows = DWHConnectionManager.execute_dwh_query(effective_dwh, query, use_cache=False)
         else:
             rows = execute_query(query, use_cache=False)
