@@ -673,6 +673,15 @@ WHERE [Intitulé client] = ?
 ORDER BY [Date d'échéance] ASC
 """
 
+LISTE_CLIENTS_SAGE = """
+SELECT
+    [Code client]  AS code_client,
+    [Intitulé]     AS nom_client,
+    [Représentant] AS commercial
+FROM [dbo].[Clients]
+ORDER BY [Intitulé]
+"""
+
 INFO_CLIENT = """
 SELECT TOP 1
     [Code client],

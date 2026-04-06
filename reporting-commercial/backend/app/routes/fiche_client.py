@@ -6,6 +6,7 @@ from datetime import date
 from ..database_unified import execute_dwh as execute_query
 from ..sql.query_templates import (
     BALANCE_AGEE,
+    LISTE_CLIENTS_SAGE,
     CA_EVOLUTION_CLIENT,
     CA_TOTAL_CLIENT,
     TOP_PRODUITS_CLIENT,
@@ -52,35 +53,71 @@ def _safe_str(v) -> str:
 
 @router.get("/liste")
 async def get_liste_clients():
-    """Retourne la liste de tous les clients agrégés (balance âgée, toutes sociétés confondues)."""
+    """Retourne la liste de tous les clients agrégés (balance âgée, toutes sociétés confondues).
+    Fallback sur le CTE Clients (F_COMPTET) si BalanceAgee retourne 0 résultats."""
+    import logging
+    _log = logging.getLogger(__name__)
     try:
+        # 1. Essayer BalanceAgee
+        rows = []
         try:
             rows = execute_query(BALANCE_AGEE)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"BalanceAgee non disponible: {e}")
-            rows = []
-        aggregated: dict = {}
-        for row in rows:
-            parsed = _parse_balance_row(row)
-            nom = parsed["code_client"]
+            _log.warning(f"BalanceAgee non disponible: {e}")
+
+        if rows:
+            aggregated: dict = {}
+            for row in rows:
+                parsed = _parse_balance_row(row)
+                nom = parsed["code_client"]
+                if not nom:
+                    continue
+                if nom not in aggregated:
+                    aggregated[nom] = {**parsed, "societes": [parsed["societe"]] if parsed["societe"] else []}
+                else:
+                    aggregated[nom]["encours"] += parsed["encours"]
+                    aggregated[nom]["impayes"] += parsed["impayes"]
+                    aggregated[nom]["tranche_0_30"] += parsed["tranche_0_30"]
+                    aggregated[nom]["tranche_31_60"] += parsed["tranche_31_60"]
+                    aggregated[nom]["tranche_61_90"] += parsed["tranche_61_90"]
+                    aggregated[nom]["tranche_91_120"] += parsed["tranche_91_120"]
+                    aggregated[nom]["tranche_plus_120"] += parsed["tranche_plus_120"]
+                    if parsed["societe"] and parsed["societe"] not in aggregated[nom]["societes"]:
+                        aggregated[nom]["societes"].append(parsed["societe"])
+            clients_sorted = sorted(aggregated.values(), key=lambda x: x["encours"], reverse=True)
+            return {"success": True, "data": list(clients_sorted), "total": len(clients_sorted)}
+
+        # 2. Fallback : lire directement depuis le CTE Clients (F_COMPTET)
+        _log.info("BalanceAgee vide — fallback sur CTE Clients (F_COMPTET)")
+        try:
+            sage_rows = execute_query(LISTE_CLIENTS_SAGE)
+        except Exception as e:
+            _log.warning(f"CTE Clients non disponible: {e}")
+            sage_rows = []
+
+        clients_fallback = []
+        for r in sage_rows:
+            nom = _safe_str(r.get("nom_client") or r.get("code_client") or "").strip()
             if not nom:
                 continue
-            if nom not in aggregated:
-                aggregated[nom] = {**parsed, "societes": [parsed["societe"]] if parsed["societe"] else []}
-            else:
-                aggregated[nom]["encours"] += parsed["encours"]
-                aggregated[nom]["impayes"] += parsed["impayes"]
-                aggregated[nom]["tranche_0_30"] += parsed["tranche_0_30"]
-                aggregated[nom]["tranche_31_60"] += parsed["tranche_31_60"]
-                aggregated[nom]["tranche_61_90"] += parsed["tranche_61_90"]
-                aggregated[nom]["tranche_91_120"] += parsed["tranche_91_120"]
-                aggregated[nom]["tranche_plus_120"] += parsed["tranche_plus_120"]
-                if parsed["societe"] and parsed["societe"] not in aggregated[nom]["societes"]:
-                    aggregated[nom]["societes"].append(parsed["societe"])
+            clients_fallback.append({
+                "code_client": _safe_str(r.get("code_client") or nom).strip(),
+                "nom_client": nom,
+                "commercial": _safe_str(r.get("commercial") or ""),
+                "societe": "",
+                "encours": 0.0,
+                "impayes": 0.0,
+                "tranche_0_30": 0.0,
+                "tranche_31_60": 0.0,
+                "tranche_61_90": 0.0,
+                "tranche_91_120": 0.0,
+                "tranche_plus_120": 0.0,
+                "societes": [],
+            })
 
-        clients_sorted = sorted(aggregated.values(), key=lambda x: x["encours"], reverse=True)
-        return {"success": True, "data": list(clients_sorted), "total": len(clients_sorted)}
+        clients_fallback.sort(key=lambda x: x["nom_client"])
+        return {"success": True, "data": clients_fallback, "total": len(clients_fallback)}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
