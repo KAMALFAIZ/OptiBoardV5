@@ -295,8 +295,8 @@ function AppContent() {
       <Route path="/admin/subscriptions" element={<ProtectedRoute pageCode="admin"><AdminSubscriptionsPage /></ProtectedRoute>} />
       <Route path="/mes-abonnements" element={<ProtectedRoute pageCode="dashboard"><MySubscriptionsPage /></ProtectedRoute>} />
       <Route path="/admin/drillthrough" element={<ProtectedRoute pageCode="admin"><DrillThroughPage /></ProtectedRoute>} />
-      <Route path="/fiche-client" element={<ProtectedRoute pageCode="recouvrement"><FicheClient /></ProtectedRoute>} />
-      <Route path="/fiche-fournisseur" element={<ProtectedRoute pageCode="recouvrement"><FicheFournisseur /></ProtectedRoute>} />
+      <Route path="/fiche-client" element={<ProtectedRoute pageCode="ventes"><FicheClient /></ProtectedRoute>} />
+      <Route path="/fiche-fournisseur" element={<ProtectedRoute pageCode="achats"><FicheFournisseur /></ProtectedRoute>} />
       <Route path="/comptabilite" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       <Route path="/comptabilite/:section" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       <Route path="/admin/sage-config" element={<ProtectedRoute pageCode="admin"><SageConfigAdmin /></ProtectedRoute>} />

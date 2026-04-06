@@ -389,6 +389,8 @@ function DynamicMenuItem({ menu, depth, openMenuIds, toggleMenuOpen, navigateToM
     ((menu.type === 'pivot' || menu.type === 'pivot-v2') && location.pathname === `/pivot-v2/${menu.target_id}`) ||
     (menu.type === 'gridview' && location.pathname === `/grid/${menu.target_id}`) ||
     (menu.type === 'dashboard' && location.pathname === `/view/${menu.target_id}`) ||
+    (menu.type === 'fiche-client' && location.pathname === '/fiche-client') ||
+    (menu.type === 'fiche-fournisseur' && location.pathname === '/fiche-fournisseur') ||
     (menu.type === 'page' && location.pathname === menu.url)
   )
 
@@ -508,6 +510,10 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
       navigate(`/grid/${menu.target_id}`)
     } else if (menu.type === 'dashboard' && menu.target_id) {
       navigate(`/view/${menu.target_id}`)
+    } else if (menu.type === 'fiche-client') {
+      navigate('/fiche-client')
+    } else if (menu.type === 'fiche-fournisseur') {
+      navigate('/fiche-fournisseur')
     } else if (menu.type === 'page' && menu.url) {
       navigate(menu.url)
     }

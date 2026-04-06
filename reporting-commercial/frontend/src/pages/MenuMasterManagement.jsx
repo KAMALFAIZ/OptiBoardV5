@@ -82,11 +82,13 @@ const ICONS = [
 ]
 
 const MENU_TYPES = [
-  { value: 'folder', label: 'Dossier', icon: Folder, color: 'text-amber-600', bg: 'bg-amber-100' },
-  { value: 'pivot-v2', label: 'Pivot Table', icon: Table2, color: 'text-blue-600', bg: 'bg-blue-100' },
-  { value: 'gridview', label: 'GridView', icon: FileSpreadsheet, color: 'text-green-600', bg: 'bg-green-100' },
-  { value: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-purple-600', bg: 'bg-purple-100' },
-  { value: 'page', label: 'Page/Lien', icon: Link, color: 'text-gray-600', bg: 'bg-gray-100' },
+  { value: 'folder',           label: 'Dossier',          icon: Folder,         color: 'text-amber-600',  bg: 'bg-amber-100' },
+  { value: 'pivot-v2',         label: 'Pivot Table',       icon: Table2,         color: 'text-blue-600',   bg: 'bg-blue-100' },
+  { value: 'gridview',         label: 'GridView',          icon: FileSpreadsheet,color: 'text-green-600',  bg: 'bg-green-100' },
+  { value: 'dashboard',        label: 'Dashboard',         icon: LayoutDashboard,color: 'text-purple-600', bg: 'bg-purple-100' },
+  { value: 'fiche-client',     label: 'Fiche Client',      icon: UserCheck,      color: 'text-sky-600',    bg: 'bg-sky-100' },
+  { value: 'fiche-fournisseur',label: 'Fiche Fournisseur', icon: Truck,          color: 'text-orange-600', bg: 'bg-orange-100' },
+  { value: 'page',             label: 'Page/Lien',         icon: Link,           color: 'text-gray-600',   bg: 'bg-gray-100' },
 ]
 
 const getTypeStyle = (type) => {
@@ -154,7 +156,8 @@ export default function MenuMasterManagement() {
   useEffect(() => { loadData() }, [])
 
   useEffect(() => {
-    if (formData.type && formData.type !== 'folder' && formData.type !== 'page') {
+    const noTargetTypes = ['folder', 'page', 'fiche-client', 'fiche-fournisseur']
+    if (formData.type && !noTargetTypes.includes(formData.type)) {
       loadTargets(formData.type)
     }
   }, [formData.type])
