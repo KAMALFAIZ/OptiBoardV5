@@ -586,6 +586,38 @@ async def create_agent(
                 )
                 cursor.commit()
                 client_db_saved = True
+
+                # Sync APP_DWH_Sources avec les credentials Sage de l'agent
+                if agent.sage_database:
+                    try:
+                        cursor.execute(
+                            """
+                            IF EXISTS (SELECT 1 FROM APP_DWH_Sources WHERE dwh_code = ? AND code_societe = ?)
+                                UPDATE APP_DWH_Sources
+                                SET serveur_sage = ?, base_sage = ?,
+                                    user_sage = ?, password_sage = ?
+                                WHERE dwh_code = ? AND code_societe = ?
+                            ELSE
+                                INSERT INTO APP_DWH_Sources
+                                    (dwh_code, code_societe, nom_societe, serveur_sage, base_sage,
+                                     user_sage, password_sage, etl_enabled, etl_mode, actif)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'direct', 1)
+                            """,
+                            (
+                                x_dwh_code, agent_id,
+                                agent.sage_server, agent.sage_database,
+                                agent.sage_username, agent.sage_password,
+                                x_dwh_code, agent_id,
+                                x_dwh_code, agent_id, agent.sage_database,
+                                agent.sage_server, agent.sage_database,
+                                agent.sage_username, agent.sage_password,
+                            )
+                        )
+                        cursor.commit()
+                        logger.info(f"[AGENT] APP_DWH_Sources créé/mis à jour pour {x_dwh_code}/{agent_id}: base={agent.sage_database}")
+                    except Exception as src_err:
+                        logger.warning(f"[AGENT] Sync APP_DWH_Sources à la création échoué (non bloquant): {src_err}")
+
         except Exception as e_client:
             logger.warning(f"Base client {x_dwh_code} inaccessible — agent enregistré en monitoring central uniquement: {e_client}")
 
@@ -769,6 +801,52 @@ async def update_agent(
                 tuple(params)
             )
             cursor.commit()
+
+            # Sync APP_DWH_Sources si les credentials Sage ont changé
+            sage_fields_changed = any(
+                f is not None for f in [
+                    updates.sage_server, updates.sage_database,
+                    updates.sage_username, updates.sage_password
+                ]
+            )
+            if sage_fields_changed:
+                try:
+                    # Récupérer l'état actuel de l'agent
+                    agent_rows = []
+                    cursor.execute(
+                        "SELECT agent_id, sage_server, sage_database, sage_username, sage_password FROM APP_ETL_Agents WHERE agent_id = ?",
+                        (agent_id,)
+                    )
+                    agent_rows = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+                    if agent_rows:
+                        ag = agent_rows[0]
+                        cursor.execute(
+                            """
+                            IF EXISTS (SELECT 1 FROM APP_DWH_Sources WHERE dwh_code = ? AND code_societe = ?)
+                                UPDATE APP_DWH_Sources
+                                SET serveur_sage = ?, base_sage = ?,
+                                    user_sage = ?, password_sage = ?
+                                WHERE dwh_code = ? AND code_societe = ?
+                            ELSE
+                                INSERT INTO APP_DWH_Sources
+                                    (dwh_code, code_societe, nom_societe, serveur_sage, base_sage,
+                                     user_sage, password_sage, etl_enabled, etl_mode, actif)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'direct', 1)
+                            """,
+                            (
+                                dwh_code, agent_id,
+                                ag['sage_server'], ag['sage_database'],
+                                ag['sage_username'], ag['sage_password'],
+                                dwh_code, agent_id,
+                                dwh_code, agent_id, ag['sage_database'],
+                                ag['sage_server'], ag['sage_database'],
+                                ag['sage_username'], ag['sage_password'],
+                            )
+                        )
+                        cursor.commit()
+                        logger.info(f"[AGENT] APP_DWH_Sources sync pour {dwh_code}/{agent_id}: base={ag['sage_database']}")
+                except Exception as sync_err:
+                    logger.warning(f"[AGENT] Sync APP_DWH_Sources échoué (non bloquant): {sync_err}")
 
         return {"success": True, "message": "Agent mis a jour"}
 
