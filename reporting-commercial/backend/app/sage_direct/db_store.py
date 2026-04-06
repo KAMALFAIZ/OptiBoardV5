@@ -42,15 +42,22 @@ def init_sage_config_table():
             )
         """)
 
-        # Seed initial : importer config.py si la table est vide
-        existing = execute_central(
-            "SELECT COUNT(*) AS nb FROM APP_Sage_View_Config",
+        # Seed initial + sync : upsert toutes les entrées de config.py dans la DB
+        existing_rows = execute_central(
+            "SELECT table_name, sage_sql FROM APP_Sage_View_Config",
             use_cache=False,
         )
-        count = existing[0]["nb"] if existing else 0
-        if count == 0:
-            logger.info("[SAGE CONFIG] Seed initial depuis config.py")
-            for table_name, cfg in _STATIC_CONFIG.items():
+        existing_map = {r["table_name"]: r["sage_sql"] for r in existing_rows}
+        missing = [t for t in _STATIC_CONFIG if t not in existing_map]
+        changed = [
+            t for t in _STATIC_CONFIG
+            if t in existing_map
+            and existing_map[t].strip() != _STATIC_CONFIG[t].get("sage_sql", "").strip()
+        ]
+        if missing:
+            logger.info(f"[SAGE CONFIG] Ajout de {len(missing)} mappings manquants: {missing}")
+            for table_name in missing:
+                cfg = _STATIC_CONFIG[table_name]
                 write_central(
                     """
                     INSERT INTO APP_Sage_View_Config
@@ -63,9 +70,29 @@ def init_sage_config_table():
                         1 if cfg.get("stub") else 0,
                     ),
                 )
+        if changed:
+            logger.info(f"[SAGE CONFIG] Mise à jour de {len(changed)} mappings modifiés: {changed}")
+            for table_name in changed:
+                cfg = _STATIC_CONFIG[table_name]
+                write_central(
+                    """
+                    UPDATE APP_Sage_View_Config
+                    SET sage_sql = ?, is_stub = ?, updated_at = GETDATE()
+                    WHERE table_name = ?
+                    """,
+                    (
+                        cfg.get("sage_sql", "").strip(),
+                        1 if cfg.get("stub") else 0,
+                        table_name,
+                    ),
+                )
+        if missing or changed:
+            invalidate_cache()
             logger.info(
-                f"[SAGE CONFIG] {len(_STATIC_CONFIG)} mappings initialisés"
+                f"[SAGE CONFIG] Sync config.py → DB: {len(missing)} ajoutés, {len(changed)} mis à jour"
             )
+        elif not existing_map:
+            logger.info("[SAGE CONFIG] Table vide — aucun mapping à importer")
         return True
     except Exception as e:
         logger.error(f"[SAGE CONFIG] Erreur init table: {e}")

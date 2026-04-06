@@ -545,13 +545,7 @@
       "Bash(Get-Content 'C:\\\\Users\\\\faizk\\\\AppData\\\\Local\\\\Temp\\\\articles_out.txt')",
       "Bash(\"D:/OptiBoard v5/sage_debug.log\")",
       "WebFetch(domain:kasoft.ma)",
-      "Bash(robocopy \"D:\\\\OptiBoard v5\" \"D:\\\\kasoft-platform\" /E /MOVE /NFL /NDL /NJH /NJS)",
-      "Bash(wait)",
-      "Read(//d/kasoft-platform//**)",
-      "Bash(mv \"/d/kasoft-platform/OptiBoard-v5\" \"/d/kasoft-platform/OptiBoardSave\")",
-      "Bash(mv \"/d/kasoft-platform/OptiCRM_DEV\" \"/d/kasoft-platform/OptiCRMSave\")",
-      "Bash(mv \"/d/kasoft-platform/OptiBoardSave\" \"/d/kasoft-platform/OptiBoard v5\")",
-      "Bash(mv \"/d/kasoft-platform/OptiCRMSave\" \"/d/kasoft-platform/OptiCRM_DEV\")"
+      "Bash(robocopy \"D:\\\\OptiBoard v5\" \"D:\\\\kasoft-platform\" /E /MOVE /NFL /NDL /NJH /NJS)"
     ]
   }
 }

@@ -176,7 +176,7 @@ def execute_sage_direct(
     # DEBUG fichier
     def _dbg(msg):
         try:
-            with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+            with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
                 _f.write(f"[EXECUTOR] {msg}\n")
         except Exception:
             pass

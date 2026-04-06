@@ -136,19 +136,19 @@ def main():
         init_tables(cursor)
         conn.commit()
 
-        # 2. Ajouter la societe Groupe ESSAIDI
+        # 2. Ajouter la societe bijou
         add_societe(
             cursor,
-            code="ESSAIDI",
-            nom="Groupe ESSAIDI",
-            base_donnees="GROUPE_ESSAIDI",
+            code="bijou",
+            nom="bijou",
+            base_donnees="bijou",
             serveur=None  # Utilise le serveur par defaut
         )
         conn.commit()
 
         # 4. Ajouter l'utilisateur Admin
         all_pages = ["dashboard", "ventes", "stocks", "recouvrement", "admin", "users"]
-        all_societes = ["ESSAIDI"]
+        all_societes = ["bijou"]
 
         add_user(
             cursor,
@@ -174,7 +174,7 @@ def main():
             prenom="Standard",
             email="user@optiboard.ma",
             role="user",
-            societes=["ESSAIDI"],
+            societes=["bijou"],
             pages=user_pages
         )
         conn.commit()
@@ -186,7 +186,7 @@ def main():
         print("  1. admin / admin123 (Administrateur - toutes les pages et societes)")
         print("  2. user / user123 (Utilisateur standard - pages limitees)")
         print("\nSocietes:")
-        print("  1. ESSAIDI - Groupe ESSAIDI (GROUPE_ESSAIDI)")
+        print("  1. bijou (bijou)")
 
     except Exception as e:
         print(f"Erreur: {e}")

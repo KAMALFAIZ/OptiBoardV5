@@ -5,7 +5,7 @@ import pyodbc
 
 # Configuration Sage
 SAGE_SERVER = "."
-SAGE_DATABASE = "ESSAIDI2022"
+SAGE_DATABASE = "bijou"
 SAGE_USER = "sa"
 SAGE_PASSWORD = "SQL@2019"
 

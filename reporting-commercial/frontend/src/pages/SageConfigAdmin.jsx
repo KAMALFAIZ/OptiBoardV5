@@ -35,8 +35,8 @@ export default function SageConfigAdmin() {
 
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
-  const [testDb, setTestDb] = useState('ESSAIDI2022')
-  const [testSociete, setTestSociete] = useState('ESSAIDI')
+  const [testDb, setTestDb] = useState('bijou')
+  const [testSociete, setTestSociete] = useState('bijou')
 
   const showSuccess = (msg) => {
     setSuccessMsg(msg)

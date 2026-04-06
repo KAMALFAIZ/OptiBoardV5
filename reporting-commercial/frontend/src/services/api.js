@@ -533,7 +533,7 @@ export const resetSageMappings = () =>
 export const invalidateSageCache = () =>
   api.post('/admin/sage-config/invalidate-cache')
 
-export const testSageSql = (sageSql, dbName = 'ESSAIDI2022', societeCode = 'TEST') =>
+export const testSageSql = (sageSql, dbName = 'bijou', societeCode = 'TEST') =>
   api.post('/admin/sage-config/test-sql', { sage_sql: sageSql, db_name: dbName, societe_code: societeCode })
 
 export default api

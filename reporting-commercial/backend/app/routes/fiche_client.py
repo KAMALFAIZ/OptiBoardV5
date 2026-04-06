@@ -3,7 +3,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from datetime import date
 
-from ..database_unified import execute_app as execute_query
+from ..database_unified import execute_dwh as execute_query
 from ..sql.query_templates import (
     BALANCE_AGEE,
     CA_EVOLUTION_CLIENT,
@@ -54,7 +54,12 @@ def _safe_str(v) -> str:
 async def get_liste_clients():
     """Retourne la liste de tous les clients agrégés (balance âgée, toutes sociétés confondues)."""
     try:
-        rows = execute_query(BALANCE_AGEE)
+        try:
+            rows = execute_query(BALANCE_AGEE)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"BalanceAgee non disponible: {e}")
+            rows = []
         aggregated: dict = {}
         for row in rows:
             parsed = _parse_balance_row(row)
@@ -99,7 +104,10 @@ async def get_fiche_client(
         client_name = code_client.strip()
 
         # ── 1. Balance âgée (agrégée sur toutes sociétés) ─────────────────────
-        all_balance = execute_query(BALANCE_AGEE)
+        try:
+            all_balance = execute_query(BALANCE_AGEE)
+        except Exception:
+            all_balance = []
         client_balance = None
         for row in all_balance:
             nom = (row.get("CLIENTS") or row.get("CLIENTS ") or "").strip()

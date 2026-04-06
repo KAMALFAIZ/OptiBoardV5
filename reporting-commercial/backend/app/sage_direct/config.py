@@ -4,7 +4,7 @@ Configuration des vues Sage Direct
 Chaque entrée mappe une vue/table DWH vers une requête Sage
 qui produit les MEMES colonnes que la vue DWH.
 
-Le placeholder {db} est remplacé par le nom de la base Sage (ex: ESSAIDI2022).
+Le placeholder {db} est remplacé par le nom de la base Sage (ex: bijou).
 Le placeholder {societe} est remplacé par le code_societe.
 """
 
@@ -57,6 +57,7 @@ SAGE_VIEW_CONFIG = {
         "sage_sql": """
             SELECT
                 '{societe}'                                      AS [DB],
+                '{societe}'                                      AS [societe],
                 l.AR_Ref                                         AS [Code article],
                 ISNULL(a.AR_Design, l.DL_Design)                 AS [Désignation],
                 CASE e.DO_Type
@@ -69,6 +70,12 @@ SAGE_VIEW_CONFIG = {
                     WHEN 15 THEN 'Avoir Achat'
                     ELSE 'Type ' + CAST(e.DO_Type AS VARCHAR(5))
                 END                                              AS [Type Mouvement],
+                CASE e.DO_Domaine
+                    WHEN 0 THEN 'Ventes'
+                    WHEN 1 THEN 'Achats'
+                    WHEN 2 THEN 'Stock'
+                    ELSE CAST(e.DO_Domaine AS VARCHAR(5))
+                END                                              AS [Domaine mouvement],
                 CONVERT(VARCHAR(10), e.DO_Date, 120)             AS [Date Mouvement],
                 e.DO_Piece                                       AS [N° Pièce],
                 l.DL_CMUP                                        AS [CMUP],
@@ -86,10 +93,27 @@ SAGE_VIEW_CONFIG = {
                 e.CO_No                                          AS [Code coloboratore],
                 ISNULL(co.CO_Prenom + ' ' + co.CO_Nom,
                        CAST(e.CO_No AS VARCHAR(20)))             AS [Représentant],
-                ISNULL(a.FA_CodeFamille, '')                     AS [Catalogue 1],
+                ISNULL(a.FA_CodeFamille, '')                     AS [Code famille],
+                ISNULL(fa.FA_Intitule, '')                        AS [Intitulé famille],
+                ISNULL(cat1.CL_Intitule, '')                     AS [Catalogue 1],
+                ISNULL(cat2.CL_Intitule, '')                     AS [Catalogue 2],
+                ISNULL(cat3.CL_Intitule, '')                     AS [Catalogue 3],
+                ISNULL(cat4.CL_Intitule, '')                     AS [Catalogue 4],
+                ISNULL(g1.G_Intitule, '')                        AS [Gamme 1],
+                ISNULL(g2.G_Intitule, '')                        AS [Gamme 2],
+                l.DE_No                                          AS [Code Dépôt],
+                ISNULL(dep.DE_Intitule, '')                      AS [Dépôt],
                 c.CT_Intitule                                    AS [Intitulé tiers],
                 e.DO_Tiers                                       AS [Code tiers],
-                c.CT_Intitule                                    AS [Intitulé client]
+                c.CT_Intitule                                    AS [Intitulé client],
+                CAST(NULL AS VARCHAR(50))                        AS [N° Série / Lot],
+                CAST(NULL AS VARCHAR(20))                        AS [Suivi Stock],
+                CAST(NULL AS VARCHAR(20))                        AS [DPA-Période],
+                CAST(NULL AS FLOAT)                              AS [DPA-Vente],
+                CAST(NULL AS FLOAT)                              AS [Coût standard],
+                CAST(NULL AS FLOAT)                              AS [DPR-Vente],
+                CAST(NULL AS DATETIME)                           AS [Date Péremption],
+                CAST(NULL AS DATETIME)                           AS [Date Fabrication]
             FROM [{db}].[dbo].[F_DOCLIGNE] l
             INNER JOIN [{db}].[dbo].[F_DOCENTETE] e
                 ON l.DO_Piece = e.DO_Piece AND l.DO_Type = e.DO_Type
@@ -99,7 +123,23 @@ SAGE_VIEW_CONFIG = {
                 ON e.DO_Tiers = c.CT_Num
             LEFT JOIN [{db}].[dbo].[F_COLLABORATEUR] co
                 ON e.CO_No = co.CO_No
-            WHERE e.DO_Type IN (3, 6, 7, 12, 13, 14, 15)
+            LEFT JOIN [{db}].[dbo].[F_FAMILLE] fa
+                ON a.FA_CodeFamille = fa.FA_CodeFamille
+            LEFT JOIN [{db}].[dbo].[F_CATALOGUE] cat1
+                ON a.CL_No1 = cat1.CL_No
+            LEFT JOIN [{db}].[dbo].[F_CATALOGUE] cat2
+                ON a.CL_No2 = cat2.CL_No
+            LEFT JOIN [{db}].[dbo].[F_CATALOGUE] cat3
+                ON a.CL_No3 = cat3.CL_No
+            LEFT JOIN [{db}].[dbo].[F_CATALOGUE] cat4
+                ON a.CL_No4 = cat4.CL_No
+            LEFT JOIN [{db}].[dbo].[P_GAMME] g1
+                ON l.AG_No1 = g1.cbIndice
+            LEFT JOIN [{db}].[dbo].[P_GAMME] g2
+                ON l.AG_No2 = g2.cbIndice
+            LEFT JOIN [{db}].[dbo].[F_DEPOT] dep
+                ON l.DE_No = dep.DE_No
+            WHERE e.DO_TYPE IN (3, 6, 7, 12, 13, 14, 15)
               AND l.AR_Ref <> ''
               AND l.DL_Qte <> 0
         """,
@@ -115,18 +155,18 @@ SAGE_VIEW_CONFIG = {
                 c.CT_Intitule                                    AS [Intitulé],
                 ISNULL(co.CO_Prenom + ' ' + co.CO_Nom,
                        CAST(c.CO_No AS VARCHAR(20)))             AS [Représentant],
-                c.CT_Risque                                      AS [Risque client],
+                CAST(NULL AS INT)                                AS [Risque client],
                 c.CT_Encours                                     AS [Encours de l'autorisation],
-                c.CT_Assession                                   AS [Assurance],
-                c.CT_Telephone                                   AS [Téléphone],
-                c.CT_Email                                       AS [Email],
-                c.CT_Adresse                                     AS [Adresse],
-                c.CT_Ville                                       AS [Ville],
+                CAST(0 AS DECIMAL(18,2))                         AS [Assurance],
+                ISNULL(c.CT_Telephone, '')                       AS [Téléphone],
+                ISNULL(c.CT_Email, '')                           AS [Email],
+                ISNULL(c.CT_Adresse, '')                         AS [Adresse],
+                ISNULL(c.CT_Ville, '')                           AS [Ville],
                 ''                                               AS [ICE_],
                 ''                                               AS [RC_],
                 ''                                               AS [Capital_],
                 ''                                               AS [Forme juridique_],
-                c.CT_DateCreate                                  AS [Date de création]
+                CAST(NULL AS DATETIME)                           AS [Date de création]
             FROM [{db}].[dbo].[F_COMPTET] c
             LEFT JOIN [{db}].[dbo].[F_COLLABORATEUR] co
                 ON c.CO_No = co.CO_No
@@ -176,12 +216,16 @@ SAGE_VIEW_CONFIG = {
                 CAST(NULL AS VARCHAR(100))                       AS [Intitulé tiers payeur],
                 CAST(NULL AS INT)                                AS [Catégorie Comptable],
                 CONVERT(DATETIME, e.cbCreation, 120)             AS [Date création],
-                CONVERT(DATETIME, e.cbModification, 120)         AS [Date modification]
+                CONVERT(DATETIME, e.cbModification, 120)         AS [Date modification],
+                e.DO_Tiers                                       AS [Code client],
+                ISNULL(ct.CT_Intitule, e.DO_Tiers)              AS [Intitulé client]
             FROM [{db}].[dbo].[F_DOCENTETE] e
             LEFT JOIN [{db}].[dbo].[F_COLLABORATEUR] co
                 ON e.CO_No = co.CO_No
             LEFT JOIN [{db}].[dbo].[P_DEVISE] dev
                 ON e.DO_Devise = dev.cbIndice
+            LEFT JOIN [{db}].[dbo].[F_COMPTET] ct
+                ON e.DO_Tiers = ct.CT_Num
             WHERE e.DO_Domaine = 0
         """,
     },
@@ -582,24 +626,57 @@ SAGE_VIEW_CONFIG = {
     },
 
     # ═══════════════════════════════════════════════════════════════════════
-    # BalanceAgee — non supporté en Sage Direct (calcul complexe)
-    # → retourne un dataset vide avec les bonnes colonnes
+    # BalanceAgee — encours clients vieillis depuis F_ECRITUREC (non lettrées)
+    # Colonnes: CLIENTS (=CT_Intitule), Représenant, SOCIETE,
+    #           Solde Clôture, Impayés (>30j), 0-30, 31-60, 61-90, 91-120, +120
     # ═══════════════════════════════════════════════════════════════════════
     "BalanceAgee": {
         "sage_sql": """
-            SELECT TOP 0
-                '' AS [CLIENTS ],
-                '' AS [Représenant],
-                '' AS [SOCIETE],
-                CAST(0 AS DECIMAL(18,2)) AS [Solde Clôture],
-                CAST(0 AS DECIMAL(18,2)) AS [Impayés],
-                CAST(0 AS DECIMAL(18,2)) AS [0-30],
-                CAST(0 AS DECIMAL(18,2)) AS [31-60],
-                CAST(0 AS DECIMAL(18,2)) AS [61-90],
-                CAST(0 AS DECIMAL(18,2)) AS [91-120],
-                CAST(0 AS DECIMAL(18,2)) AS [+120]
+            SELECT
+                e.CT_Intitule                                        AS [CLIENTS ],
+                MAX(e.Representant)                                  AS [Représenant],
+                '{societe}'                                          AS [SOCIETE],
+                CAST(SUM(CASE WHEN e.EC_Sens=0 THEN e.EC_Montant ELSE -e.EC_Montant END)
+                    AS DECIMAL(18,2))                                AS [Solde Clôture],
+                CAST(SUM(CASE WHEN (e.EC_Lettrage IS NULL OR e.EC_Lettrage='')
+                    AND e.EC_Sens=0 AND e.Age_Jours>30
+                    THEN e.EC_Montant ELSE 0 END) AS DECIMAL(18,2)) AS [Impayés],
+                CAST(SUM(CASE WHEN (e.EC_Lettrage IS NULL OR e.EC_Lettrage='')
+                    AND e.EC_Sens=0 AND e.Age_Jours BETWEEN 0 AND 30
+                    THEN e.EC_Montant ELSE 0 END) AS DECIMAL(18,2)) AS [0-30],
+                CAST(SUM(CASE WHEN (e.EC_Lettrage IS NULL OR e.EC_Lettrage='')
+                    AND e.EC_Sens=0 AND e.Age_Jours BETWEEN 31 AND 60
+                    THEN e.EC_Montant ELSE 0 END) AS DECIMAL(18,2)) AS [31-60],
+                CAST(SUM(CASE WHEN (e.EC_Lettrage IS NULL OR e.EC_Lettrage='')
+                    AND e.EC_Sens=0 AND e.Age_Jours BETWEEN 61 AND 90
+                    THEN e.EC_Montant ELSE 0 END) AS DECIMAL(18,2)) AS [61-90],
+                CAST(SUM(CASE WHEN (e.EC_Lettrage IS NULL OR e.EC_Lettrage='')
+                    AND e.EC_Sens=0 AND e.Age_Jours BETWEEN 91 AND 120
+                    THEN e.EC_Montant ELSE 0 END) AS DECIMAL(18,2)) AS [91-120],
+                CAST(SUM(CASE WHEN (e.EC_Lettrage IS NULL OR e.EC_Lettrage='')
+                    AND e.EC_Sens=0 AND e.Age_Jours>120
+                    THEN e.EC_Montant ELSE 0 END) AS DECIMAL(18,2)) AS [+120]
+            FROM (
+                SELECT
+                    ec.CT_Num,
+                    ct.CT_Intitule,
+                    ISNULL(co.CO_Nom, '')                            AS Representant,
+                    ec.EC_Sens,
+                    ec.EC_Montant,
+                    ec.EC_Lettrage,
+                    DATEDIFF(DAY, ec.EC_Date, GETDATE())             AS Age_Jours
+                FROM [{db}].[dbo].[F_ECRITUREC] ec
+                INNER JOIN [{db}].[dbo].[F_COMPTET] ct
+                    ON ec.CT_Num = ct.CT_Num AND ct.CT_Type = 0
+                LEFT JOIN [{db}].[dbo].[F_COLLABORATEUR] co
+                    ON ct.CO_No = co.CO_No
+                WHERE ec.CT_Num IS NOT NULL AND ec.CT_Num <> ''
+                  AND ec.CG_Num LIKE '34%'
+            ) e
+            GROUP BY e.CT_Num, e.CT_Intitule
+            HAVING SUM(CASE WHEN e.EC_Sens=0 THEN e.EC_Montant ELSE -e.EC_Montant END) > 0
         """,
-        "stub": True,
+        "stub": False,
     },
 
     # Échéances — stub pour Phase 1
@@ -713,6 +790,107 @@ SAGE_VIEW_CONFIG = {
             LEFT OUTER JOIN [{db}].[dbo].[P_GAMME] P_GAMME
                 ON F_ARTICLE.AR_Gamme1 = P_GAMME.cbIndice
         """,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Paiements_Fournisseurs — F_CREGLEMENT + F_REGLECH domain=1 (achats)
+    # ═══════════════════════════════════════════════════════════════════════
+    "Paiements_Fournisseurs": {
+        "sage_sql": """
+            SELECT
+                rg.CT_NumPayeur                                      AS [Code fournisseur],
+                ISNULL(ct.CT_Intitule, rg.CT_NumPayeur)              AS [Intitulé],
+                CONVERT(VARCHAR(10), rg.RG_Date, 120)                AS [Date],
+                CAST(NULL AS VARCHAR(10))                            AS [Date d'échéance],
+                ISNULL(rg.RG_Reference, '')                          AS [Référence],
+                ISNULL(rg.RG_Libelle, '')                            AS [Libellé],
+                ISNULL(rg.JO_Num, '')                                AS [Code journal],
+                ISNULL(j.JO_Intitule, '')                            AS [Journal],
+                ISNULL(rg.CG_Num, '')                                AS [Compte générale],
+                CAST(rg.RG_No AS VARCHAR(20))                        AS [N° piéce],
+                CAST(ISNULL(rg.N_Reglement, 0) AS VARCHAR(10))       AS [Mode réglement],
+                rg.RG_Montant                                        AS [Montant],
+                CAST(0 AS DECIMAL(18,2))                             AS [solde],
+                ''                                                   AS [Devise],
+                CASE rg.RG_Valide WHEN 0 THEN 'Non' ELSE 'Oui' END  AS [Valide],
+                CASE rg.RG_Impute WHEN 0 THEN 'Non' ELSE 'Oui' END  AS [Impute],
+                '{societe}'                                          AS societe
+            FROM [{db}].[dbo].[F_CREGLEMENT] rg
+            INNER JOIN [{db}].[dbo].[F_REGLECH] re
+                ON rg.RG_No = re.RG_No AND re.DO_Domaine = 1
+            LEFT JOIN [{db}].[dbo].[F_COMPTET] ct
+                ON rg.CT_NumPayeur = ct.CT_Num
+            LEFT JOIN [{db}].[dbo].[F_JOURNAUX] j
+                ON rg.JO_Num = j.JO_Num
+        """,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Règlements_Clients — F_CREGLEMENT + F_REGLECH domain=0 (ventes)
+    # ═══════════════════════════════════════════════════════════════════════
+    "Règlements_Clients": {
+        "sage_sql": """
+            SELECT
+                rg.CT_NumPayeur                                      AS [Code client],
+                ISNULL(ct.CT_Intitule, rg.CT_NumPayeur)              AS [Intitulé],
+                rg.CT_NumPayeur                                      AS [Code client original],
+                ISNULL(ct.CT_Intitule, rg.CT_NumPayeur)              AS [Intitulé original],
+                CONVERT(VARCHAR(10), rg.RG_Date, 120)                AS [Date],
+                CAST(NULL AS VARCHAR(10))                            AS [Date d'échéance],
+                ISNULL(rg.RG_Reference, '')                          AS [Référence],
+                ISNULL(rg.RG_Libelle, '')                            AS [Libellé],
+                ISNULL(rg.JO_Num, '')                                AS [Code journal],
+                ISNULL(j.JO_Intitule, '')                            AS [Journal],
+                ISNULL(rg.CG_Num, '')                                AS [Compte générale],
+                CAST(rg.RG_No AS VARCHAR(20))                        AS [N° piéce],
+                CAST(ISNULL(rg.N_Reglement, 0) AS VARCHAR(10))       AS [Mode de règlement],
+                rg.RG_Montant                                        AS [Montant],
+                CAST(0 AS DECIMAL(18,2))                             AS [solde],
+                ''                                                   AS [Devise],
+                CASE rg.RG_Valide WHEN 0 THEN 'Non' ELSE 'Oui' END  AS [Valide],
+                CASE rg.RG_Impute WHEN 0 THEN 'Non' ELSE 'Oui' END  AS [Impute],
+                '{societe}'                                          AS societe
+            FROM [{db}].[dbo].[F_CREGLEMENT] rg
+            INNER JOIN [{db}].[dbo].[F_REGLECH] re
+                ON rg.RG_No = re.RG_No AND re.DO_Domaine = 0
+            LEFT JOIN [{db}].[dbo].[F_COMPTET] ct
+                ON rg.CT_NumPayeur = ct.CT_Num
+            LEFT JOIN [{db}].[dbo].[F_JOURNAUX] j
+                ON rg.JO_Num = j.JO_Num
+        """,
+    },
+
+    # Échéances achats — stub (calcul complexe, même pattern qu'Echéances_Ventes)
+    "Echeances_Achats": {
+        "sage_sql": """
+            SELECT TOP 0
+                '' AS [Code fournisseur], '' AS [Intitulé fournisseur],
+                '' AS [Code tier payeur], '' AS [Tier payeur],
+                '' AS [Type Document], '' AS [N° pièce],
+                GETDATE() AS [Date document], GETDATE() AS [Date d'échéance],
+                CAST(0 AS DECIMAL(18,2)) AS [Montant TTC],
+                CAST(0 AS DECIMAL(18,2)) AS [Montant échéance],
+                '' AS [Mode de réglement],
+                CAST(0 AS DECIMAL(18,2)) AS [Régler],
+                '' AS societe
+        """,
+        "stub": True,
+    },
+
+    # Imputations achats — stub (même pattern qu'Imputation_Factures_Ventes)
+    "Imputation_Factures_Achats": {
+        "sage_sql": """
+            SELECT TOP 0
+                '' AS [Code fournisseur], '' AS [Intitulé fournisseur],
+                '' AS [Code tier encaisseur], '' AS [Intitulé tier encaisseur],
+                '' AS [Type Document], '' AS [N° pièce],
+                GETDATE() AS [Date document], GETDATE() AS [Date réglement],
+                CAST(0 AS DECIMAL(18,2)) AS [Montant facture TTC],
+                CAST(0 AS DECIMAL(18,2)) AS [Montant régler],
+                CAST(0 AS DECIMAL(18,2)) AS [Montant réglement],
+                '' AS [Mode de réglement], '' AS [Référence], '' AS societe
+        """,
+        "stub": True,
     },
 
     # Imputations — stub pour Phase 1

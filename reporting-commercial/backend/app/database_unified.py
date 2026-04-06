@@ -338,7 +338,7 @@ def execute_dwh(
 
     # DEBUG fichier
     try:
-        with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+        with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
             _f.write(f"\n--- execute_dwh ---\n")
             _f.write(f"data_source={data_source!r} code={code!r}\n")
             _f.write(f"query[:400]={query[:400]}\n")
@@ -366,7 +366,7 @@ def execute_dwh(
                     break
 
             try:
-                with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
                     _f.write(f"known_tables={known}\n")
                     _f.write(f"has_known_table={has_known_table} matched={matched_table}\n")
             except Exception:
@@ -379,7 +379,7 @@ def execute_dwh(
                     # Mode Sage Live explicite : pas de fallback silencieux vers DWH.
                     logger.error(f"[SAGE DIRECT] Echec: {sage_err}")
                     try:
-                        with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                        with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
                             _f.write(f"SAGE_DIRECT_FAILED (no fallback): {sage_err}\n")
                     except Exception:
                         pass
@@ -393,7 +393,7 @@ def execute_dwh(
         except Exception as e:
             logger.error(f"[SAGE DIRECT] Erreur détection tables: {e}")
             try:
-                with open("D:/OptiBoard v5/sage_debug.log", "a", encoding="utf-8") as _f:
+                with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
                     _f.write(f"DETECTION_ERROR: {e}\n")
             except Exception:
                 pass

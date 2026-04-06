@@ -31,7 +31,7 @@ class MappingUpdate(BaseModel):
 
 class TestMappingRequest(BaseModel):
     sage_sql: str
-    db_name: str = "ESSAIDI2022"
+    db_name: str = "bijou"
     societe_code: str = "TEST"
 
 
