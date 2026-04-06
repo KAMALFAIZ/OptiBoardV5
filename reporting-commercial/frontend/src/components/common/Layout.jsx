@@ -123,7 +123,6 @@ const adminNavigation = [
     children: [
       { name: 'Base de Données', href: '/admin/database', icon: Database,       pageCode: 'admin', superadminOnly: true },
       { name: 'ETL Admin',       href: '/admin/etl',      icon: ArrowRightLeft, pageCode: 'etl_admin' },
-      { name: 'Accès Direct Sage', href: '/sage-direct', icon: Database,       pageCode: 'etl_admin', subtitle: 'Live · Sans sync' },
       { name: 'Mappings Sage Direct', href: '/admin/sage-config', icon: Settings, pageCode: 'admin', subtitle: 'CTEs Sage ↔ DWH' },
     ]
   },

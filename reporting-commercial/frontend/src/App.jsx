@@ -54,7 +54,6 @@ import DrillThroughPage from './pages/DrillThroughPage'
 import FicheClient from './pages/FicheClient'
 import FicheFournisseur from './pages/FicheFournisseur'
 import Comptabilite from './pages/Comptabilite'
-import SageDirect from './pages/SageDirect'
 import SageConfigAdmin from './pages/SageConfigAdmin'
 import DigestAdmin from './pages/DigestAdmin'
 import AIPresentationBuilder from './pages/AIPresentationBuilder'
@@ -300,7 +299,6 @@ function AppContent() {
       <Route path="/fiche-fournisseur" element={<ProtectedRoute pageCode="recouvrement"><FicheFournisseur /></ProtectedRoute>} />
       <Route path="/comptabilite" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       <Route path="/comptabilite/:section" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
-      <Route path="/sage-direct" element={<ProtectedRoute pageCode="etl_admin"><SageDirect /></ProtectedRoute>} />
       <Route path="/admin/sage-config" element={<ProtectedRoute pageCode="admin"><SageConfigAdmin /></ProtectedRoute>} />
       <Route path="/admin/digest" element={<ProtectedRoute pageCode="admin"><DigestAdmin /></ProtectedRoute>} />
       <Route path="/setup-2fa" element={<ProtectedRoute><Setup2FAPage /></ProtectedRoute>} />
