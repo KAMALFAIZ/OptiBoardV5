@@ -13,7 +13,7 @@ import pyodbc
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Tuple
 
-from ..database_unified import execute_central, require_dwh_code
+from ..database_unified import execute_central, execute_client, require_dwh_code
 from . import db_store
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,36 @@ logger = logging.getLogger(__name__)
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_sage_societes(dwh_code: str) -> List[Dict[str, Any]]:
-    """Récupère toutes les sociétés Sage actives pour ce DWH."""
+    """
+    Récupère toutes les sociétés Sage actives pour ce DWH.
+    Priorité : APP_ETL_Agents (base client) → fallback APP_DWH_Sources (central).
+    """
+    # 1. Lire depuis APP_ETL_Agents dans la base client
+    try:
+        agents = execute_client(
+            """
+            SELECT agent_id      AS code_societe,
+                   ISNULL(nom_societe, nom) AS nom_societe,
+                   sage_server   AS serveur_sage,
+                   sage_database AS base_sage,
+                   sage_username AS user_sage,
+                   sage_password AS password_sage
+            FROM APP_ETL_Agents
+            WHERE is_active = 1
+              AND sage_server   IS NOT NULL AND sage_server   <> ''
+              AND sage_database IS NOT NULL AND sage_database <> ''
+            """,
+            dwh_code=dwh_code,
+            use_cache=False,
+        )
+        if agents:
+            logger.debug(f"[SAGE DIRECT] {len(agents)} agent(s) Sage trouvé(s) dans APP_ETL_Agents pour {dwh_code}")
+            return agents
+    except Exception as e:
+        logger.warning(f"[SAGE DIRECT] Lecture APP_ETL_Agents échouée pour {dwh_code}, fallback APP_DWH_Sources: {e}")
+
+    # 2. Fallback : APP_DWH_Sources dans la base centrale
+    logger.debug(f"[SAGE DIRECT] Fallback APP_DWH_Sources pour {dwh_code}")
     return execute_central(
         """
         SELECT code_societe, nom_societe, serveur_sage, base_sage,
