@@ -1348,8 +1348,6 @@ export default function GridViewDisplay() {
               const s = GROUP_LEVEL_STYLES[level % GROUP_LEVEL_STYLES.length]
               return {
                 backgroundColor: s.bg,
-                borderLeft: `4px solid ${s.border}`,
-                borderTop: level === 0 ? `2px solid ${s.border}` : `1px solid ${s.border}`,
                 fontWeight: 700,
                 cursor: 'pointer',
                 color: s.text
@@ -1357,7 +1355,7 @@ export default function GridViewDisplay() {
             }
             // Highlight lignes anormales
             if (params.node?.rowIndex != null && anomalyRowIndices.has(params.node.rowIndex)) {
-              return { backgroundColor: 'rgba(251,191,36,0.12)', borderLeft: '3px solid #f59e0b' }
+              return { backgroundColor: 'rgba(251,191,36,0.12)' }
             }
             return undefined
           }}
