@@ -7,8 +7,8 @@ import json
 import os
 import tempfile
 
-from ..database_unified import execute_client as execute_query, client_cursor as get_db_cursor
-# Report Scheduler : 100% client local — aucune lecture/ecriture vers le central
+from ..database_unified import execute_client as execute_query, client_cursor, central_cursor as get_db_cursor
+# Report Scheduler : tables de config en base centrale, données en base client
 from ..services.email_service import send_email, test_email_config, get_email_template
 
 router = APIRouter(prefix="/api/report-scheduler", tags=["report-scheduler"])
