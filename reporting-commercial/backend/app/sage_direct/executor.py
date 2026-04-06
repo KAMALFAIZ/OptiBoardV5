@@ -30,8 +30,8 @@ def _get_sage_societes(dwh_code: str) -> List[Dict[str, Any]]:
     try:
         agents = execute_client(
             """
-            SELECT agent_id      AS code_societe,
-                   ISNULL(nom_societe, nom) AS nom_societe,
+            SELECT sage_database  AS code_societe,
+                   ISNULL(nom_societe, ISNULL(nom, sage_database)) AS nom_societe,
                    sage_server   AS serveur_sage,
                    sage_database AS base_sage,
                    sage_username AS user_sage,
