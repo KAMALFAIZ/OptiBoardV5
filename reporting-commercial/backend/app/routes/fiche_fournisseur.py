@@ -3,9 +3,10 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from datetime import date
 
-from ..database_unified import execute_app as execute_query
+from ..database_unified import execute_dwh as execute_query
 from ..sql.query_templates import (
     LISTE_FOURNISSEURS,
+    LISTE_FOURNISSEURS_SAGE,
     INFO_FOURNISSEUR,
     DOCUMENTS_ACHATS_FOURNISSEUR,
     ECHEANCES_NON_REGLEES_FOURNISSEUR,
@@ -33,37 +34,73 @@ def _safe_str(v) -> str:
 
 @router.get("/liste")
 async def get_liste_fournisseurs():
-    """Retourne la liste agrégée des fournisseurs (Situation_Fournisseurs)."""
+    """Retourne la liste agrégée des fournisseurs.
+    Fallback sur le CTE Fournisseurs (F_COMPTET CT_Type=1) si Situation_Fournisseurs vide."""
+    import logging
+    _log = logging.getLogger(__name__)
     try:
-        rows = execute_query(LISTE_FOURNISSEURS)
-        aggregated: dict = {}
-        for row in rows:
-            nom = (row.get("Nom_Fournisseur") or "").strip()
+        # 1. Essayer Situation_Fournisseurs (DWH)
+        rows = []
+        try:
+            rows = execute_query(LISTE_FOURNISSEURS)
+        except Exception as e:
+            _log.warning(f"Situation_Fournisseurs non disponible: {e}")
+
+        if rows:
+            aggregated: dict = {}
+            for row in rows:
+                nom = (row.get("Nom_Fournisseur") or "").strip()
+                if not nom:
+                    continue
+                solde = _safe_float(row.get("Solde"))
+                total_achats = _safe_float(row.get("Total_Achats"))
+                total_regle = _safe_float(row.get("Total_Regle"))
+                societe = row.get("Societe") or ""
+                if nom not in aggregated:
+                    aggregated[nom] = {
+                        "nom_fournisseur": nom,
+                        "code_fournisseur": row.get("Code fournisseur") or "",
+                        "acheteur": row.get("Acheteur") or "",
+                        "total_achats": total_achats,
+                        "total_regle": total_regle,
+                        "solde": solde,
+                        "societes": [societe] if societe else [],
+                    }
+                else:
+                    aggregated[nom]["total_achats"] += total_achats
+                    aggregated[nom]["total_regle"] += total_regle
+                    aggregated[nom]["solde"] += solde
+                    if societe and societe not in aggregated[nom]["societes"]:
+                        aggregated[nom]["societes"].append(societe)
+            sorted_list = sorted(aggregated.values(), key=lambda x: x["solde"], reverse=True)
+            return {"success": True, "data": sorted_list, "total": len(sorted_list)}
+
+        # 2. Fallback : CTE Fournisseurs (F_COMPTET CT_Type=1)
+        _log.info("Situation_Fournisseurs vide — fallback sur CTE Fournisseurs (F_COMPTET)")
+        try:
+            sage_rows = execute_query(LISTE_FOURNISSEURS_SAGE)
+        except Exception as e:
+            _log.warning(f"CTE Fournisseurs non disponible: {e}")
+            sage_rows = []
+
+        fournisseurs_fallback = []
+        for r in sage_rows:
+            nom = _safe_str(r.get("nom_fournisseur") or r.get("code_fournisseur") or "").strip()
             if not nom:
                 continue
-            solde = _safe_float(row.get("Solde"))
-            total_achats = _safe_float(row.get("Total_Achats"))
-            total_regle = _safe_float(row.get("Total_Regle"))
-            societe = row.get("Societe") or ""
-            if nom not in aggregated:
-                aggregated[nom] = {
-                    "nom_fournisseur": nom,
-                    "code_fournisseur": row.get("Code fournisseur") or "",
-                    "acheteur": row.get("Acheteur") or "",
-                    "total_achats": total_achats,
-                    "total_regle": total_regle,
-                    "solde": solde,
-                    "societes": [societe] if societe else [],
-                }
-            else:
-                aggregated[nom]["total_achats"] += total_achats
-                aggregated[nom]["total_regle"] += total_regle
-                aggregated[nom]["solde"] += solde
-                if societe and societe not in aggregated[nom]["societes"]:
-                    aggregated[nom]["societes"].append(societe)
+            fournisseurs_fallback.append({
+                "nom_fournisseur": nom,
+                "code_fournisseur": _safe_str(r.get("code_fournisseur") or nom).strip(),
+                "acheteur": _safe_str(r.get("acheteur") or ""),
+                "total_achats": 0.0,
+                "total_regle": 0.0,
+                "solde": 0.0,
+                "societes": [],
+            })
 
-        sorted_list = sorted(aggregated.values(), key=lambda x: x["solde"], reverse=True)
-        return {"success": True, "data": sorted_list, "total": len(sorted_list)}
+        fournisseurs_fallback.sort(key=lambda x: x["nom_fournisseur"])
+        return {"success": True, "data": fournisseurs_fallback, "total": len(fournisseurs_fallback)}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

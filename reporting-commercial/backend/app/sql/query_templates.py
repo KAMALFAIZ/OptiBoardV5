@@ -742,20 +742,29 @@ GROUP BY [DB], [Code fournisseur], [Intitulé fournisseur], [Acheteur]
 ORDER BY SUM([Solde]) DESC
 """
 
+LISTE_FOURNISSEURS_SAGE = """
+SELECT
+    [Code fournisseur] AS code_fournisseur,
+    [Intitulé]         AS nom_fournisseur,
+    [Acheteur]         AS acheteur
+FROM [dbo].[Fournisseurs]
+ORDER BY [Intitulé]
+"""
+
 INFO_FOURNISSEUR = """
 SELECT TOP 1
     [Code fournisseur],
     [Intitulé],
     [Acheteur],
     [Téléphone],
-    [Télécopie] AS Fax,
+    [Fax],
     [Email],
     [Adresse],
     [Ville],
-    [ICE_] AS ICE,
-    [RC_] AS RC,
-    [Capital_] AS Capital,
-    [Forme juridique_] AS Forme_Juridique,
+    [ICE]              AS ICE,
+    [RC]               AS RC,
+    [Capital]          AS Capital,
+    [Forme_Juridique]  AS Forme_Juridique,
     [Risque fournisseur] AS Risque_Fournisseur,
     [Encours de l'autorisation] AS Plafond_Autorisation,
     [Assurance],

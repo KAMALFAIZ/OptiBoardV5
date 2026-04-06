@@ -175,6 +175,36 @@ SAGE_VIEW_CONFIG = {
     },
 
     # ═══════════════════════════════════════════════════════════════════════
+    # Fournisseurs — fiche fournisseur, info fournisseur (F_COMPTET CT_Type=1)
+    # ═══════════════════════════════════════════════════════════════════════
+    "Fournisseurs": {
+        "sage_sql": """
+            SELECT
+                f.CT_Num                                         AS [Code fournisseur],
+                f.CT_Intitule                                    AS [Intitulé],
+                ISNULL(co.CO_Prenom + ' ' + co.CO_Nom,
+                       CAST(f.CO_No AS VARCHAR(20)))             AS [Acheteur],
+                CAST(NULL AS INT)                                AS [Risque fournisseur],
+                f.CT_Encours                                     AS [Encours de l'autorisation],
+                CAST(0 AS DECIMAL(18,2))                         AS [Assurance],
+                ISNULL(f.CT_Telephone, '')                       AS [Téléphone],
+                ISNULL(f.CT_Telecopie, '')                       AS [Fax],
+                ISNULL(f.CT_Email, '')                           AS [Email],
+                ISNULL(f.CT_Adresse, '')                         AS [Adresse],
+                ISNULL(f.CT_Ville, '')                           AS [Ville],
+                ''                                               AS [ICE],
+                ''                                               AS [RC],
+                CAST(0 AS DECIMAL(18,2))                         AS [Capital],
+                ''                                               AS [Forme_Juridique],
+                CAST(NULL AS DATETIME)                           AS [Date de création]
+            FROM [{db}].[dbo].[F_COMPTET] f
+            LEFT JOIN [{db}].[dbo].[F_COLLABORATEUR] co
+                ON f.CO_No = co.CO_No
+            WHERE f.CT_Type = 1
+        """,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
     # Entête_des_ventes — documents vente (factures, avoirs, BL)
     # ═══════════════════════════════════════════════════════════════════════
     "Entête_des_ventes": {
