@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" fill="none">
-  <!-- Pointy-top hexagon bicolor -->
-  <polygon points="30,3 53,16 53,44 30,57 7,44 7,16" fill="#1e3a8a"/>
-  <polygon points="30,3 53,16 53,44 30,57" fill="#2563eb"/>
-  <line x1="30" y1="3" x2="30" y2="57" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
-  <!-- K letter centered -->
-  <text x="30" y="38" font-family="system-ui,-apple-system,sans-serif" font-weight="900" font-size="24" fill="white" text-anchor="middle">K</text>
-</svg>

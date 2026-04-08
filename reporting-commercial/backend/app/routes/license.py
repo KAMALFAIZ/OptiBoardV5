@@ -1,9 +1,10 @@
 """
 Routes API pour la gestion des licences OptiBoard
 """
+import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 import logging
 
 from app.config import get_settings, save_env_config, reload_settings
@@ -18,6 +19,9 @@ from app.services.license_service import (
     check_user_limit,
     check_dwh_limit,
     check_feature_access,
+    acquire_floating_slot,
+    floating_heartbeat,
+    release_floating_slot,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,10 @@ class LicenseResponse(BaseModel):
     message: str = ""
 
 
+class FloatingSlotRequest(BaseModel):
+    pass  # machine_id genere localement
+
+
 # ============================================================
 # Endpoints
 # ============================================================
@@ -49,7 +57,6 @@ async def license_status():
     """
     settings = get_settings()
 
-    # Mode développement : licence toujours valide (cohérent avec le middleware)
     if settings.DEBUG:
         return {
             "success": True,
@@ -58,6 +65,7 @@ async def license_status():
             "license": {
                 "org": "DEBUG MODE",
                 "plan": "premium",
+                "is_trial": False,
                 "features": ["all"],
                 "exp": "2099-12-31",
                 "days_remaining": 99999,
@@ -78,7 +86,6 @@ async def license_status():
             "message": "Aucune licence activee"
         }
 
-    # Verifier le cache d'abord
     cached = get_cached_license_status()
     if cached:
         return {
@@ -87,14 +94,11 @@ async def license_status():
             "license": cached.to_dict()
         }
 
-    # Valider la licence
     status = validate_license(
         license_key=settings.LICENSE_KEY,
         server_url=settings.LICENSE_SERVER_URL,
         grace_days=settings.LICENSE_GRACE_DAYS
     )
-
-    # Mettre en cache
     set_cached_license_status(status)
 
     return {
@@ -106,10 +110,7 @@ async def license_status():
 
 @router.get("/machine-id")
 async def get_machine_info():
-    """
-    Retourne l'identifiant unique de cette machine.
-    Necessaire pour generer une licence liee a cette machine.
-    """
+    """Retourne l'identifiant unique de cette machine."""
     return {
         "success": True,
         "machine_id": get_machine_id()
@@ -129,12 +130,10 @@ async def activate_license(request: ActivateLicenseRequest):
     if not license_key:
         raise HTTPException(status_code=400, detail="Cle de licence requise")
 
-    # 1. Decoder pour verifier le format
     payload = decode_license_payload(license_key)
     if not payload:
         raise HTTPException(status_code=400, detail="Format de licence invalide")
 
-    # 2. Valider la licence
     settings = get_settings()
     status = validate_license(
         license_key=license_key,
@@ -148,15 +147,12 @@ async def activate_license(request: ActivateLicenseRequest):
             detail=f"Licence invalide: {status.message}"
         )
 
-    # 3. Sauvegarder dans .env
     save_env_config({"LICENSE_KEY": license_key})
     reload_settings()
-
-    # 4. Mettre en cache
     invalidate_license_cache()
     set_cached_license_status(status)
 
-    logger.info(f"[LICENSE] Licence activee pour: {status.organization} (plan: {status.plan})")
+    logger.info(f"[LICENSE] Licence activee pour: {status.organization} (plan: {status.plan}, trial: {status.is_trial})")
 
     return {
         "success": True,
@@ -175,8 +171,6 @@ async def deactivate_license():
     if not settings.LICENSE_KEY:
         return {"success": True, "message": "Aucune licence a desactiver"}
 
-    # Notifier le serveur de licences (liberer le slot machine)
-    from app.services.license_service import validate_license_remote
     machine_id = get_machine_id()
 
     try:
@@ -195,24 +189,17 @@ async def deactivate_license():
     except Exception as e:
         logger.warning(f"[LICENSE] Impossible de notifier le serveur: {e}")
 
-    # Supprimer la licence locale
     save_env_config({"LICENSE_KEY": ""})
     reload_settings()
     invalidate_license_cache()
 
     logger.info("[LICENSE] Licence desactivee")
-
-    return {
-        "success": True,
-        "message": "Licence desactivee"
-    }
+    return {"success": True, "message": "Licence desactivee"}
 
 
 @router.post("/refresh")
 async def refresh_license():
-    """
-    Force la re-validation de la licence aupres du serveur.
-    """
+    """Force la re-validation de la licence aupres du serveur."""
     invalidate_license_cache()
 
     settings = get_settings()
@@ -224,7 +211,6 @@ async def refresh_license():
         server_url=settings.LICENSE_SERVER_URL,
         grace_days=settings.LICENSE_GRACE_DAYS
     )
-
     set_cached_license_status(status)
 
     return {
@@ -235,17 +221,11 @@ async def refresh_license():
 
 @router.get("/features")
 async def get_license_features():
-    """
-    Retourne la liste des fonctionnalites disponibles selon la licence.
-    """
+    """Retourne la liste des fonctionnalites disponibles selon la licence."""
     settings = get_settings()
 
     if not settings.LICENSE_KEY:
-        return {
-            "success": True,
-            "features": [],
-            "plan": "none"
-        }
+        return {"success": True, "features": [], "plan": "none"}
 
     cached = get_cached_license_status()
     if not cached:
@@ -260,6 +240,7 @@ async def get_license_features():
         "success": True,
         "features": cached.features,
         "plan": cached.plan,
+        "is_trial": cached.is_trial,
         "max_users": cached.max_users,
         "max_dwh": cached.max_dwh
     }
@@ -267,9 +248,7 @@ async def get_license_features():
 
 @router.get("/check-limits")
 async def check_limits():
-    """
-    Verifie les limites de la licence (utilisateurs, DWH).
-    """
+    """Verifie les limites de la licence (utilisateurs, DWH)."""
     settings = get_settings()
     if not settings.LICENSE_KEY:
         return {"success": False, "message": "Aucune licence"}
@@ -283,8 +262,6 @@ async def check_limits():
         )
         set_cached_license_status(cached)
 
-    # Compter les utilisateurs et DWH actuels
-    from app.database_unified import execute_central as execute_master_query
     try:
         users_result = execute_master_query(
             "SELECT COUNT(*) as total FROM APP_Users WHERE actif = 1",
@@ -318,4 +295,54 @@ async def check_limits():
     }
 
 
-import json
+# ============================================================
+# Licences flottantes
+# ============================================================
+
+@router.post("/floating/acquire")
+async def acquire_slot():
+    """Acquiert un slot de session flottante. Appeler a chaque login utilisateur."""
+    settings = get_settings()
+    if not settings.LICENSE_KEY:
+        raise HTTPException(status_code=400, detail="Aucune licence configuree")
+
+    result = acquire_floating_slot(settings.LICENSE_KEY, settings.LICENSE_SERVER_URL)
+
+    if not result.get("valid"):
+        raise HTTPException(
+            status_code=403,
+            detail=result.get("message", "Impossible d'acquerir un slot flottant")
+        )
+
+    return {
+        "success": True,
+        "slots_used": result.get("slots_used"),
+        "slots_total": result.get("slots_total"),
+        "timeout_minutes": result.get("timeout_minutes", 30),
+        "message": "Slot flottant acquis"
+    }
+
+
+@router.post("/floating/heartbeat")
+async def heartbeat():
+    """
+    Renouvelle la session flottante.
+    Le client doit appeler cet endpoint toutes les (timeout/2) minutes.
+    """
+    settings = get_settings()
+    if not settings.LICENSE_KEY:
+        return {"success": False, "message": "Aucune licence"}
+
+    ok = floating_heartbeat(settings.LICENSE_KEY, settings.LICENSE_SERVER_URL)
+    return {"success": ok, "message": "Session renouvelee" if ok else "Session introuvable"}
+
+
+@router.post("/floating/release")
+async def release_slot():
+    """Libere le slot flottant. Appeler a chaque logout utilisateur."""
+    settings = get_settings()
+    if not settings.LICENSE_KEY:
+        return {"success": False, "message": "Aucune licence"}
+
+    ok = release_floating_slot(settings.LICENSE_KEY, settings.LICENSE_SERVER_URL)
+    return {"success": ok, "message": "Slot libere" if ok else "Session introuvable"}

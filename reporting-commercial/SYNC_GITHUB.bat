@@ -5,7 +5,7 @@ REM  Export BD OptiBoard_SaaS + Commit + Push GitHub
 REM  Double-cliquer pour lancer
 REM ============================================================
 
-cd /d "D:\OptiBoard v5\reporting-commercial"
+cd /d "D:\kasoft-platform\OptiBoard\reporting-commercial"
 
 echo.
 echo ============================================================

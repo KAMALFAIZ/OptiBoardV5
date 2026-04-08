@@ -545,7 +545,24 @@
       "Bash(Get-Content 'C:\\\\Users\\\\faizk\\\\AppData\\\\Local\\\\Temp\\\\articles_out.txt')",
       "Bash(\"D:/OptiBoard v5/sage_debug.log\")",
       "WebFetch(domain:kasoft.ma)",
-      "Bash(robocopy \"D:\\\\OptiBoard v5\" \"D:\\\\kasoft-platform\" /E /MOVE /NFL /NDL /NJH /NJS)"
+      "Bash(robocopy \"D:\\\\OptiBoard v5\" \"D:\\\\kasoft-platform\" /E /MOVE /NFL /NDL /NJH /NJS)",
+      "Bash(wait)",
+      "Read(//d/kasoft-platform//**)",
+      "Bash(mv \"/d/kasoft-platform/OptiBoard-v5\" \"/d/kasoft-platform/OptiBoardSave\")",
+      "Bash(mv \"/d/kasoft-platform/OptiCRM_DEV\" \"/d/kasoft-platform/OptiCRMSave\")",
+      "Bash(mv \"/d/kasoft-platform/OptiBoardSave\" \"/d/kasoft-platform/OptiBoard v5\")",
+      "Bash(mv \"/d/kasoft-platform/OptiCRMSave\" \"/d/kasoft-platform/OptiCRM_DEV\")",
+      "Bash(sed -i 's|D:/OptiBoard v5/sage_debug.log|D:/kasoft-platform/OptiBoard/sage_debug.log|g' \"D:/kasoft-platform/OptiBoard/reporting-commercial/backend/app/database_unified.py\")",
+      "Bash(sed -i 's|D:/OptiBoard v5/sage_debug.log|D:/kasoft-platform/OptiBoard/sage_debug.log|g' \"D:/kasoft-platform/OptiBoard/reporting-commercial/backend/app/sage_direct/executor.py\")",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Read(//d/kasoft-platform/OptiBoard/**)",
+      "Bash(head -20 grep -n \"dataSource\\\\|data-source\\\\|sage\" D:/kasoft-platform/OptiBoard/reporting-commercial/frontend/src/pages/GridViewDisplay.jsx)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(r[''''id''''], r[''''table_name'''']\\) for r in data if r[''''table_name''''] in \\(''''Paiements_Fournisseurs'''', ''''Règlements_Clients''''\\)]\")",
+      "Bash(git -C \"D:/kasoft-platform/OptiBoard\" status)",
+      "Bash(git -C \"D:/kasoft-platform/OptiBoard\" push)",
+      "Bash(git -C \"D:/kasoft-platform/OptiBoard\" diff --stat HEAD)",
+      "Bash(git -C \"D:/kasoft-platform/OptiBoard\" log --oneline -3)"
     ]
   }
 }

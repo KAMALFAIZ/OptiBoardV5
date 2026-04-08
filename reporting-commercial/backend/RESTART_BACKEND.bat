@@ -9,7 +9,7 @@ echo   Redemarrage Backend OptiBoard
 echo ============================================
 echo.
 
-cd /d "D:\OptiBoard v5\reporting-commercial\backend"
+cd /d "D:\kasoft-platform\OptiBoard\reporting-commercial\backend"
 
 REM Arreter tous les processus Python sur le port 8084
 echo [1/3] Arret des processus existants sur port 8084...
@@ -38,7 +38,7 @@ REM Demarrer le backend sur port 8084
 echo [3/3] Demarrage du backend sur port 8084...
 echo.
 
-start "OptiBoard Backend 8084" cmd /k "cd /d "D:\OptiBoard v5\reporting-commercial\backend" && python run.py"
+start "OptiBoard Backend 8084" cmd /k "cd /d "D:\kasoft-platform\OptiBoard\reporting-commercial\backend" && python run.py"
 
 echo.
 echo ============================================

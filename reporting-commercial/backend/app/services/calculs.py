@@ -14,6 +14,12 @@ def parse_number(value: Union[str, int, float, None]) -> float:
         return 0.0
     if isinstance(value, (int, float)):
         return float(value)
+    try:
+        from decimal import Decimal
+        if isinstance(value, Decimal):
+            return float(value)
+    except Exception:
+        pass
     if isinstance(value, str):
         # Nettoyer la chaîne
         cleaned = value.strip()
