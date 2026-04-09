@@ -159,6 +159,13 @@ export default function GridViewBuilder() {
     }
   }, [config.data_source_id, config.data_source_code])
 
+  // Auto-charger les options select quand les paramètres changent (pour affichage inline)
+  useEffect(() => {
+    if (sourceParams.length > 0) {
+      loadSelectOptions()
+    }
+  }, [sourceParams])
+
   const handleQuickSetAppGV = async (e, gridId, appValue) => {
     e.stopPropagation()
     try {
@@ -1017,6 +1024,175 @@ export default function GridViewBuilder() {
                     </div>
                   )}
                 </div>
+
+                {/* Paramètres de la source de données (inline, style modal) */}
+                {sourceParams.length > 0 && (() => {
+                  // Presets de période rapide (calculs locaux, sans GlobalFilterContext)
+                  const applyPeriod = (type) => {
+                    const today = new Date()
+                    const y = today.getFullYear()
+                    let d1, d2
+                    if (type === 'year') {
+                      d1 = `${y}-01-01`; d2 = `${y}-12-31`
+                    } else if (type === 'prev_year') {
+                      d1 = `${y-1}-01-01`; d2 = `${y-1}-12-31`
+                    } else if (type === 'month') {
+                      const m = String(today.getMonth() + 1).padStart(2, '0')
+                      const last = new Date(y, today.getMonth() + 1, 0).getDate()
+                      d1 = `${y}-${m}-01`; d2 = `${y}-${m}-${String(last).padStart(2, '0')}`
+                    } else if (type === 'quarter') {
+                      const q = Math.floor(today.getMonth() / 3)
+                      const sm = q * 3 + 1; const em = sm + 2
+                      const last = new Date(y, em, 0).getDate()
+                      d1 = `${y}-${String(sm).padStart(2, '0')}-01`
+                      d2 = `${y}-${String(em).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+                    }
+                    const next = { ...paramValues }
+                    sourceParams.forEach(p => {
+                      const gk = p.global_key || p.name
+                      if (gk === 'dateDebut' || p.name === 'dateDebut') next[p.name] = d1
+                      if (gk === 'dateFin'   || p.name === 'dateFin')   next[p.name] = d2
+                    })
+                    setParamValues(next)
+                  }
+
+                  const hasDateParams = sourceParams.some(p =>
+                    p.type === 'date' || p.global_key === 'dateDebut' || p.global_key === 'dateFin'
+                  )
+
+                  const periodPresets = [
+                    { label: 'Année en cours',    key: 'year'      },
+                    { label: 'Année précédente',  key: 'prev_year' },
+                    { label: 'Mois en cours',     key: 'month'     },
+                    { label: 'Trimestre en cours',key: 'quarter'   },
+                  ]
+
+                  const handleReset = () => {
+                    const defaults = {}
+                    sourceParams.forEach(p => {
+                      defaults[p.name] = p.default || p.defaultValue || p.default_value || ''
+                    })
+                    setParamValues(defaults)
+                  }
+
+                  return (
+                    <div className="col-span-4 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
+                      {/* Header */}
+                      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                        <Settings2 className="w-4 h-4 text-primary-500" />
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white">Paramètres</span>
+                      </div>
+
+                      <div className="px-4 py-3">
+                        <div className="flex flex-wrap gap-4 items-start">
+                        {/* Période rapide */}
+                        {hasDateParams && (
+                          <div className="min-w-[200px]">
+                            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
+                              Période rapide
+                            </label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {periodPresets.map((preset) => (
+                                <button
+                                  key={preset.key}
+                                  type="button"
+                                  onClick={() => applyPeriod(preset.key)}
+                                  className="px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 text-left"
+                                >
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Champs de paramètres */}
+                        {sourceParams.map((param, idx) => {
+                          const isSelect = param.type === 'select' || param.type === 'multiselect'
+                          const isMulti  = param.type === 'multiselect'
+                          const opts     = selectOptions[param.name] || []
+                          return (
+                            <div key={idx} className="min-w-[160px] flex-1">
+                              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                {param.label || param.name.replace('@', '')}
+                                {param.required && <span className="text-red-500 ml-1">*</span>}
+                              </label>
+
+                              {isSelect ? (
+                                loadingOptions ? (
+                                  <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs text-gray-500">
+                                    <RefreshCw className="w-3 h-3 animate-spin" /> Chargement…
+                                  </div>
+                                ) : isMulti ? (
+                                  <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-1.5 max-h-32 overflow-y-auto bg-white dark:bg-gray-700 space-y-0.5">
+                                    {opts.length === 0
+                                      ? <span className="text-xs text-gray-400">Aucune option</span>
+                                      : opts.map((opt, j) => (
+                                        <label key={j} className="flex items-center gap-2 px-1 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-600 rounded cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={(paramValues[param.name] || []).includes(opt.value)}
+                                            onChange={(e) => {
+                                              const cur = paramValues[param.name] || []
+                                              setParamValues({ ...paramValues, [param.name]: e.target.checked ? [...cur, opt.value] : cur.filter(v => v !== opt.value) })
+                                            }}
+                                            className="rounded border-gray-300 text-primary-600"
+                                          />
+                                          <span className="text-xs text-gray-700 dark:text-gray-300">{opt.label}</span>
+                                        </label>
+                                      ))
+                                    }
+                                  </div>
+                                ) : (
+                                  <select
+                                    value={paramValues[param.name] || ''}
+                                    onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.target.value })}
+                                    className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                                  >
+                                    <option value="">Toutes les sociétés</option>
+                                    {opts.filter(o => o.value).map((opt, j) => (
+                                      <option key={j} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                  </select>
+                                )
+                              ) : (
+                                <input
+                                  type={param.type === 'date' ? 'date' : param.type === 'number' || param.type === 'int' ? 'number' : 'text'}
+                                  value={paramValues[param.name] || ''}
+                                  onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.target.value })}
+                                  placeholder={param.label || param.name}
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                                />
+                              )}
+                            </div>
+                          )
+                        })}
+                        </div>{/* end flex flex-wrap */}
+                      </div>
+
+                      {/* Footer */}
+                      <div className="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-700">
+                        <button
+                          type="button"
+                          onClick={handleReset}
+                          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                        >
+                          <X className="w-3 h-3" /> Réinitialiser
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { loadSelectOptions(); loadPreview(1) }}
+                          disabled={previewLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-white"
+                          style={{ backgroundColor: 'var(--color-primary-600)' }}
+                        >
+                          <Eye className="w-3 h-3" />
+                          Appliquer
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* Application */}
                 <div>

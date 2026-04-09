@@ -5,7 +5,7 @@ import {
   BarChart2, LineChart, PieChart, Activity, Table, Type, Gauge,
   RefreshCw, Edit, AlertCircle, LayoutGrid, X, Download, Search,
   ChevronLeft, ChevronRight, ArrowUpDown, TrendingUp, TrendingDown, Settings2,
-  Filter, Layers, Target, Zap, Image, GitBranch, BarChart3, Timer
+  Filter, Layers, Target, Zap, Image, GitBranch, BarChart3, Timer, SlidersHorizontal
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart as ReLineChart, Line, PieChart as RePieChart, Pie, Cell,
@@ -126,6 +126,8 @@ export default function DashboardView() {
   const [drillByColumn, setDrillByColumn] = useState({})
   const [detailModal, setDetailModal] = useState({ isOpen: false, title: '', data: [], filterField: null, filterValue: null })
   const [containerWidth, setContainerWidth] = useState(1200)
+  // Bloque le chargement des widgets jusqu'à ce que l'utilisateur confirme les paramètres
+  const [paramsConfirmed, setParamsConfirmed] = useState(false)
   const containerRef = useRef(null)
   const autoRefreshRef = useRef(null)
 
@@ -284,7 +286,7 @@ export default function DashboardView() {
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <GlobalFilterBar showSociete={true} openOnMount triggerOpen={openParamsCount} onFilterChange={() => setRefreshKey(k => k + 1)} />
+          <GlobalFilterBar showSociete={true} openOnMount triggerOpen={openParamsCount} onFilterChange={() => { setParamsConfirmed(true); setRefreshKey(k => k + 1) }} />
           <button onClick={() => setOpenParamsCount(c => c + 1)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
             <RefreshCw className="w-4 h-4" />{!isMobile && 'Actualiser'}
@@ -318,7 +320,7 @@ export default function DashboardView() {
         <div className="flex flex-col gap-3">
           {widgets.map(widget => (
             <div key={widget.id} style={{ minHeight: 180 }} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden flex flex-col shadow-sm">
-              <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} />
+              <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} paramsConfirmed={paramsConfirmed} />
             </div>
           ))}
         </div>
@@ -338,7 +340,7 @@ export default function DashboardView() {
           >
             {widgets.map(widget => (
               <div key={widget.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden flex flex-col shadow-sm">
-                <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} />
+                <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} paramsConfirmed={paramsConfirmed} />
               </div>
             ))}
           </GridLayout>
@@ -407,7 +409,7 @@ function WidgetFilterBar({ widgets, globalFilters, setGlobalFilters }) {
 // ════════════════════════════════════════════════════════════════════
 // WIDGET VIEW (read-only)
 // ════════════════════════════════════════════════════════════════════
-function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData }) {
+function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData, paramsConfirmed = true }) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -419,6 +421,9 @@ function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData }) {
       const dsCode = widget.config?.dataSourceCode
       const dsId = widget.config?.dataSourceId
       const isTemplate = widget.config?.dataSourceOrigin === 'template'
+
+      // Attendre que l'utilisateur confirme les paramètres avant de charger
+      if (!paramsConfirmed) return
 
       if (!dsCode && !dsId) { setData([]); return }
       setLoading(true); setError(null)
@@ -489,7 +494,7 @@ function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData }) {
       } finally { setLoading(false) }
     }
     load()
-  }, [widget.config?.dataSourceCode, widget.config?.dataSourceId, widget.config?.dataSourceOrigin, globalFilters, widget.config?.filter_field, widget.config?.sort_field, widget.config?.sort_direction, widget.config?.limit_rows])
+  }, [widget.config?.dataSourceCode, widget.config?.dataSourceId, widget.config?.dataSourceOrigin, globalFilters, widget.config?.filter_field, widget.config?.sort_field, widget.config?.sort_direction, widget.config?.limit_rows, paramsConfirmed])
 
   return (
     <>
@@ -500,7 +505,12 @@ function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData }) {
         <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate">{widget.title}</span>
       </div>
       <div className="flex-1 p-3 overflow-hidden" style={{ minHeight: 0 }}>
-        {loading ? (
+        {!paramsConfirmed ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-gray-400">
+            <SlidersHorizontal className="w-5 h-5 opacity-40" />
+            <span className="text-xs">Confirmez les paramètres</span>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-full"><RefreshCw className="w-6 h-6 text-gray-400 animate-spin" /></div>
         ) : error ? (
           <div className="flex items-center justify-center h-full text-red-500 text-xs gap-1"><AlertCircle className="w-4 h-4" />{error}</div>

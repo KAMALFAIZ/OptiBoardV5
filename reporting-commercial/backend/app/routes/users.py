@@ -1,4 +1,5 @@
 """Routes pour la gestion des utilisateurs, societes et DWH"""
+import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
@@ -6,6 +7,8 @@ from ..database_unified import execute_central as execute_query, central_cursor 
 import hashlib
 import secrets
 import pyodbc
+
+logger = logging.getLogger("UsersAdmin")
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -814,42 +817,57 @@ async def login(credentials: UserLogin):
 
         # ── Étape 1 : chercher dans la base client si dwh_code fourni ──────
         if credentials.dwh_code and client_manager.has_client_db(credentials.dwh_code):
-            # Vérifier d'abord si l'utilisateur existe avec password_hash NULL (1er login)
-            client_rows_any = execute_client(
-                "SELECT id, username, password_hash, actif FROM APP_Users WHERE username = ? AND actif = 1",
-                (credentials.username,),
-                dwh_code=credentials.dwh_code,
-                use_cache=False,
-            )
-            if client_rows_any:
-                first_user = dict(client_rows_any[0])
-                if first_user.get("password_hash") is None:
-                    return {
-                        "success": True,
-                        "message": "Premier login — création du mot de passe requise",
-                        "must_change_password": True,
-                        "first_login_user_id": first_user["id"],
-                        "user": None,
-                        "token": None,
-                    }
-            client_rows = execute_client(
-                "SELECT id, username, nom, prenom, email, role_dwh as role, actif FROM APP_Users WHERE username = ? AND password_hash = ? AND actif = 1",
-                (credentials.username, password_hash),
-                dwh_code=credentials.dwh_code,
-                use_cache=False,
-            )
-            if client_rows:
-                user = dict(client_rows[0])
-                from_client_db = True
-                # Mise à jour derniere connexion dans base client
-                try:
-                    write_client(
-                        "UPDATE APP_Users SET derniere_connexion = GETDATE() WHERE id = ?",
-                        (user['id'],),
-                        dwh_code=credentials.dwh_code,
+            try:
+                # Vérifier d'abord si l'utilisateur existe avec password_hash NULL (1er login)
+                client_rows_any = execute_client(
+                    "SELECT id, username, password_hash, actif FROM APP_Users WHERE username = ? AND actif = 1",
+                    (credentials.username,),
+                    dwh_code=credentials.dwh_code,
+                    use_cache=False,
+                )
+                if client_rows_any:
+                    first_user = dict(client_rows_any[0])
+                    if first_user.get("password_hash") is None:
+                        return {
+                            "success": True,
+                            "message": "Premier login — création du mot de passe requise",
+                            "must_change_password": True,
+                            "first_login_user_id": first_user["id"],
+                            "user": None,
+                            "token": None,
+                        }
+                client_rows = execute_client(
+                    "SELECT id, username, nom, prenom, email, role_dwh as role, actif FROM APP_Users WHERE username = ? AND password_hash = ? AND actif = 1",
+                    (credentials.username, password_hash),
+                    dwh_code=credentials.dwh_code,
+                    use_cache=False,
+                )
+                if client_rows:
+                    user = dict(client_rows[0])
+                    from_client_db = True
+                    # Mise à jour derniere connexion dans base client
+                    try:
+                        write_client(
+                            "UPDATE APP_Users SET derniere_connexion = GETDATE() WHERE id = ?",
+                            (user['id'],),
+                            dwh_code=credentials.dwh_code,
+                        )
+                    except Exception:
+                        pass
+            except Exception as client_db_err:
+                # La base client est inaccessible (ex: typo dans base_optiboard, serveur down)
+                # → on logue l'erreur technique et on retourne un message lisible
+                logger.error(
+                    f"[LOGIN] Connexion impossible à la base client '{credentials.dwh_code}': {client_db_err}"
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        f"La base de données du client '{credentials.dwh_code}' est inaccessible. "
+                        f"Contactez l'administrateur système. "
+                        f"[{type(client_db_err).__name__}]"
                     )
-                except Exception:
-                    pass
+                )
 
         # ── Étape 2 : base centrale (superadmin uniquement, sans dwh_code) ────
         if user is None:

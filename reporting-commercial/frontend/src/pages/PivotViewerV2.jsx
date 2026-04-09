@@ -450,8 +450,8 @@ export default function PivotViewerV2() {
           }
         }
 
-        // Executer automatiquement
-        await executePivot(data)
+        // Ne pas executer automatiquement — le GlobalFilterBar (openOnMount)
+        // ouvrira le dialogue params et l'utilisateur cliquera "Appliquer"
       }
     } catch (err) {
       setError('Erreur de chargement du pivot')

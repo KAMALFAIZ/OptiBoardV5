@@ -24,13 +24,24 @@ from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager
+from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_client, client_manager
 from ..services.datasource_resolver import resolve_datasource
 from ..services.parameter_resolver import inject_params, extract_parameters_from_query
 
 logger = logging.getLogger("PivotV2")
 
 router = APIRouter(prefix="/api/v2/pivots", tags=["Pivot V2"])
+
+
+def _pv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
+    """Lit depuis la DB client (APP_Pivots_V2 client) si dwh_code présent, sinon centrale."""
+    if dwh_code:
+        try:
+            if client_manager.has_client_db(dwh_code):
+                return execute_client(query, params, dwh_code=dwh_code, use_cache=False)
+        except Exception as e:
+            logger.debug(f"_pv_read client fallback ({dwh_code}): {e}")
+    return execute_query(query, params, use_cache=False)
 
 
 def _generate_entity_code(entity_type: str, nom: str) -> str:
@@ -1159,7 +1170,8 @@ def _apply_window_calculations(
 @router.get("")
 async def list_pivots(
     user_id: Optional[int] = Query(None),
-    is_public: Optional[bool] = Query(None)
+    is_public: Optional[bool] = Query(None),
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
     """Liste tous les pivots V2"""
     try:
@@ -1184,7 +1196,7 @@ async def list_pivots(
             {where}
             ORDER BY updated_at DESC
         """
-        results = execute_query(query, tuple(params_list) if params_list else None, use_cache=False)
+        results = _pv_read(query, tuple(params_list) if params_list else (), dwh_code=dwh_code)
         return {"success": True, "data": results}
     except Exception as e:
         logger.error(f"Erreur liste pivots V2: {e}")
@@ -1192,15 +1204,16 @@ async def list_pivots(
 
 
 @router.get("/{pivot_id}")
-async def get_pivot(pivot_id: int):
+async def get_pivot(
+    pivot_id: int,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
     """Recupere la configuration complete d'un pivot"""
     try:
         init_pivot_v2_tables()
 
-        query = """
-            SELECT * FROM APP_Pivots_V2 WHERE id = ?
-        """
-        results = execute_query(query, (pivot_id,), use_cache=False)
+        query = "SELECT * FROM APP_Pivots_V2 WHERE id = ?"
+        results = _pv_read(query, (pivot_id,), dwh_code=dwh_code)
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1379,8 +1392,8 @@ async def execute_pivot(
     start_time = time.time()
 
     try:
-        # Charger la config du pivot
-        results = execute_query("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False)
+        # Charger la config du pivot (depuis DB client si disponible)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1535,7 +1548,7 @@ async def preview_pivot(
 ):
     """Apercu du pivot (limite a 100 lignes source)"""
     try:
-        results = execute_query("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1626,7 +1639,7 @@ async def drilldown_pivot(
             raise
 
     try:
-        results = execute_query("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1789,7 +1802,7 @@ async def drilldown_pivot_export(
     try:
         import pandas as pd
 
-        results = execute_query("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -2472,7 +2485,7 @@ async def export_pivot(
         # Recuperer le nom du pivot
         pivot_name = "Pivot"
         try:
-            result = execute_query("SELECT nom FROM APP_Pivots_V2 WHERE id = ?", [pivot_id])
+            result = _pv_read("SELECT nom FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
             if result:
                 pivot_name = result[0].get("nom", "Pivot")
         except Exception:

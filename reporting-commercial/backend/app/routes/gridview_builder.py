@@ -1,13 +1,73 @@
 """Routes pour le GridView Builder - Creation de vues grille personnalisees"""
+import logging
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_central as execute_master_query, current_dwh_code as _ctx_dwh
+from ..database_unified import (
+    execute_central as execute_query,
+    central_cursor as get_db_cursor,
+    DWHConnectionManager,
+    execute_central as execute_master_query,
+    current_dwh_code as _ctx_dwh,
+    execute_client,
+    client_manager,
+)
 from ..services.datasource_resolver import datasource_resolver, DataSourceOrigin
 import json
 import re
 import hashlib
 import time
+
+logger = logging.getLogger("GridViewBuilder")
+
+
+# =============================================================================
+# HELPER — Routage client DB / centrale pour APP_GridViews
+# =============================================================================
+
+def _gv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
+    """
+    Lit depuis APP_GridViews :
+    - Si dwh_code fourni et base client dispo → base client (OptiBoard_cltXX)
+    - Sinon → base centrale (OptiBoard_SaaS)
+    """
+    if dwh_code:
+        try:
+            if client_manager.has_client_db(dwh_code):
+                return execute_client(query, params, dwh_code=dwh_code, use_cache=False)
+        except Exception as e:
+            logger.debug(f"_gv_read client fallback ({dwh_code}): {e}")
+    return execute_query(query, params, use_cache=False)
+
+
+def _gv_write(query: str, params: tuple = (), dwh_code: str = None) -> None:
+    """
+    Écrit dans APP_GridViews :
+    - Si dwh_code fourni et base client dispo → base client
+    - Sinon → base centrale
+    """
+    from ..database_unified import write_client, central_cursor
+    if dwh_code:
+        try:
+            if client_manager.has_client_db(dwh_code):
+                write_client(query, params, dwh_code=dwh_code)
+                return
+        except Exception as e:
+            logger.debug(f"_gv_write client fallback ({dwh_code}): {e}")
+    with get_db_cursor() as cursor:
+        cursor.execute(query, params)
+
+
+def _gv_cursor(dwh_code: str = None):
+    """Retourne le bon cursor context manager selon le DWH code."""
+    from ..database_unified import client_cursor
+    if dwh_code:
+        try:
+            if client_manager.has_client_db(dwh_code):
+                return client_cursor(dwh_code)
+        except Exception:
+            pass
+    return get_db_cursor()
 
 
 def _generate_entity_code(entity_type: str, nom: str) -> str:
@@ -153,26 +213,29 @@ def serialize_model(obj):
 
 
 @router.get("/grids")
-async def get_gridviews(user_id: Optional[int] = None):
-    """Liste toutes les grilles"""
+async def get_gridviews(
+    user_id: Optional[int] = None,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+):
+    """Liste toutes les grilles (depuis base client si X-DWH-Code fourni, sinon centrale)"""
     try:
         init_gridview_tables()
 
         if user_id:
-            results = execute_query(
+            results = _gv_read(
                 """SELECT id, nom, code, description, data_source_id, page_size, is_public, created_by, created_at, updated_at, application
                    FROM APP_GridViews
                    WHERE created_by = ? OR is_public = 1
                    ORDER BY updated_at DESC""",
                 (user_id,),
-                use_cache=False
+                dwh_code=dwh_code,
             )
         else:
-            results = execute_query(
+            results = _gv_read(
                 """SELECT id, nom, code, description, data_source_id, page_size, is_public, created_by, created_at, updated_at, application
                    FROM APP_GridViews
                    ORDER BY updated_at DESC""",
-                use_cache=False
+                dwh_code=dwh_code,
             )
         return {"success": True, "data": results}
     except Exception as e:
@@ -180,16 +243,19 @@ async def get_gridviews(user_id: Optional[int] = None):
 
 
 @router.get("/grids/{grid_id}")
-async def get_gridview(grid_id: int):
-    """Recupere une grille avec sa configuration"""
+async def get_gridview(
+    grid_id: int,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+):
+    """Recupere une grille avec sa configuration (depuis base client si X-DWH-Code fourni)"""
     try:
         # S'assurer que la colonne features existe
         init_gridview_tables()
 
-        results = execute_query(
+        results = _gv_read(
             "SELECT * FROM APP_GridViews WHERE id = ?",
             (grid_id,),
-            use_cache=False
+            dwh_code=dwh_code,
         )
         if not results:
             raise HTTPException(status_code=404, detail="Grille non trouvee")
@@ -404,11 +470,11 @@ async def get_grid_data(
         # Erreur technique dans le checker → fail-open, on continue
 
     try:
-        # Recuperer la config de la grille
-        results = execute_query(
+        # Recuperer la config de la grille (base client si dwh_code, sinon centrale)
+        results = _gv_read(
             "SELECT * FROM APP_GridViews WHERE id = ?",
             (grid_id,),
-            use_cache=False
+            dwh_code=dwh_code,
         )
         if not results:
             raise HTTPException(status_code=404, detail="Grille non trouvee")
@@ -478,47 +544,104 @@ async def get_grid_data(
                 pass
 
         if effective_dwh:
-            all_data = DWHConnectionManager.execute_dwh_query(
-                effective_dwh, final_query, use_cache=False
-            )
+            try:
+                all_data = DWHConnectionManager.execute_dwh_query(
+                    effective_dwh, final_query, use_cache=False
+                )
+                logger.debug(f"[GRID {grid_id}] DWH={effective_dwh} → {len(all_data)} lignes")
+            except Exception as dwh_err:
+                logger.error(f"[GRID {grid_id}] Erreur connexion DWH '{effective_dwh}': {dwh_err}")
+                return {
+                    "success": False,
+                    "error": f"Connexion DWH '{effective_dwh}' impossible : {type(dwh_err).__name__} — {str(dwh_err)[:200]}",
+                    "data": [], "total": 0, "page": 1,
+                    "page_size": grid_page_size, "total_pages": 0,
+                    "totals": {}, "columns": columns
+                }
         else:
             all_data = execute_query(final_query, use_cache=False)
 
         if not all_data:
+            logger.info(f"[GRID {grid_id}] 0 lignes — DWH={effective_dwh} — Query: {final_query[:300]}")
             return {
                 "success": True,
-                "data": [],
-                "total": 0,
-                "page": 1,
-                "page_size": grid_page_size,
-                "total_pages": 0,
-                "totals": {},
-                "columns": columns
+                "data": [], "total": 0, "page": 1,
+                "page_size": grid_page_size, "total_pages": 0,
+                "totals": {}, "columns": columns,
             }
 
-        # Total
+        # ── Pagination SQL si toutes les lignes ont été chargées ─────────────
+        # Optimisation : si plus de 500 lignes, utiliser pagination SQL directe
         total_count = len(all_data)
 
-        # Tri en Python
+        # Tri
         sort = request.sort_field or (default_sort.get('field') if default_sort else None)
-        direction = request.sort_direction if request.sort_field else (default_sort.get('direction', 'asc') if default_sort else 'asc')
+        direction = request.sort_direction if request.sort_field else (
+            default_sort.get('direction', 'asc') if default_sort else 'asc'
+        )
 
-        if sort and sort in all_data[0]:
-            reverse = direction.lower() == 'desc'
-            all_data = sorted(all_data, key=lambda x: (x.get(sort) is None, x.get(sort) or 0), reverse=reverse)
+        if total_count > 500 and effective_dwh:
+            # ── Pagination SQL native (OFFSET / FETCH NEXT) ──────────────────
+            # On relance 2 requêtes : COUNT(*) + données paginées
+            try:
+                # Wrapper COUNT
+                count_query = f"SELECT COUNT(*) AS total FROM ({final_query}) AS _cnt_sub"
+                cnt_res = DWHConnectionManager.execute_dwh_query(effective_dwh, count_query, use_cache=False)
+                total_count = cnt_res[0]["total"] if cnt_res else total_count
 
-        # Pagination en Python
-        offset = (request.page - 1) * grid_page_size
-        data = all_data[offset:offset + grid_page_size]
+                # Trier + paginer en SQL
+                safe_sort = re.sub(r'[^a-zA-Z0-9_ \[\]éèàùâêîôûäëïöüç]', '', sort) if sort else None
+                order_clause = f'ORDER BY [{safe_sort}] {"DESC" if direction.lower()=="desc" else "ASC"}' if safe_sort else "ORDER BY (SELECT NULL)"
+                offset_val = (request.page - 1) * grid_page_size
+                paginated_query = (
+                    f"SELECT * FROM ({final_query}) AS _paged_sub\n"
+                    f"{order_clause}\n"
+                    f"OFFSET {offset_val} ROWS FETCH NEXT {grid_page_size} ROWS ONLY"
+                )
+                data = DWHConnectionManager.execute_dwh_query(effective_dwh, paginated_query, use_cache=False)
 
-        # Calculer les totaux si demande
-        totals = {}
-        if show_totals and total_columns:
-            for col in total_columns:
-                try:
-                    totals[col] = sum(row.get(col, 0) or 0 for row in all_data if isinstance(row.get(col), (int, float)))
-                except:
-                    totals[col] = 0
+                # Totaux (seulement si demandé — requête COUNT séparée par colonne)
+                totals = {}
+                if show_totals and total_columns:
+                    agg = ", ".join(f"SUM(CAST([{c}] AS FLOAT)) AS [{c}]" for c in total_columns)
+                    tot_q = f"SELECT {agg} FROM ({final_query}) AS _tot_sub"
+                    try:
+                        tot_res = DWHConnectionManager.execute_dwh_query(effective_dwh, tot_q, use_cache=False)
+                        totals = tot_res[0] if tot_res else {}
+                    except Exception:
+                        totals = {}
+
+                logger.debug(f"[GRID {grid_id}] SQL-paginated: total={total_count}, page={request.page}, rows={len(data)}")
+
+            except Exception as pg_err:
+                # Fallback pagination Python si SQL pagination échoue
+                logger.warning(f"[GRID {grid_id}] SQL pagination failed, fallback Python: {pg_err}")
+                if sort and all_data and sort in all_data[0]:
+                    reverse = direction.lower() == 'desc'
+                    all_data = sorted(all_data, key=lambda x: (x.get(sort) is None, x.get(sort) or 0), reverse=reverse)
+                offset = (request.page - 1) * grid_page_size
+                data = all_data[offset:offset + grid_page_size]
+                totals = {}
+                if show_totals and total_columns:
+                    for col in total_columns:
+                        try:
+                            totals[col] = sum(r.get(col, 0) or 0 for r in all_data if isinstance(r.get(col), (int, float)))
+                        except Exception:
+                            totals[col] = 0
+        else:
+            # ── Pagination Python (≤500 lignes ou pas de DWH) ────────────────
+            if sort and all_data and sort in all_data[0]:
+                reverse = direction.lower() == 'desc'
+                all_data = sorted(all_data, key=lambda x: (x.get(sort) is None, x.get(sort) or 0), reverse=reverse)
+            offset = (request.page - 1) * grid_page_size
+            data = all_data[offset:offset + grid_page_size]
+            totals = {}
+            if show_totals and total_columns:
+                for col in total_columns:
+                    try:
+                        totals[col] = sum(r.get(col, 0) or 0 for r in all_data if isinstance(r.get(col), (int, float)))
+                    except Exception:
+                        totals[col] = 0
 
         return {
             "success": True,
@@ -528,7 +651,7 @@ async def get_grid_data(
             "page_size": grid_page_size,
             "total_pages": (total_count + grid_page_size - 1) // grid_page_size,
             "totals": totals,
-            "columns": columns
+            "columns": columns,
         }
     except HTTPException:
         raise
@@ -558,11 +681,11 @@ async def export_grid_data(
             raise
 
     try:
-        # Recuperer la config
-        results = execute_query(
+        # Recuperer la config (base client si dwh_code, sinon centrale)
+        results = _gv_read(
             "SELECT * FROM APP_GridViews WHERE id = ?",
             (grid_id,),
-            use_cache=False
+            dwh_code=dwh_code,
         )
         if not results:
             raise HTTPException(status_code=404, detail="Grille non trouvee")
@@ -653,8 +776,8 @@ async def export_grid_pptx(
     GRAY_LIGHT = RGBColor(0xF3, 0xF4, 0xF6)
 
     try:
-        # ── Récupérer config grille ──
-        grid_rows = execute_query("SELECT * FROM APP_GridViews WHERE id = ?", (grid_id,), use_cache=False)
+        # ── Récupérer config grille (base client si dwh_code, sinon centrale) ──
+        grid_rows = _gv_read("SELECT * FROM APP_GridViews WHERE id = ?", (grid_id,), dwh_code=dwh_code)
         if not grid_rows:
             raise HTTPException(status_code=404, detail="Grille non trouvée")
 

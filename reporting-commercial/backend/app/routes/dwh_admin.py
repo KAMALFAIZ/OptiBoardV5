@@ -665,7 +665,7 @@ def _get_client_db_name(dwh_code: str) -> str:
     )
     if rows2 and rows2[0].get("base_optiboard"):
         return rows2[0]["base_optiboard"]
-    return f"OptiBoard_{dwh_code}"
+    return f"OptiBoard_clt{dwh_code}"
 
 
 def _get_optiboard_conn_str(dwh_code: str) -> str:
@@ -816,9 +816,9 @@ def _create_client_optiboard_db(dwh_code: str, server: str = None, user: str = N
         server   = r.get("serveur_optiboard") or r.get("serveur_dwh") or server or ""
         user     = r.get("user_optiboard")    or r.get("user_dwh")    or user or ""
         password = r.get("password_optiboard") or r.get("password_dwh") or password or ""
-        db_name  = r.get("base_optiboard") or f"OptiBoard_{dwh_code}"
+        db_name  = r.get("base_optiboard") or f"OptiBoard_clt{dwh_code}"
     else:
-        db_name = f"OptiBoard_{dwh_code}"
+        db_name = f"OptiBoard_clt{dwh_code}"
 
     # Fallback serveur central si toujours vide
     if not server or not user:
@@ -1301,7 +1301,7 @@ def _list_client_databases() -> Dict[str, Any]:
         # Nom de la base : APP_ClientDB > base_optiboard > défaut
         db_name = (dwh.get("client_db_name")
                    or dwh.get("base_optiboard")
-                   or f"OptiBoard_{dwh['code']}")
+                   or f"OptiBoard_clt{dwh['code']}")
         has_client_db = dwh.get("client_db_name") is not None
         # Credentials OptiBoard (priorité optiboard > dwh)
         ob_server   = dwh.get("serveur_optiboard") or dwh.get("serveur_dwh") or ""
@@ -1932,16 +1932,33 @@ async def dwh_admin_migrate_all():
 
 @router.post("/dwh-admin/{code}/create-client-db")
 async def dwh_admin_create_client_db(code: str):
-    """Crée la base OptiBoard_{code} pour un client."""
+    """Crée la base OptiBoard_clt{code} pour un client."""
     try:
         from ..config_multitenant import get_central_settings
         central = get_central_settings()
-        db_name = f"OptiBoard_{code}"
-        # Vérifier l'existence RÉELLE de la base (pas seulement APP_ClientDB)
-        db_really_exists = _check_db_exists(
-            central._effective_server, db_name,
-            central._effective_user, central._effective_password
+
+        # Lire le nom réel de la base depuis APP_DWH.base_optiboard
+        # (peut être personnalisé, ex: OptiBoard_cltFO au lieu de OptiBoard_FO)
+        rows_dwh = execute_query(
+            "SELECT serveur_optiboard, base_optiboard, user_optiboard, password_optiboard,"
+            "       serveur_dwh, user_dwh, password_dwh"
+            " FROM APP_DWH WHERE code = ?",
+            (code,), use_cache=False
         )
+        if rows_dwh:
+            r = rows_dwh[0]
+            ob_server   = r.get("serveur_optiboard") or r.get("serveur_dwh") or central._effective_server
+            ob_user     = r.get("user_optiboard")    or r.get("user_dwh")    or central._effective_user
+            ob_password = r.get("password_optiboard") or r.get("password_dwh") or central._effective_password
+            db_name     = r.get("base_optiboard") or f"OptiBoard_clt{code}"
+        else:
+            ob_server   = central._effective_server
+            ob_user     = central._effective_user
+            ob_password = central._effective_password
+            db_name     = f"OptiBoard_clt{code}"
+
+        # Vérifier l'existence RÉELLE de la base (pas seulement APP_ClientDB)
+        db_really_exists = _check_db_exists(ob_server, db_name, ob_user, ob_password)
         if db_really_exists:
             # S'assurer que APP_ClientDB a bien l'entrée (peut être absente si DB créée manuellement)
             with get_db_cursor() as cursor:
@@ -1952,7 +1969,7 @@ async def dwh_admin_create_client_db(code: str):
                         (code, db_name)
                     )
             client_manager.clear_cache(code)
-            return {"success": True, "message": f"OptiBoard_{code} existe déjà", "already_exists": True}
+            return {"success": True, "message": f"'{db_name}' existe déjà", "already_exists": True, "db_name": db_name}
         # Si APP_ClientDB a un enregistrement orphelin, le supprimer pour permettre la recréation
         with get_db_cursor() as cursor:
             cursor.execute("DELETE FROM APP_ClientDB WHERE dwh_code=?", (code,))
@@ -2070,7 +2087,7 @@ async def dwh_admin_optiboard_sql_script(code: str):
         "SELECT base_optiboard FROM APP_DWH WHERE code = ?",
         (code,), use_cache=False
     )
-    db_name = (rows[0].get("base_optiboard") if rows else None) or f"OptiBoard_{code}"
+    db_name = (rows[0].get("base_optiboard") if rows else None) or f"OptiBoard_clt{code}"
 
     script = f"""-- =============================================================
 -- Script d'initialisation OptiBoard — Client {code}
@@ -2094,3 +2111,98 @@ GO
         content=script,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+# =============================================================================
+# ROUTE — RÉPARATION BASE CLIENT (fix typo, reconfiguration)
+# =============================================================================
+
+class RepairClientDBRequest(BaseModel):
+    base_optiboard: Optional[str] = None       # nouveau nom de la base (ex: OptiBoard_cltFO)
+    serveur_optiboard: Optional[str] = None    # serveur cible (ex: kasoft.selfip.net)
+    user_optiboard: Optional[str] = None       # utilisateur SQL (ex: sa)
+    password_optiboard: Optional[str] = None   # mot de passe SQL
+    recreate: bool = False                     # si True, supprime APP_ClientDB et recrée la base
+
+
+@router.post("/dwh-admin/{code}/repair-client-db")
+async def dwh_admin_repair_client_db(code: str, req: RepairClientDBRequest):
+    """
+    Répare la configuration de la base client pour un DWH donné.
+
+    Cas d'usage typique :
+    - Typo dans base_optiboard (ex: OptiBoard_citFO au lieu de OptiBoard_cltFO)
+    - Changement de serveur ou de credentials OptiBoard
+    - Entrée orpheline dans APP_ClientDB
+
+    Paramètres:
+    - base_optiboard : nouveau nom de la base (laissez vide pour auto: OptiBoard_clt{code})
+    - serveur_optiboard / user_optiboard / password_optiboard : nouveaux credentials
+    - recreate : si True, supprime APP_ClientDB et déclenche la re-création de la base
+    """
+    try:
+        repairs = []
+
+        # ── Calcul du nom correct si non fourni ──────────────────────────────
+        new_base = (req.base_optiboard or f"OptiBoard_clt{code}").strip()
+
+        # ── Lire l'état actuel dans APP_DWH ──────────────────────────────────
+        rows = execute_query(
+            "SELECT base_optiboard, serveur_optiboard, user_optiboard FROM APP_DWH WHERE code = ?",
+            (code,), use_cache=False
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"DWH '{code}' introuvable dans APP_DWH")
+
+        current = rows[0]
+
+        # ── Mise à jour APP_DWH ───────────────────────────────────────────────
+        updates = {}
+        if new_base and new_base != current.get("base_optiboard"):
+            updates["base_optiboard"] = new_base
+        if req.serveur_optiboard is not None:
+            updates["serveur_optiboard"] = req.serveur_optiboard or None
+        if req.user_optiboard is not None:
+            updates["user_optiboard"] = req.user_optiboard or None
+        if req.password_optiboard is not None:
+            updates["password_optiboard"] = req.password_optiboard or None
+
+        if updates:
+            set_clauses = ", ".join(f"{k}=?" for k in updates)
+            vals = list(updates.values()) + [code]
+            with get_db_cursor() as cursor:
+                cursor.execute(f"UPDATE APP_DWH SET {set_clauses} WHERE code=?", vals)
+            repairs.append(f"APP_DWH mis à jour : {updates}")
+
+        # ── Supprimer l'entrée APP_ClientDB orpheline ─────────────────────────
+        if req.recreate:
+            with get_db_cursor() as cursor:
+                cursor.execute("DELETE FROM APP_ClientDB WHERE dwh_code=?", (code,))
+            repairs.append("APP_ClientDB nettoyée (entrée orpheline supprimée)")
+
+        # ── Vider le cache mémoire ────────────────────────────────────────────
+        client_manager.clear_cache(code)
+        repairs.append("Cache mémoire vidé")
+
+        # ── Recréer la base si demandé ────────────────────────────────────────
+        client_db_result = None
+        if req.recreate:
+            try:
+                client_db_result = await asyncio.to_thread(_create_client_optiboard_db, code)
+                repairs.append(f"Base client recréée : {client_db_result.get('db_name', new_base)}")
+            except Exception as e:
+                repairs.append(f"Erreur recréation base: {e}")
+
+        return {
+            "success": True,
+            "code": code,
+            "new_base_optiboard": new_base,
+            "repairs": repairs,
+            "client_db_result": client_db_result,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"dwh_admin_repair_client_db({code}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))

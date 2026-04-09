@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_central as execute_master_query, central_cursor as get_master_cursor, execute_dwh
+from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_central as execute_master_query, central_cursor as get_master_cursor, execute_dwh, execute_client, client_manager
 from ..services.datasource_resolver import datasource_resolver, DataSourceOrigin
 import json
 import logging
@@ -12,13 +12,26 @@ import time
 from datetime import datetime
 
 
+logger = logging.getLogger("DashboardBuilder")
+
+
+def _db_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
+    """Lit depuis la DB client si dwh_code présent, sinon DB centrale."""
+    if dwh_code:
+        try:
+            if client_manager.has_client_db(dwh_code):
+                return execute_client(query, params, dwh_code=dwh_code, use_cache=False)
+        except Exception as e:
+            logger.debug(f"_db_read client fallback ({dwh_code}): {e}")
+    return execute_query(query, params, use_cache=False)
+
+
 def _generate_entity_code(entity_type: str, nom: str) -> str:
     """Genere un code unique pour une entite (ex: DB_accueil_a3f2)"""
     slug = re.sub(r'[^a-z0-9]+', '_', nom.lower().strip())[:40].strip('_')
     suffix = hashlib.md5(f"{nom}{time.time()}".encode()).hexdigest()[:4]
     return f"{entity_type}_{slug}_{suffix}"
 
-logger = logging.getLogger("DashboardBuilder")
 
 router = APIRouter(prefix="/api/builder", tags=["dashboard-builder"])
 
@@ -160,27 +173,30 @@ def init_default_data():
 # ===================== DASHBOARDS =====================
 
 @router.get("/dashboards")
-async def get_dashboards(user_id: Optional[int] = None):
+async def get_dashboards(
+    user_id: Optional[int] = None,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
     """Liste tous les dashboards"""
     try:
         init_builder_tables()
         init_default_data()
 
         if user_id:
-            results = execute_query(
+            results = _db_read(
                 """SELECT id, nom, code, description, is_public, created_by, date_creation, date_modification, application
                    FROM APP_Dashboards
                    WHERE created_by = ? OR is_public = 1
                    ORDER BY date_modification DESC""",
                 (user_id,),
-                use_cache=False
+                dwh_code=dwh_code
             )
         else:
-            results = execute_query(
+            results = _db_read(
                 """SELECT id, nom, code, description, is_public, created_by, date_creation, date_modification, application
                    FROM APP_Dashboards
                    ORDER BY date_modification DESC""",
-                use_cache=False
+                dwh_code=dwh_code
             )
         return {"success": True, "data": results}
     except Exception as e:
@@ -188,13 +204,16 @@ async def get_dashboards(user_id: Optional[int] = None):
 
 
 @router.get("/dashboards/{dashboard_id}")
-async def get_dashboard(dashboard_id: int):
+async def get_dashboard(
+    dashboard_id: int,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
     """Recupere un dashboard avec ses widgets"""
     try:
-        results = execute_query(
+        results = _db_read(
             "SELECT * FROM APP_Dashboards WHERE id = ?",
             (dashboard_id,),
-            use_cache=False
+            dwh_code=dwh_code
         )
         if not results:
             raise HTTPException(status_code=404, detail="Dashboard non trouve")

@@ -4,7 +4,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { AgGridReact } from 'ag-grid-react'
 import {
   Table, RefreshCw, Edit, AlertCircle, Download, Settings2, Eye, Search, X, Filter,
-  Columns, Layers, RotateCcw, ArrowRight, TrendingUp, Presentation
+  Columns, Layers, RotateCcw, ArrowRight, TrendingUp, Presentation, SlidersHorizontal
 } from 'lucide-react'
 import Loading from '../components/common/Loading'
 import CheckboxListFilter from '../components/common/CheckboxListFilter'
@@ -91,7 +91,8 @@ export default function GridViewDisplay() {
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
-  const [showDebug, setShowDebug] = useState(true)
+  const isSuperAdmin = user?.role === 'superadmin'
+  const [showDebug, setShowDebug] = useState(false)
 
   // Recherche globale
   const [globalSearch, setGlobalSearch] = useState('')
@@ -318,37 +319,16 @@ export default function GridViewDisplay() {
             setPendingPageSize(gridData.page_size || 25)
             setPendingTotalColumns(gridData.total_columns || [])
 
-            // Auto-execute si tous les params requis ont des valeurs (défaut ou globalFilters)
-            const allRequiredHaveDefaults = paramList
-              .filter(p => p.required)
-              .every(p => {
-                const val = defaults[p.name]
-                return val && val !== '' && (!Array.isArray(val) || val.length > 0)
-              })
-
-            if (allRequiredHaveDefaults) {
-              // Construire le contexte et charger directement
-              const autoContext = {}
-              paramList.forEach(p => {
-                const key = p.name.replace('@', '')
-                const value = defaults[p.name]
-                if (Array.isArray(value)) {
-                  if (value.length > 0) autoContext[key] = value
-                } else if (value && typeof value === 'string' && value.trim() !== '') {
-                  autoContext[key] = value
-                } else if (value && typeof value === 'number') {
-                  autoContext[key] = value
-                }
-              })
-              await loadDataFromSource(sourceIdentifier, gridData.page_size || 25, gridData.total_columns || [], autoContext, hasSourceCode)
-            } else {
-              setShowParamsModal(true)
-              setLoading(false)
-              return
-            }
+            // Toujours afficher le dialogue EN PREMIER — l'utilisateur confirme/ajuste
+            // les paramètres, puis clique "Appliquer" pour déclencher le chargement.
+            // Les valeurs par défaut sont pré-remplies dans le formulaire.
+            setShowParamsModal(true)
+            setLoading(false)
+            return  // Ne pas charger les données avant que l'utilisateur valide
           }
         }
 
+        // Appel sans params (datasource sans paramètres)
         await loadDataFromSource(sourceIdentifier, gridData.page_size || 25, gridData.total_columns || [], {}, hasSourceCode)
       }
     } catch (err) {
@@ -395,6 +375,7 @@ export default function GridViewDisplay() {
       endpoint: null,
       responseTotal: null,
       rowsReceived: null,
+      dataSource: localStorage.getItem('dataSource') || 'dwh',
       error: null,
       ts: new Date().toISOString(),
     }
@@ -420,11 +401,23 @@ export default function GridViewDisplay() {
       dbg.responseTotal = response.data.total ?? response.data.count ?? sourceData.length
       dbg.rowsReceived = sourceData.length
       dbg.responseKeys = response.data ? Object.keys(response.data) : []
+
+      // Capturer les erreurs API retournées avec HTTP 200 mais success: false
+      if (response.data.success === false && response.data.error) {
+        dbg.error = `[API] ${response.data.error}`
+      }
+
       setAllData(sourceData)
+
+      // Ouvrir automatiquement le debug pour superadmin si erreur ou 0 résultats
+      if (user?.role === 'superadmin' && (dbg.error || sourceData.length === 0)) {
+        setShowDebug(true)
+      }
     } catch (err) {
       console.error('Erreur chargement source:', err)
       dbg.error = err?.response?.data?.detail || err?.message || String(err)
       setError('Erreur lors du chargement des données')
+      if (user?.role === 'superadmin') setShowDebug(true)
     } finally {
       setRefreshing(false)
       setDebugInfo(dbg)
@@ -964,8 +957,23 @@ export default function GridViewDisplay() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* Paramètres globaux — masqué si le datasource a ses propres params */}
-            {sourceParams.length === 0 && (
+            {/* Bouton Paramètres — si le datasource a ses propres params */}
+            {sourceParams.length > 0 ? (
+              <button
+                onClick={() => setShowParamsModal(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors"
+                style={{
+                  borderColor: 'var(--color-primary-300)',
+                  color: 'var(--color-primary-700)',
+                  backgroundColor: 'var(--color-primary-50)'
+                }}
+                title="Modifier les paramètres (dates, société…)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Paramètres</span>
+              </button>
+            ) : (
+              /* Paramètres globaux — masqué si le datasource a ses propres params */
               <GlobalFilterBar showSociete={true} triggerOpen={openParamsCount} onFilterChange={() => {
                 if (!grid) return
                 const hasSourceCode = grid.data_source_code && grid.data_source_code.trim() !== ''
@@ -1151,6 +1159,21 @@ export default function GridViewDisplay() {
               <RotateCcw className="w-4 h-4" />
             </button>
 
+            {/* Bouton Debug — superadmin uniquement */}
+            {isSuperAdmin && (
+              <button
+                onClick={() => setShowDebug(v => !v)}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  showDebug
+                    ? 'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/30'
+                    : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                title="Panneau debug (superadmin)"
+              >
+                <span className="text-sm leading-none">🐛</span>
+              </button>
+            )}
+
             {/* Actualiser — ouvre le bon dialog selon le type de params */}
             <button
               onClick={() => {
@@ -1291,7 +1314,7 @@ export default function GridViewDisplay() {
       </div>}
 
       {/* 🐛 DEBUG PANEL — affiche les infos de chargement des données */}
-      {showDebug && debugInfo && (
+      {isSuperAdmin && showDebug && debugInfo && (
         <div className="flex-none bg-yellow-50 border-b-2 border-yellow-400 px-4 py-2 text-xs font-mono z-10">
           <div className="flex items-center justify-between mb-1">
             <span className="font-bold text-yellow-800 text-sm">🐛 DEBUG — Chargement des données</span>
@@ -1304,9 +1327,20 @@ export default function GridViewDisplay() {
             <div><b>globalFilters.dateFin:</b> <span className="text-orange-700">{String(debugInfo.globalFilters?.dateFin ?? 'undefined')}</span></div>
             <div><b>globalFilters.societe:</b> <span className="text-orange-700">{String(debugInfo.globalFilters?.societe ?? 'undefined')}</span></div>
             <div><b>shouldUseUnified:</b> {String(debugInfo.shouldUseUnified)}</div>
+            <div>
+              <b>Mode données:</b>{' '}
+              <span className={debugInfo.dataSource === 'sage' ? 'text-orange-600 font-bold' : 'text-green-700'}>
+                {debugInfo.dataSource === 'sage' ? '⚡ Sage Live (connexion directe Sage)' : '🗄️ DWH (base OptiBoard)'}
+              </span>
+            </div>
             <div className="col-span-2"><b>mergedContext envoyé:</b> <span className="text-purple-700">{JSON.stringify(debugInfo.mergedContext)}</span></div>
             <div className="col-span-2"><b>Clés réponse API:</b> {JSON.stringify(debugInfo.responseKeys)}</div>
-            {debugInfo.error && <div className="col-span-2 text-red-700 font-bold"><b>❌ Erreur:</b> {debugInfo.error}</div>}
+            {debugInfo.error && (
+              <div className="col-span-2 bg-red-100 border border-red-400 rounded px-2 py-1 mt-1">
+                <span className="text-red-700 font-bold">❌ Erreur backend:</span>{' '}
+                <span className="text-red-800 break-all">{debugInfo.error}</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1531,22 +1565,72 @@ export default function GridViewDisplay() {
       )}
 
       {/* Modal Paramètres */}
-      {showParamsModal && (
+      {showParamsModal && (() => {
+        const hasDateParams = sourceParams.some(p => p.type === 'date')
+        const applyPeriod = (type) => {
+          const today = new Date()
+          const y = today.getFullYear()
+          let d1, d2
+          if (type === 'year')       { d1 = `${y}-01-01`;     d2 = `${y}-12-31` }
+          else if (type === 'prev')  { d1 = `${y-1}-01-01`;   d2 = `${y-1}-12-31` }
+          else if (type === 'month') {
+            const m = String(today.getMonth()+1).padStart(2,'0')
+            const last = new Date(y, today.getMonth()+1, 0).getDate()
+            d1 = `${y}-${m}-01`; d2 = `${y}-${m}-${String(last).padStart(2,'0')}`
+          } else if (type === 'quarter') {
+            const q = Math.floor(today.getMonth()/3)
+            const sm = q*3+1; const em = sm+2
+            const last = new Date(y, em, 0).getDate()
+            d1 = `${y}-${String(sm).padStart(2,'0')}-01`
+            d2 = `${y}-${String(em).padStart(2,'0')}-${String(last).padStart(2,'0')}`
+          }
+          const next = { ...paramValues }
+          sourceParams.forEach(p => {
+            const gk = p.global_key || p.name
+            if (gk === 'dateDebut' || p.name === 'dateDebut') next[p.name] = d1
+            if (gk === 'dateFin'   || p.name === 'dateFin')   next[p.name] = d2
+          })
+          setParamValues(next)
+        }
+        const periodPresets = [
+          { label: 'Année en cours',    key: 'year'    },
+          { label: 'Année précédente',  key: 'prev'    },
+          { label: 'Mois en cours',     key: 'month'   },
+          { label: 'Trimestre en cours',key: 'quarter' },
+        ]
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" />
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowParamsModal(false)} />
           <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-[500px] max-w-[90vw]">
             <div className="flex items-center gap-2 mb-4">
-              <Settings2 className="w-5 h-5 text-primary-500" />
+              <SlidersHorizontal className="w-5 h-5 text-primary-500" />
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Paramètres du rapport
+                Paramètres
               </h2>
             </div>
 
-            <p className="text-sm text-gray-500 mb-4">
-              Veuillez saisir les paramètres pour afficher les données du rapport.
-            </p>
-
             <div className="space-y-4 mb-6">
+              {/* Période rapide (si params de type date) */}
+              {hasDateParams && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    Période rapide
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {periodPresets.map((preset) => (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        onClick={() => applyPeriod(preset.key)}
+                        className="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 text-left"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {sourceParams.map((param, i) => (
                 <div key={i}>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1595,21 +1679,26 @@ export default function GridViewDisplay() {
               ))}
             </div>
 
-            <div className="flex justify-end gap-2">
-              <Link to="/" className="btn-secondary">
-                Annuler
-              </Link>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowParamsModal(false)}
+                className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                <X className="w-4 h-4" /> Annuler
+              </button>
               <button
                 onClick={executeWithParams}
                 className="btn-primary flex items-center gap-1"
               >
                 <Eye className="w-4 h-4" />
-                Afficher le rapport
+                Appliquer
               </button>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Forecast Modal */}
       <ForecastModal
