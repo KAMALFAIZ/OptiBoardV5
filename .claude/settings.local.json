@@ -566,7 +566,9 @@
       "Bash(Get-Process -Name \"node\")",
       "Bash(Select-Object Id, CPU, WorkingSet, MainWindowTitle)",
       "Bash(Format-Table)",
-      "Bash(pkill -f \"uvicorn\")"
+      "Bash(pkill -f \"uvicorn\")",
+      "Bash(Get-Content D:/kasoft-platform/OptiBoard/reporting-commercial/backend/backend.log -Tail 10)",
+      "Bash(Get-Content D:/kasoft-platform/OptiBoard/reporting-commercial/backend/service.log -Tail 5)"
     ]
   }
 }

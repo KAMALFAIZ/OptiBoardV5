@@ -176,12 +176,15 @@ export default function PivotChart({
   // Hauteur dynamique selon le type de chart et le nombre de données
   const getChartHeight = () => {
     if (chartType === 'horizontal_bar') {
-      return Math.max(300, Math.min(600, chartData.length * 28 + 60))
+      return Math.max(300, Math.min(700, chartData.length * 28 + 60))
     }
     if (chartType === 'pie' || chartType === 'donut') {
       return 380
     }
-    return Math.max(300, Math.min(450, 250 + chartData.length * 3))
+    // Hauteur ajustée selon le nombre de données ET le nombre de séries
+    const baseHeight = 250 + chartData.length * 4
+    const seriesBonus = series.length > 3 ? (series.length - 3) * 20 : 0
+    return Math.max(300, Math.min(600, baseHeight + seriesBonus))
   }
 
   const chartHeight = getChartHeight()
@@ -379,24 +382,51 @@ export default function PivotChart({
 
   // ─── Bar chart (défaut) + stacked_bar ───
   const isStacked = chartType === 'stacked_bar'
+
+  // Limiter les séries affichées quand la densité est trop élevée (trop de séries × trop de lignes)
+  // Pour éviter les micro-barres illisibles, on tronque à 1 série si nécessaire
+  const tooManyBars = series.length > 2 && chartData.length > 15
+  const displaySeries = tooManyBars ? series.slice(0, 1) : series
+  const truncatedCount = series.length - displaySeries.length
+
+  // Calcul du domaine Y intelligent (inline — pas un hook, on est après des returns conditionnels)
+  const _rawVals = chartData.flatMap(d => displaySeries.map(s => typeof d[s.key] === 'number' ? d[s.key] : 0))
+  const _posVals = _rawVals.filter(v => v > 0).sort((a, b) => a - b)
+  const _hasNeg  = _rawVals.some(v => v < 0)
+  const _median  = _posVals.length ? _posVals[Math.floor(_posVals.length / 2)] : 0
+  const _maxVal  = _posVals.length ? _posVals[_posVals.length - 1] : 0
+  // Si outlier : cap le max à ~2.4× la médiane ; si valeurs négatives : laisser l'axe auto
+  const yDomainMax = (_median > 0 && _maxVal > 10 * _median) ? Math.ceil(_median * 2.4) : 'auto'
+  const yDomain = [_hasNeg ? 'auto' : 0, yDomainMax]
+
+  // Taille des barres proportionnelle au nombre de colonnes × séries
+  const barsPerGroup = isStacked ? 1 : displaySeries.length
+  const computedBarSize = Math.max(8, Math.min(40, Math.floor(560 / (chartData.length * barsPerGroup))))
+
   return (
     <div className={`${className}`}>
+      {truncatedCount > 0 && (
+        <div className="text-center text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-3 py-1 mb-1 mx-2">
+          ⚠ Graphique limité à «&nbsp;{displaySeries[0]?.key}&nbsp;» ({truncatedCount} mesure{truncatedCount > 1 ? 's' : ''} masquée{truncatedCount > 1 ? 's' : ''}).
+          Sélectionnez une mesure dans le panneau Champs pour afficher toutes les séries.
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={chartHeight}>
         <BarChart data={chartData} margin={{ left: 5, right: 10, top: 5, bottom: 5 }}>
           <GradientDefs />
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
           <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={xAxisAngle} textAnchor={xAxisTextAnchor} height={xAxisHeight} />
-          <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNumber(v, { format: 'abbreviated' })} />
+          <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNumber(v, { format: 'abbreviated' })} domain={yDomain} allowDataOverflow={true} />
           <Tooltip content={<CustomTooltip />} />
           <Legend content={<CustomLegend />} />
-          {series.map((s, i) => (
+          {displaySeries.map((s, i) => (
             <Bar
               key={s.key}
               dataKey={s.key}
               fill={`url(#gradient_${i})`}
               radius={isStacked ? [0, 0, 0, 0] : [4, 4, 0, 0]}
               stackId={isStacked ? 'stack' : undefined}
-              barSize={series.length === 1 ? Math.max(16, Math.min(40, 600 / chartData.length)) : undefined}
+              barSize={computedBarSize}
               onClick={(data) => handleChartClick(data.name, s.key)}
               style={onCellClick ? { cursor: 'pointer' } : undefined}
             />

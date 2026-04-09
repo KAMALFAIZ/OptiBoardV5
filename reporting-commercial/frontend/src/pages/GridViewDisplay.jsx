@@ -1406,6 +1406,14 @@ export default function GridViewDisplay() {
           onColumnVisible={saveColumnPrefs}
           onColumnPinned={saveColumnPrefs}
           onSortChanged={saveColumnPrefs}
+          // Quand la page change, remonter en haut du viewport pour éviter la page blanche
+          // (ex: last page avec moins de lignes que la taille de page)
+          onPaginationChanged={(params) => {
+            if (params.newPage) {
+              const viewport = gridContainerRef.current?.querySelector('.ag-body-viewport')
+              if (viewport) viewport.scrollTop = 0
+            }
+          }}
           // Size
           domLayout="normal"
         />

@@ -34,7 +34,9 @@ def _gv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
     if dwh_code:
         try:
             if client_manager.has_client_db(dwh_code):
-                return execute_client(query, params, dwh_code=dwh_code, use_cache=False)
+                result = execute_client(query, params, dwh_code=dwh_code, use_cache=False)
+                if result:  # Fallback sur centrale si client DB retourne vide
+                    return result
         except Exception as e:
             logger.debug(f"_gv_read client fallback ({dwh_code}): {e}")
     return execute_query(query, params, use_cache=False)

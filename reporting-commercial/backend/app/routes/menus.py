@@ -8,6 +8,7 @@ from ..database_unified import (
     execute_central,
     central_cursor as get_central_cursor,
     execute_client,
+    client_manager,
 )
 import json
 import logging
@@ -223,26 +224,89 @@ async def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None))
             ELSE NULL
         END as target_name"""
 
+        def _merge_menus(central_rows, client_rows):
+            """
+            Merge central + client menus.
+            - Le client remplace le central si même code ou même id.
+            - Les menus centraux non présents en client sont ajoutés.
+              Si le parent central est overridé côté client (même code), on tente
+              de remapper parent_id — SAUF si le parent client a déjà un enfant
+              de même (nom, type), pour éviter les doublons.
+            """
+            client_by_code = {m['code']: m for m in client_rows if m.get('code')}
+            client_ids     = {m['id'] for m in client_rows}
+            client_codes   = set(client_by_code.keys())
+
+            # Table central id → code (pour remonter le parent)
+            central_id_to_code = {m['id']: m.get('code') for m in central_rows}
+
+            # Index des enfants côté client : {parent_id: set((nom, type))}
+            # Permet de détecter les doublons après remap du parent
+            client_children = {}
+            for m in client_rows:
+                pid = m.get('parent_id')
+                if pid is not None:
+                    key = (m.get('nom', '').strip(), m.get('type', ''))
+                    client_children.setdefault(pid, set()).add(key)
+
+            extra_central = []
+            for m in central_rows:
+                m_code = m.get('code')
+                m_id   = m.get('id')
+                if m_code in client_codes or m_id in client_ids:
+                    continue  # déjà présent côté client
+
+                m = dict(m)  # copie pour ne pas muter l'original
+                parent_id = m.get('parent_id')
+                if parent_id is not None and parent_id not in client_ids:
+                    # Tenter de remapper vers l'équivalent client via code du parent
+                    parent_code = (m.get('parent_code')
+                                   or central_id_to_code.get(parent_id))
+                    if parent_code and parent_code in client_by_code:
+                        new_parent_id = client_by_code[parent_code]['id']
+                        # Vérifier doublon : le parent client a-t-il déjà un enfant identique ?
+                        key = (m.get('nom', '').strip(), m.get('type', ''))
+                        if key in client_children.get(new_parent_id, set()):
+                            continue  # doublon → ignorer ce menu central
+                        m['parent_id']   = new_parent_id
+                        m['parent_code'] = parent_code
+
+                extra_central.append(m)
+
+            return client_rows + extra_central
+
+        def _read_menus(query, params=(), dwh_code=None):
+            """Lit les menus depuis client ET central, puis merge."""
+            central_rows = execute_central(query, params or None, use_cache=False)
+            if dwh_code and client_manager.has_client_db(dwh_code):
+                try:
+                    client_rows = execute_client(query, params or None,
+                                                 dwh_code=dwh_code, use_cache=False)
+                    return _merge_menus(central_rows, client_rows)
+                except Exception as e:
+                    logger.error(f"[MENUS] _read_menus error dwh={dwh_code}: {e}", exc_info=True)
+            return central_rows
+
         try:
             if is_admin:
                 # Admin → tout (menus inactifs compris)
-                results = execute_query(
+                results = _read_menus(
                     f"""SELECT m.*, m.actif as is_active, 1 as can_view, 1 as can_export,
                                {TARGET_NAME_SQL}
                         FROM APP_Menus m
                         ORDER BY m.ordre, m.nom""",
-                    dwh_code=x_dwh_code, use_cache=False
+                    dwh_code=x_dwh_code
                 )
 
             elif allowed_reports is not None:
                 # Roles specifiques → charger tous les menus actifs, filtrer en Python
-                all_menus = execute_query(
+                all_menus = _read_menus(
                     f"""SELECT m.*, m.actif as is_active, 1 as can_view, 1 as can_export,
                                {TARGET_NAME_SQL}
                         FROM APP_Menus m
                         WHERE m.actif = 1
                         ORDER BY m.ordre, m.nom""",
-                    dwh_code=x_dwh_code, use_cache=False
+                    dwh_code=x_dwh_code
                 )
                 results = []
                 for m in (all_menus or []):
@@ -256,7 +320,9 @@ async def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None))
 
             else:
                 # Pas de roles specifiques → acces via APP_UserMenus (ancien systeme)
-                results = execute_query(
+                # Pour ce cas, on lit d'abord depuis execute_app (comportement original)
+                # puis on complète avec les menus centraux actifs non présents en client
+                client_um = execute_query(
                     f"""SELECT m.*, m.actif as is_active, um.can_view, um.can_export,
                                {TARGET_NAME_SQL}
                         FROM APP_Menus m
@@ -265,20 +331,37 @@ async def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None))
                         ORDER BY m.ordre, m.nom""",
                     (user_id,), dwh_code=x_dwh_code, use_cache=False
                 )
+                central_um = execute_central(
+                    f"""SELECT m.*, m.actif as is_active, 1 as can_view, 1 as can_export,
+                               {TARGET_NAME_SQL}
+                        FROM APP_Menus m
+                        WHERE m.actif = 1
+                        ORDER BY m.ordre, m.nom""",
+                    use_cache=False
+                )
+                results = _merge_menus(central_um, client_um or [])
         except Exception:
             results = []
 
         # ── 4. Construire l'arbre ────────────────────────────────────────────
         menu_map = {m['id']: {**m, 'children': []} for m in results}
+        # Index par code pour retrouver un parent via parent_code
+        # (menus centraux peuvent avoir parent_id différent du client)
+        code_map = {m['code']: menu_map[m['id']] for m in results if m.get('code')}
         root_menus = []
         for menu in results:
             menu_item = menu_map[menu['id']]
-            if menu['parent_id'] is None:
+            if menu.get('parent_id') is None and not menu.get('parent_code'):
                 root_menus.append(menu_item)
             else:
-                parent = menu_map.get(menu['parent_id'])
+                # Chercher parent par parent_id d'abord, puis par parent_code (cross-DB)
+                parent = menu_map.get(menu.get('parent_id'))
+                if not parent and menu.get('parent_code'):
+                    parent = code_map.get(menu.get('parent_code'))
                 if parent:
                     parent['children'].append(menu_item)
+                elif menu.get('parent_id') is None:
+                    root_menus.append(menu_item)
 
         # ── 5. Elaguer les dossiers vides (mode roles specifiques uniquement) ─
         if allowed_reports is not None and not is_admin:
