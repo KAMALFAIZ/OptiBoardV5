@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Download, Package, AlertTriangle, RotateCcw, Clock } from 'lucide-react'
 import KPICard from '../components/Dashboard/KPICard'
 import DataTable from '../components/DrillDown/DataTable'
@@ -6,7 +7,7 @@ import DetailModal from '../components/DrillDown/DetailModal'
 import { TopChart } from '../components/Dashboard/Charts'
 import Filters from '../components/common/Filters'
 import Loading from '../components/common/Loading'
-import {
+import api, {
   getStocks,
   getStockDormant,
   getRotationStock,
@@ -15,13 +16,17 @@ import {
   exportStocksExcel,
   downloadBlob
 } from '../services/api'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
 
 export default function Stocks() {
+  const navigate = useNavigate()
+  const { filters: globalFilters } = useGlobalFilters()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
   const [stocksGamme, setStocksGamme] = useState([])
   const [filters, setFilters] = useState({ periode: 'annee_courante' })
   const [activeTab, setActiveTab] = useState('overview')
+  const [drillByColumn, setDrillByColumn] = useState({})
 
   // Modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -38,6 +43,29 @@ export default function Stocks() {
   useEffect(() => {
     loadData()
   }, [filters])
+
+  useEffect(() => {
+    api.get('/drillthrough/rules/by-source?source_type=stocks')
+      .then(res => { if (res.data.success) setDrillByColumn(res.data.by_column || {}) })
+      .catch(() => {})
+  }, [])
+
+  const buildDrillUrl = (rule, value) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', 'Stocks')
+    if (globalFilters?.dateDebut) params.set('gf_dateDebut', globalFilters.dateDebut)
+    if (globalFilters?.dateFin) params.set('gf_dateFin', globalFilters.dateFin)
+    if (globalFilters?.societe) params.set('gf_societe', globalFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }
+
+  const tryDrillThrough = (fieldName, value, fallback) => {
+    const rules = drillByColumn[fieldName]
+    if (rules?.length > 0) { navigate(buildDrillUrl(rules[0], value)); return true }
+    fallback(); return false
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -67,6 +95,7 @@ export default function Stocks() {
   // Drill-down handler
   const handleArticleClick = async (row) => {
     if (!row?.code_article) return
+    if (tryDrillThrough('code_article', row.code_article, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 
@@ -100,6 +129,7 @@ export default function Stocks() {
   // Handler pour clic sur gamme dans le graphique
   const handleGammeClick = (gammeData) => {
     if (!gammeData?.gamme) return
+    if (tryDrillThrough('gamme', gammeData.gamme, () => {})) return
     setModalData({
       title: `Gamme: ${gammeData.gamme}`,
       breadcrumb: ['Stocks', 'Par Gamme', gammeData.gamme],

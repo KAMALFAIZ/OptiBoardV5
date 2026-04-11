@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp,
   TrendingDown,
@@ -14,7 +15,7 @@ import {
   Layers
 } from 'lucide-react'
 import Loading from '../components/common/Loading'
-import {
+import api, {
   getAnalyseKpis,
   getAnalyseTopClientsCA,
   getAnalyseTopClientsCreances,
@@ -24,6 +25,7 @@ import {
   getAnalyseBalanceAgeeTranche,
   getAnalyseBalanceAgeeDetail
 } from '../services/api'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
 
 // Definition des onglets
 const TABS = [
@@ -34,6 +36,9 @@ const TABS = [
 ]
 
 export default function AnalyseCACreances() {
+  const navigate = useNavigate()
+  const { filters: globalFilters } = useGlobalFilters()
+  const [drillByColumn, setDrillByColumn] = useState({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('synthese')
   const [kpis, setKpis] = useState(null)
@@ -131,6 +136,29 @@ export default function AnalyseCACreances() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  useEffect(() => {
+    api.get('/drillthrough/rules/by-source?source_type=analyse_ca_creances')
+      .then(res => { if (res.data.success) setDrillByColumn(res.data.by_column || {}) })
+      .catch(() => {})
+  }, [])
+
+  const buildDrillUrl = (rule, value) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', 'Analyse CA & Créances')
+    if (globalFilters?.dateDebut) params.set('gf_dateDebut', globalFilters.dateDebut)
+    if (globalFilters?.dateFin) params.set('gf_dateFin', globalFilters.dateFin)
+    if (globalFilters?.societe) params.set('gf_societe', globalFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }
+
+  const tryDrillThrough = (fieldName, value) => {
+    const rules = drillByColumn[fieldName]
+    if (rules?.length > 0) { navigate(buildDrillUrl(rules[0], value)); return true }
+    return false
+  }
 
   if (loading) {
     return <Loading />
@@ -362,7 +390,7 @@ export default function AnalyseCACreances() {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {topClientsCA.map((client, idx) => (
-                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onClick={() => tryDrillThrough('client', client.client)}>
                   <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
                     <div className="font-medium truncate max-w-[250px]" title={client.client}>
                       {client.client}
@@ -467,7 +495,7 @@ export default function AnalyseCACreances() {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {caParCommercial.map((com, idx) => (
-                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onClick={() => tryDrillThrough('commercial', com.commercial)}>
                   <td className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100">
                     {com.commercial}
                   </td>
@@ -520,7 +548,7 @@ export default function AnalyseCACreances() {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {topClientsCreances.map((client, idx) => (
-                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onClick={() => tryDrillThrough('client', client.client)}>
                   <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
                     <div className="font-medium truncate max-w-[250px]" title={client.client}>
                       {client.client}

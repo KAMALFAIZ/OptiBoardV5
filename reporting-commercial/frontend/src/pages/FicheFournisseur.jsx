@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   User, Search, TrendingUp, CreditCard, Clock, AlertTriangle,
   CheckCircle, FileText, BarChart2, RefreshCw, ChevronRight,
-  Building2, Phone, Mail, MapPin, Shield, Folder, ShoppingCart
+  Building2, Phone, Mail, MapPin, Shield, Folder, ShoppingCart, ArrowRight
 } from 'lucide-react'
 import KPICard from '../components/Dashboard/KPICard'
 import Loading from '../components/common/Loading'
 import { getFicheFournisseurListe, getFicheFournisseur } from '../services/api'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell
@@ -242,6 +244,8 @@ function DocumentsTab({ documents, docsSummary }) {
 
 // ─── Page principale ──────────────────────────────────────────────────────────
 export default function FicheFournisseur() {
+  const [searchParams] = useSearchParams()
+  const { updateFilter } = useGlobalFilters()
   const [fournisseurs, setFournisseurs] = useState([])
   const [loadingList, setLoadingList] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -254,6 +258,23 @@ export default function FicheFournisseur() {
   useEffect(() => {
     if (selectedFournisseur) loadFiche(selectedFournisseur.nom_fournisseur)
   }, [periode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Drill-through entrant : auto-sélectionner le fournisseur depuis l'URL
+  useEffect(() => {
+    const dtField = searchParams.get('dt_field')
+    const dtValue = searchParams.get('dt_value')
+    const gfDateDebut = searchParams.get('gf_dateDebut')
+    const gfDateFin = searchParams.get('gf_dateFin')
+    const gfSociete = searchParams.get('gf_societe')
+    if (gfDateDebut) updateFilter('dateDebut', gfDateDebut)
+    if (gfDateFin) updateFilter('dateFin', gfDateFin)
+    if (gfSociete) updateFilter('societe', gfSociete)
+    if (dtValue && (dtField === 'CT_Num' || dtField === 'code_fournisseur' || dtField === 'fournisseur' || dtField === 'nom_fournisseur')) {
+      setFiche(null)
+      loadFiche(dtValue)
+      setSelectedFournisseur({ nom_fournisseur: dtValue, code_fournisseur: dtValue })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpenDialog = () => {
     setDialogOpen(true)
@@ -302,8 +323,18 @@ export default function FicheFournisseur() {
   const kpis = fiche?.kpis || {}
   const fournisseur = fiche?.fournisseur || {}
 
+  const dtSource = searchParams.get('dt_source')
+  const dtField = searchParams.get('dt_field')
+  const dtValue = searchParams.get('dt_value')
+
   return (
     <div className="h-full">
+      {dtField && dtValue && selectedFournisseur && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800/30 text-xs text-blue-700 dark:text-blue-300">
+          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Accédé depuis <b>{dtSource || 'rapport source'}</b></span>
+        </div>
+      )}
       {dialogOpen && (
         <FournisseurSearchDialog
           fournisseurs={fournisseurs}

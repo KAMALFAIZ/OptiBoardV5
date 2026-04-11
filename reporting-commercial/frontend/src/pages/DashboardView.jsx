@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import {
   BarChart2, LineChart, PieChart, Activity, Table, Type, Gauge,
@@ -115,8 +115,9 @@ function getConditionalColor(value, thresholds) {
 export default function DashboardView() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const isMobile = useIsMobile()
-  const { filters: contextFilters } = useGlobalFilters()
+  const { filters: contextFilters, updateFilter } = useGlobalFilters()
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState(null)
   const [error, setError] = useState(null)
@@ -207,6 +208,16 @@ export default function DashboardView() {
 
   useEffect(() => { loadDashboard() }, [id])
 
+  // Appliquer les filtres globaux transmis par le rapport source (une seule fois au montage)
+  useEffect(() => {
+    const gfDateDebut = searchParams.get('gf_dateDebut')
+    const gfDateFin = searchParams.get('gf_dateFin')
+    const gfSociete = searchParams.get('gf_societe')
+    if (gfDateDebut) updateFilter('dateDebut', gfDateDebut)
+    if (gfDateFin) updateFilter('dateFin', gfDateFin)
+    if (gfSociete) updateFilter('societe', gfSociete)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!id) return
     api.get(`/drillthrough/rules/by-source?source_type=dashboard&source_id=${id}`)
@@ -233,6 +244,7 @@ export default function DashboardView() {
 
   const loadDashboard = async () => {
     setLoading(true); setError(null)
+    setParamsConfirmed(false)  // Réinitialiser à chaque changement de dashboard
     try {
       const res = await getBuilderDashboard(id)
       setDashboard(res.data.data)
@@ -242,12 +254,22 @@ export default function DashboardView() {
     } finally { setLoading(false) }
   }
 
+  const buildDrillUrl = (rule, value, sourceName) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', sourceName)
+    if (contextFilters?.dateDebut) params.set('gf_dateDebut', contextFilters.dateDebut)
+    if (contextFilters?.dateFin) params.set('gf_dateFin', contextFilters.dateFin)
+    if (contextFilters?.societe) params.set('gf_societe', contextFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }
+
   const openDetail = (title, data, filter) => {
     // Si une règle drill-through est configurée pour ce champ, naviguer vers la cible
     if (filter?.field && drillByColumn[filter.field]?.length > 0) {
       const rule = drillByColumn[filter.field][0]
-      const url = `${rule.target_url}?dt_field=${encodeURIComponent(rule.target_filter_field)}&dt_value=${encodeURIComponent(filter.value ?? '')}&dt_source=${encodeURIComponent(dashboard?.nom || title)}`
-      navigate(url)
+      navigate(buildDrillUrl(rule, filter.value, dashboard?.nom || title))
       return
     }
     // Sinon, comportement modal existant

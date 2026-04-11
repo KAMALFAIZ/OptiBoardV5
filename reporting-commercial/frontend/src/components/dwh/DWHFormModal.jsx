@@ -1,7 +1,94 @@
+import { useState } from 'react'
 import {
   Building2, Plus, Edit2, Database, Mail, Save, X,
-  MapPin, TestTube, Loader2, CheckCircle, AlertCircle, XCircle, Trash2, Server
+  MapPin, TestTube, Loader2, CheckCircle, AlertCircle, XCircle, Trash2, Server,
+  Lock, ChevronDown, ChevronRight
 } from 'lucide-react'
+
+function SSHTunnelSection({ formData, setFormData }) {
+  const [open, setOpen] = useState(!!formData.ssh_enabled)
+  return (
+    <div className="border border-gray-200 dark:border-gray-600 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300"
+      >
+        <span className="flex items-center gap-2">
+          <Lock size={15} />
+          Tunnel SSH (accès sécurisé SQL Server distant)
+          {formData.ssh_enabled && (
+            <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Activé</span>
+          )}
+        </span>
+        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+
+      {open && (
+        <div className="p-4 space-y-4 bg-white dark:bg-gray-800">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!formData.ssh_enabled}
+              onChange={e => setFormData(f => ({ ...f, ssh_enabled: e.target.checked }))}
+              className="w-4 h-4 rounded"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">Activer le tunnel SSH</span>
+          </label>
+
+          {formData.ssh_enabled && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Hôte SSH (IP/hostname du serveur Sage)</label>
+                  <input type="text" value={formData.ssh_host || ''}
+                    onChange={e => setFormData(f => ({ ...f, ssh_host: e.target.value }))}
+                    placeholder="192.168.1.100 ou sage.monentreprise.com"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Port SSH</label>
+                  <input type="number" value={formData.ssh_port || 22}
+                    onChange={e => setFormData(f => ({ ...f, ssh_port: parseInt(e.target.value) || 22 }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Utilisateur SSH (ex: sageTunnelUser)</label>
+                <input type="text" value={formData.ssh_user || ''}
+                  onChange={e => setFormData(f => ({ ...f, ssh_user: e.target.value }))}
+                  placeholder="sageTunnelUser"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Clé privée SSH (contenu PEM — ED25519 ou RSA)
+                </label>
+                <textarea
+                  rows={6}
+                  value={formData.ssh_private_key || ''}
+                  onChange={e => setFormData(f => ({ ...f, ssh_private_key: e.target.value }))}
+                  placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-xs"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Le serveur SQL est accessible via <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">localhost,{'{port_local}'}</code> une fois le tunnel actif.
+                  Le port 1433 reste fermé sur le firewall.
+                </p>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3 text-xs text-amber-700 dark:text-amber-300">
+                <strong>Serveur SQL DWH :</strong> laisser <code className="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">.</code> ou <code className="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">localhost</code> — le tunnel redirige automatiquement vers le SQL Server distant.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function DWHFormModal({
   show, onClose, modalMode,
@@ -279,6 +366,9 @@ export default function DWHFormModal({
                   </div>
                 </div>
               </div>
+
+              {/* Tunnel SSH */}
+              <SSHTunnelSection formData={formData} setFormData={setFormData} />
 
               {/* Statut */}
               <label className="flex items-center gap-2 cursor-pointer">

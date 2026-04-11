@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Download, CreditCard, Clock, AlertTriangle, Users } from 'lucide-react'
 import KPICard from '../components/Dashboard/KPICard'
 import DataTable from '../components/DrillDown/DataTable'
@@ -6,7 +7,7 @@ import DetailModal from '../components/DrillDown/DetailModal'
 import { BalanceAgeeChart, TopChart } from '../components/Dashboard/Charts'
 import Filters from '../components/common/Filters'
 import Loading from '../components/common/Loading'
-import {
+import api, {
   getRecouvrement,
   getBalanceAgee,
   getClientEncours,
@@ -15,12 +16,16 @@ import {
   exportRecouvrementExcel,
   downloadBlob
 } from '../services/api'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
 
 export default function Recouvrement() {
+  const navigate = useNavigate()
+  const { filters: globalFilters } = useGlobalFilters()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
   const [filters, setFilters] = useState({ periode: 'annee_courante' })
   const [activeTab, setActiveTab] = useState('overview')
+  const [drillByColumn, setDrillByColumn] = useState({})
 
   // Modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -37,6 +42,29 @@ export default function Recouvrement() {
   useEffect(() => {
     loadData()
   }, [filters])
+
+  useEffect(() => {
+    api.get('/drillthrough/rules/by-source?source_type=recouvrement')
+      .then(res => { if (res.data.success) setDrillByColumn(res.data.by_column || {}) })
+      .catch(() => {})
+  }, [])
+
+  const buildDrillUrl = (rule, value) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', 'Recouvrement')
+    if (globalFilters?.dateDebut) params.set('gf_dateDebut', globalFilters.dateDebut)
+    if (globalFilters?.dateFin) params.set('gf_dateFin', globalFilters.dateFin)
+    if (globalFilters?.societe) params.set('gf_societe', globalFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }
+
+  const tryDrillThrough = (fieldName, value, fallback) => {
+    const rules = drillByColumn[fieldName]
+    if (rules?.length > 0) { navigate(buildDrillUrl(rules[0], value)); return true }
+    fallback(); return false
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -62,6 +90,7 @@ export default function Recouvrement() {
   // Drill-down handlers
   const handleClientClick = async (row) => {
     if (!row?.client) return
+    if (tryDrillThrough('client', row.client, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 
@@ -95,6 +124,7 @@ export default function Recouvrement() {
 
   const handleCommercialClick = async (row) => {
     if (!row?.commercial) return
+    if (tryDrillThrough('commercial', row.commercial, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 
@@ -126,6 +156,7 @@ export default function Recouvrement() {
   const handleTrancheClick = async (trancheData) => {
     if (!trancheData?.tranche) return
     const tranche = trancheData.tranche.replace('j', '')
+    if (tryDrillThrough('tranche', trancheData.tranche, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 

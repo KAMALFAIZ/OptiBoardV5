@@ -534,11 +534,6 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
     user?.role === 'admin_client'
   )
 
-  // Si superadmin détecté mais currentDWH en mémoire → le vider silencieusement
-  if (isSuperAdmin && currentDWH) {
-    localStorage.removeItem('currentDWH')
-    sessionStorage.removeItem('currentDWH')
-  }
 
   // Fonction pour verifier l'acces a une page
   const hasAccess = (pageCode) => {
@@ -609,7 +604,7 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
               <div className="min-w-0">
                 <h1 className="text-white font-bold text-base truncate">{appName ? appName.split(' - ')[0] : 'OptiBoard'}</h1>
                 <p className="text-white/70 dark:text-gray-400 text-sm">{appName && appName.includes(' - ') ? appName.split(' - ').slice(1).join(' - ') : 'Reporting'}</p>
-                {currentDWH?.nom && (
+                {!isSuperAdmin && currentDWH?.nom && (
                   <p className="text-white/90 font-semibold text-xs mt-1 truncate bg-white/10 rounded px-2 py-0.5">
                     {currentDWH.nom}
                   </p>

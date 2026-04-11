@@ -122,24 +122,6 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
             </div>
 
             <div className="space-y-4 mb-6">
-              {/* Période rapide */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Période rapide
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {periodPresets.map((preset, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handlePeriodPreset(preset.action)}
-                      className="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-primary-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 text-left"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Date Début */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

@@ -300,8 +300,16 @@ namespace SageETLAgent.Services
 
             var results = new List<object>();
 
-            using var conn = new SqlConnection(_connectionString);
-            await conn.OpenAsync(cancellationToken);
+            // Reutiliser la connexion persistante pour beneficier des parametres de session Sage 100
+            // (QUOTED_IDENTIFIER, ANSI_NULLS, etc.) etablis par la connexion principale.
+            // Une connexion fraiche peut echouer sur les requetes Sage 100 avec syntaxe JOIN imbriquee
+            // (ex: "FROM T AS alias INNER JOIN T2 INNER JOIN T3 ON ... ON ...") avec l'erreur
+            // "Nom de colonne non valide : 'AS'" car le parseur SQL Server interprete AS comme colonne.
+            var conn = await GetConnectionAsync(cancellationToken);
+            var ownsConnection = !UsePersistentConnection;
+
+            try
+            {
 
             string query;
             bool readByPosition = false; // true = lire par indice via GetName, false = lire reader[0..n]
@@ -533,6 +541,13 @@ namespace SageETLAgent.Services
             }
 
             return results;
+
+            } // end try (connexion)
+            finally
+            {
+                if (ownsConnection)
+                    conn.Dispose();
+            }
         }
 
         /// <summary>

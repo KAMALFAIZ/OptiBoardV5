@@ -709,10 +709,11 @@ export default function PivotTable({
                           return (
                             <td
                               key={key}
-                              onClick={() => onCellClick?.({
+                              onClick={(e) => onCellClick?.({
                                 rowValues: drillRowValues,
                                 columnValue: col,
                                 valueField: vf.field,
+                                event: e,
                               })}
                               style={cellStyle}
                               className="pivot-value-cell whitespace-nowrap pivot-clickable"
@@ -751,9 +752,10 @@ export default function PivotTable({
                         return (
                           <td
                             key={vf.alias}
-                            onClick={() => onCellClick?.({
+                            onClick={(e) => onCellClick?.({
                               rowValues: drillRowValues,
                               valueField: vf.field,
+                              event: e,
                             })}
                             style={cellStyle}
                             className="pivot-value-cell whitespace-nowrap pivot-clickable"

@@ -68,6 +68,12 @@ class DWHCreate(BaseModel):
     user_optiboard: Optional[str] = None
     password_optiboard: Optional[str] = None
     actif: bool = True
+    # Tunnel SSH (optionnel — accès sécurisé au SQL Server distant)
+    ssh_enabled: bool = False
+    ssh_host: Optional[str] = None
+    ssh_port: int = 22
+    ssh_user: Optional[str] = None
+    ssh_private_key: Optional[str] = None   # Contenu PEM de la clé privée
 
 
 class DWHUpdate(BaseModel):
@@ -90,6 +96,12 @@ class DWHUpdate(BaseModel):
     user_optiboard: Optional[str] = None
     password_optiboard: Optional[str] = None  # None = ne pas changer
     actif: Optional[bool] = None
+    # Tunnel SSH
+    ssh_enabled: Optional[bool] = None
+    ssh_host: Optional[str] = None
+    ssh_port: Optional[int] = None
+    ssh_user: Optional[str] = None
+    ssh_private_key: Optional[str] = None   # None = ne pas changer
 
 
 class SMTPConfig(BaseModel):
@@ -1461,7 +1473,8 @@ async def dwh_admin_list():
         dwh_list = execute_query(
             "SELECT id, code, nom, raison_sociale, adresse, ville, pays, telephone, email, logo_url,"
             " serveur_dwh, base_dwh, user_dwh, actif, date_creation,"
-            " serveur_optiboard, base_optiboard, user_optiboard, ISNULL(is_demo,0) AS is_demo"
+            " serveur_optiboard, base_optiboard, user_optiboard, ISNULL(is_demo,0) AS is_demo,"
+            " ISNULL(ssh_enabled,0) AS ssh_enabled, ssh_host, ISNULL(ssh_port,22) AS ssh_port, ssh_user"
             " FROM APP_DWH ORDER BY nom",
             use_cache=False,
         )
@@ -1507,7 +1520,9 @@ async def dwh_admin_get(code: str):
         rows = execute_query(
             "SELECT id, code, nom, raison_sociale, adresse, ville, pays, telephone, email, logo_url,"
             " serveur_dwh, base_dwh, user_dwh, actif, date_creation,"
-            " serveur_optiboard, base_optiboard, user_optiboard"
+            " serveur_optiboard, base_optiboard, user_optiboard,"
+            " ISNULL(ssh_enabled,0) AS ssh_enabled, ssh_host, ISNULL(ssh_port,22) AS ssh_port,"
+            " ssh_user, ssh_private_key"
             " FROM APP_DWH WHERE code = ?",
             (code,), use_cache=False,
         )
@@ -1537,13 +1552,16 @@ async def dwh_admin_create(dwh: DWHCreate):
                 "INSERT INTO APP_DWH"
                 " (code, nom, raison_sociale, adresse, ville, pays, telephone, email, logo_url,"
                 "  serveur_dwh, base_dwh, user_dwh, password_dwh,"
-                "  serveur_optiboard, base_optiboard, user_optiboard, password_optiboard, actif)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "  serveur_optiboard, base_optiboard, user_optiboard, password_optiboard, actif,"
+                "  ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_private_key)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (dwh.code, dwh.nom, dwh.raison_sociale, dwh.adresse, dwh.ville, dwh.pays,
                  dwh.telephone, dwh.email, dwh.logo_url,
                  dwh.serveur_dwh, dwh.base_dwh, dwh.user_dwh, dwh.password_dwh,
                  dwh.serveur_optiboard, dwh.base_optiboard, dwh.user_optiboard, dwh.password_optiboard,
-                 1 if dwh.actif else 0),
+                 1 if dwh.actif else 0,
+                 1 if dwh.ssh_enabled else 0,
+                 dwh.ssh_host, dwh.ssh_port, dwh.ssh_user, dwh.ssh_private_key),
             )
 
         client_db_result = None
@@ -1582,13 +1600,22 @@ async def dwh_admin_update(code: str, dwh: DWHUpdate):
                     password_dwh=COALESCE(NULLIF(?, ''), password_dwh),
                     serveur_optiboard=?, base_optiboard=?, user_optiboard=?,
                     password_optiboard=COALESCE(NULLIF(?, ''), password_optiboard),
-                    actif=?, date_modification=GETDATE()
+                    actif=?,
+                    ssh_enabled=COALESCE(?, ssh_enabled),
+                    ssh_host=COALESCE(NULLIF(?, ''), ssh_host),
+                    ssh_port=COALESCE(?, ssh_port),
+                    ssh_user=COALESCE(NULLIF(?, ''), ssh_user),
+                    ssh_private_key=COALESCE(NULLIF(?, ''), ssh_private_key),
+                    date_modification=GETDATE()
                    WHERE code=?""",
                 (dwh.nom, dwh.raison_sociale, dwh.adresse, dwh.ville, dwh.pays,
                  dwh.telephone, dwh.email, dwh.logo_url, dwh.serveur_dwh,
                  dwh.base_dwh, dwh.user_dwh, dwh.password_dwh,
                  dwh.serveur_optiboard, dwh.base_optiboard, dwh.user_optiboard, dwh.password_optiboard,
-                 1 if dwh.actif else 0, code),
+                 1 if dwh.actif else 0,
+                 (1 if dwh.ssh_enabled else 0) if dwh.ssh_enabled is not None else None,
+                 dwh.ssh_host, dwh.ssh_port, dwh.ssh_user, dwh.ssh_private_key,
+                 code),
             )
         return {"success": True, "message": "DWH mis à jour"}
     except Exception as e:
@@ -1810,6 +1837,44 @@ async def dwh_admin_save_smtp(code: str, smtp: SMTPConfig):
         return {"success": True, "message": "Configuration SMTP sauvegardée"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dwh-admin/{code}/tunnel/status")
+async def dwh_tunnel_status(code: str):
+    """Retourne l'état du tunnel SSH pour un DWH."""
+    from ..services.ssh_tunnel_service import get_status
+    return {"success": True, "data": get_status(code)}
+
+
+@router.post("/dwh-admin/{code}/tunnel/start")
+async def dwh_tunnel_start(code: str):
+    """Démarre le tunnel SSH pour un DWH."""
+    import asyncio
+    from ..services.ssh_tunnel_service import start_tunnel
+    dwh = _get_dwh_or_404(code)
+    if not dwh.get("ssh_enabled"):
+        raise HTTPException(status_code=400, detail="Tunnel SSH non activé pour ce DWH")
+    if not dwh.get("ssh_private_key"):
+        raise HTTPException(status_code=400, detail="Clé SSH privée non configurée")
+    try:
+        ssh_config = {
+            "ssh_host":        dwh["ssh_host"],
+            "ssh_port":        dwh.get("ssh_port") or 22,
+            "ssh_user":        dwh["ssh_user"],
+            "ssh_private_key": dwh["ssh_private_key"],
+        }
+        local_port = await asyncio.to_thread(start_tunnel, code, ssh_config)
+        return {"success": True, "local_port": local_port, "message": f"Tunnel actif sur port {local_port}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dwh-admin/{code}/tunnel/stop")
+async def dwh_tunnel_stop(code: str):
+    """Arrête le tunnel SSH pour un DWH."""
+    from ..services.ssh_tunnel_service import stop_tunnel
+    stop_tunnel(code)
+    return {"success": True, "message": "Tunnel arrêté"}
 
 
 @router.post("/dwh-admin/{code}/smtp/test")

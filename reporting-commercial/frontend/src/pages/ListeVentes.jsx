@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Download, Filter, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, X } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Download, Filter, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, X, ArrowRight } from 'lucide-react'
 import Loading from '../components/common/Loading'
 import { getListeVentes, getListeVentesFiltres, exportListeVentes, downloadBlob } from '../services/api'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
 
 export default function ListeVentes() {
+  const [searchParams] = useSearchParams()
+  const { updateFilter } = useGlobalFilters()
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [data, setData] = useState([])
@@ -121,6 +125,30 @@ export default function ListeVentes() {
   useEffect(() => {
     loadFiltres()
   }, [loadFiltres])
+
+  // Appliquer les paramètres drill-through entrants (une seule fois au montage)
+  useEffect(() => {
+    const dtField = searchParams.get('dt_field')
+    const dtValue = searchParams.get('dt_value')
+    const gfDateDebut = searchParams.get('gf_dateDebut')
+    const gfDateFin = searchParams.get('gf_dateFin')
+    const gfSociete = searchParams.get('gf_societe')
+    if (gfDateDebut) updateFilter('dateDebut', gfDateDebut)
+    if (gfDateFin) updateFilter('dateFin', gfDateFin)
+    if (gfSociete) updateFilter('societe', gfSociete)
+    if (dtField && dtValue) {
+      // Mapper dt_field vers le filtre ListeVentes correspondant
+      const fieldMap = {
+        gamme: 'gamme', commercial: 'commercial', code_client: 'code_client',
+        societe: 'societe', zone: 'zone', region: 'region',
+        code_article: 'code_article',
+      }
+      const key = fieldMap[dtField] || dtField
+      if (key in filters) {
+        setFilters(prev => ({ ...prev, [key]: dtValue }))
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadData(1)
@@ -328,8 +356,25 @@ export default function ListeVentes() {
     { key: 'nb_factures', header: 'Nb Fact.', format: 'number', align: 'right' }
   ]
 
+  const dtField = searchParams.get('dt_field')
+  const dtValue = searchParams.get('dt_value')
+  const dtSource = searchParams.get('dt_source')
+
   return (
     <div className="space-y-4">
+      {/* Bandeau drill-through entrant */}
+      {dtField && dtValue && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Filtré depuis <b>{dtSource || 'rapport source'}</b> — {dtField}: <b>{dtValue}</b></span>
+          <button
+            onClick={() => setFilters(prev => { const f = { ...prev }; delete f[dtField]; return f })}
+            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-800/30 hover:bg-blue-200 transition-colors"
+          >
+            <X className="w-3 h-3" /> Effacer
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>

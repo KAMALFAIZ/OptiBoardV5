@@ -1,12 +1,12 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   BookOpen, FileText, Users, Landmark, TrendingDown, TrendingUp,
   Clock, Building2, Link2, BarChart2, LayoutDashboard, TableProperties,
-  RefreshCw, Database, CheckCircle, AlertTriangle
+  RefreshCw, Database, CheckCircle, AlertTriangle, ArrowRight
 } from 'lucide-react'
 import Loading from '../components/common/Loading'
 import { previewUnifiedDataSource, seedComptabiliteDatasources, seedComptabiliteReports } from '../services/api'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useGlobalFilters } from '../context/GlobalFilterContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -236,9 +236,27 @@ function TabPanel({ tab, globalFilters, navigate }) {
 // =============================================================================
 export default function Comptabilite() {
   const navigate = useNavigate()
-  const { filters: globalFilters } = useGlobalFilters?.() ?? { filters: {} }
+  const [searchParams] = useSearchParams()
+  const { filters: globalFilters, updateFilter } = useGlobalFilters?.() ?? { filters: {}, updateFilter: () => {} }
 
   const [activeTab, setActiveTab] = useState('balance_generale')
+
+  // Drill-through entrant : appliquer les filtres globaux et activer l'onglet selon dt_field
+  useEffect(() => {
+    const dtField = searchParams.get('dt_field')
+    const gfDateDebut = searchParams.get('gf_dateDebut')
+    const gfDateFin = searchParams.get('gf_dateFin')
+    const gfSociete = searchParams.get('gf_societe')
+    if (gfDateDebut) updateFilter('dateDebut', gfDateDebut)
+    if (gfDateFin) updateFilter('dateFin', gfDateFin)
+    if (gfSociete) updateFilter('societe', gfSociete)
+    // Activer l'onglet pertinent selon le champ drill-through
+    const tabMap = {
+      compte: 'balance_generale', tiers: 'balance_tiers',
+      echeance: 'echeances_clients', fournisseur: 'echeances_fournisseurs',
+    }
+    if (dtField && tabMap[dtField]) setActiveTab(tabMap[dtField])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [seeding, setSeeding] = useState(false)
   const [seedingReports, setSeedingReports] = useState(false)
   const [seedMsg, setSeedMsg] = useState(null)
@@ -273,8 +291,20 @@ export default function Comptabilite() {
 
   const tab = TABS.find(t => t.id === activeTab)
 
+  const dtSource = searchParams.get('dt_source')
+  const dtField = searchParams.get('dt_field')
+  const dtValue = searchParams.get('dt_value')
+
   return (
     <div className="h-full flex flex-col p-4 gap-4 overflow-auto">
+
+      {/* Bandeau drill-through entrant */}
+      {dtField && dtValue && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Filtré depuis <b>{dtSource || 'rapport source'}</b> — {dtField}: <b>{dtValue}</b></span>
+        </div>
+      )}
 
       {/* En-tête */}
       <div className="flex items-center justify-between flex-wrap gap-3">

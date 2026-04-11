@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Download, TrendingUp, Users, ShoppingCart, Package } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Download, TrendingUp, Users, ShoppingCart, Package, ArrowRight, X } from 'lucide-react'
 import KPICard from '../components/Dashboard/KPICard'
 import DataTable from '../components/DrillDown/DataTable'
 import DetailModal from '../components/DrillDown/DetailModal'
 import { CAEvolutionChart, CAParGammeChart, TopChart } from '../components/Dashboard/Charts'
 import Filters from '../components/common/Filters'
 import Loading from '../components/common/Loading'
-import {
+import api, {
   getVentes,
   getDetailGamme,
   getDetailClient,
@@ -15,12 +16,16 @@ import {
   exportVentesExcel,
   downloadBlob
 } from '../services/api'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
 
 export default function Ventes() {
+  const navigate = useNavigate()
+  const { filters: globalFilters } = useGlobalFilters()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
   const [filters, setFilters] = useState({ periode: 'annee_courante' })
   const [activeTab, setActiveTab] = useState('overview')
+  const [drillByColumn, setDrillByColumn] = useState({})
 
   // Modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -37,6 +42,34 @@ export default function Ventes() {
   useEffect(() => {
     loadData()
   }, [filters])
+
+  useEffect(() => {
+    api.get('/drillthrough/rules/by-source?source_type=ventes')
+      .then(res => { if (res.data.success) setDrillByColumn(res.data.by_column || {}) })
+      .catch(() => {})
+  }, [])
+
+  const buildDrillUrl = (rule, value) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', 'Ventes')
+    if (globalFilters?.dateDebut) params.set('gf_dateDebut', globalFilters.dateDebut)
+    if (globalFilters?.dateFin) params.set('gf_dateFin', globalFilters.dateFin)
+    if (globalFilters?.societe) params.set('gf_societe', globalFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }
+
+  // Navigue vers un rapport cible si règle drill-through configurée, sinon ouvre la modale
+  const tryDrillThrough = (fieldName, value, fallback) => {
+    const rules = drillByColumn[fieldName]
+    if (rules?.length > 0) {
+      navigate(buildDrillUrl(rules[0], value))
+      return true
+    }
+    fallback()
+    return false
+  }
 
   const loadData = async () => {
     setLoading(true)
@@ -62,6 +95,7 @@ export default function Ventes() {
   // Drill-down handlers
   const handleGammeClick = async (row) => {
     if (!row?.gamme) return
+    if (tryDrillThrough('gamme', row.gamme, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 
@@ -93,6 +127,7 @@ export default function Ventes() {
 
   const handleClientClick = async (row) => {
     if (!row?.code_client) return
+    if (tryDrillThrough('code_client', row.code_client, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 
@@ -124,6 +159,7 @@ export default function Ventes() {
 
   const handleCommercialClick = async (row) => {
     if (!row?.commercial) return
+    if (tryDrillThrough('commercial', row.commercial, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 
@@ -153,6 +189,7 @@ export default function Ventes() {
 
   const handleProduitClick = async (row) => {
     if (!row?.code_article) return
+    if (tryDrillThrough('code_article', row.code_article, () => {})) return
     setModalData(prev => ({ ...prev, loading: true }))
     setModalOpen(true)
 

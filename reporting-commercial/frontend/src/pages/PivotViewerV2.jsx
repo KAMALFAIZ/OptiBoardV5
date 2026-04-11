@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../context/AuthContext'
 import { useSettings } from '../context/SettingsContext'
@@ -20,7 +20,7 @@ import {
   Loader2, RefreshCw, Download, Table2, BarChart3, LayoutGrid,
   RotateCcw, FileSpreadsheet, FileText, Settings2, X,
   GripVertical, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Check,
-  ChevronDown, Presentation
+  ChevronDown, Presentation, ExternalLink
 } from 'lucide-react'
 
 const VIEW_MODES = [
@@ -308,9 +308,11 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
 // ─── Main PivotViewerV2 ─────────────────────────────────────────────
 export default function PivotViewerV2() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const { formatNumber } = useSettings()
-  const { filters: globalFilters } = useGlobalFilters()
+  const { filters: globalFilters, updateFilter } = useGlobalFilters()
   const isMobile = useIsMobile()
 
   // Config pivot
@@ -347,9 +349,13 @@ export default function PivotViewerV2() {
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [openParamsCount, setOpenParamsCount] = useState(0)
 
-  // Drill-down
+  // Drill-down (interne — modal détail)
   const [drilldownOpen, setDrilldownOpen] = useState(false)
   const [drilldownCell, setDrilldownCell] = useState(null)
+
+  // Drill-through inter-rapports
+  const [drillByColumn, setDrillByColumn] = useState({})
+  const [drillMenu, setDrillMenu] = useState(null) // { x, y, rules, value, field }
 
   // Prefs save debounce
   const saveTimer = useRef(null)
@@ -366,6 +372,24 @@ export default function PivotViewerV2() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [exportMenuOpen])
+
+  // Appliquer les filtres globaux transmis par le rapport source (une seule fois au montage)
+  useEffect(() => {
+    const gfDateDebut = searchParams.get('gf_dateDebut')
+    const gfDateFin = searchParams.get('gf_dateFin')
+    const gfSociete = searchParams.get('gf_societe')
+    if (gfDateDebut) updateFilter('dateDebut', gfDateDebut)
+    if (gfDateFin) updateFilter('dateFin', gfDateFin)
+    if (gfSociete) updateFilter('societe', gfSociete)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Charger les règles drill-through pour ce Pivot
+  useEffect(() => {
+    if (!id) return
+    api.get(`/drillthrough/rules/by-source?source_type=pivot&source_id=${id}`)
+      .then(res => { if (res.data.success) setDrillByColumn(res.data.by_column || {}) })
+      .catch(() => {})
+  }, [id])
 
   // Re-executer quand les filtres globaux changent
   const prevFiltersRef = useRef(null)
@@ -402,6 +426,7 @@ export default function PivotViewerV2() {
   const loadPivot = async () => {
     setLoading(true)
     setError(null)
+    setPivotResult(null)  // Vider les données stale d'une navigation précédente
     try {
       const res = await getPivotV2(id)
       if (res.data?.success) {
@@ -490,11 +515,49 @@ export default function PivotViewerV2() {
     executePivot(pivotConfig)
   }
 
-  // Drill-down
-  const handleCellClick = (cellInfo) => {
+  // Construit l'URL de navigation drill-through avec filtres globaux propagés
+  const buildDrillUrl = useCallback((rule, value, sourceName) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', sourceName)
+    if (globalFilters?.dateDebut) params.set('gf_dateDebut', globalFilters.dateDebut)
+    if (globalFilters?.dateFin) params.set('gf_dateFin', globalFilters.dateFin)
+    if (globalFilters?.societe) params.set('gf_societe', globalFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }, [globalFilters])
+
+  // Drill-down / Drill-through
+  const handleCellClick = useCallback((cellInfo) => {
+    // Rechercher les règles drill-through applicables sur les dimensions de la cellule
+    const matchedRules = []
+    for (const [field, value] of Object.entries(cellInfo.rowValues || {})) {
+      const rules = drillByColumn[field]
+      if (rules?.length > 0) {
+        rules.forEach(r => matchedRules.push({ rule: r, value, field }))
+      }
+    }
+
+    if (matchedRules.length === 1) {
+      const { rule, value } = matchedRules[0]
+      navigate(buildDrillUrl(rule, value, pivotConfig?.nom || ''))
+      return
+    }
+
+    if (matchedRules.length > 1) {
+      const event = cellInfo.event
+      setDrillMenu({
+        x: event ? event.clientX : window.innerWidth / 2,
+        y: event ? event.clientY : window.innerHeight / 2,
+        items: matchedRules,
+      })
+      return
+    }
+
+    // Pas de règle drill-through → comportement interne (modal détail)
     setDrilldownCell(cellInfo)
     setDrilldownOpen(true)
-  }
+  }, [drillByColumn, navigate, buildDrillUrl, pivotConfig?.nom])
 
   const fetchDrilldown = async (pivotId, request) => {
     try {
@@ -943,6 +1006,35 @@ export default function PivotViewerV2() {
         }}
         fetchDrilldown={fetchDrilldown}
       />
+
+      {/* Menu contextuel drill-through multi-règles (Pivot) */}
+      {drillMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setDrillMenu(null)} />
+          <div
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[220px]"
+            style={{ left: drillMenu.x, top: drillMenu.y }}
+          >
+            <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-700">
+              <ExternalLink className="w-3 h-3 inline mr-1" />Naviguer vers...
+            </div>
+            {drillMenu.items.map(({ rule, value, field }, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  const url = buildDrillUrl(rule, value, pivotConfig?.nom || '')
+                  setDrillMenu(null)
+                  navigate(url)
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+              >
+                <span className="text-xs text-gray-400 mr-1.5">{field}:</span>
+                {rule.label || rule.nom}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

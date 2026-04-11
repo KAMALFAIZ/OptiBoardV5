@@ -342,6 +342,24 @@ async def startup_event():
     except Exception as e:
         print(f"[STARTUP] APP_DWH migration error: {e}")
 
+    # Migration APP_DWH : colonnes tunnel SSH
+    try:
+        from app.database_unified import write_central as _wc_ssh
+        for col, ddl in [
+            ("ssh_enabled",     "BIT NOT NULL DEFAULT 0"),
+            ("ssh_host",        "VARCHAR(200) NULL"),
+            ("ssh_port",        "INT NOT NULL DEFAULT 22"),
+            ("ssh_user",        "VARCHAR(100) NULL"),
+            ("ssh_private_key", "NVARCHAR(MAX) NULL"),
+        ]:
+            _wc_ssh(
+                f"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='{col}')"
+                f" ALTER TABLE APP_DWH ADD {col} {ddl}"
+            )
+        print("[STARTUP] APP_DWH SSH columns migration OK")
+    except Exception as e:
+        print(f"[STARTUP] APP_DWH SSH migration error: {e}")
+
     # Migration APP_Users (central + client DBs) : ajout colonnes 2FA
     try:
         from app.database_unified import write_central as _wc2
@@ -371,6 +389,20 @@ async def startup_event():
     except Exception as e:
         print(f"[STARTUP] onboarding_done migration error: {e}")
 
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Arrêt propre : tunnels SSH + scheduler."""
+    try:
+        stop_scheduler()
+    except Exception:
+        pass
+    try:
+        from app.services.ssh_tunnel_service import stop_all
+        stop_all()
+        print("[SHUTDOWN] Tunnels SSH arrêtés")
+    except Exception as e:
+        print(f"[SHUTDOWN] Erreur arrêt tunnels SSH: {e}")
 
 
 @app.get("/")

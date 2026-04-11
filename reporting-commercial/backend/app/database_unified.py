@@ -260,7 +260,8 @@ class DWHConnectionPool:
         # Charger depuis la base centrale (hors du lock)
         query = """
             SELECT code, nom, raison_sociale, serveur_dwh, base_dwh,
-                   user_dwh, password_dwh, logo_url, actif
+                   user_dwh, password_dwh, logo_url, actif,
+                   ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_private_key
             FROM APP_DWH
             WHERE code = ? AND actif = 1
         """
@@ -269,7 +270,17 @@ class DWHConnectionPool:
         if not results:
             return None
 
-        dwh_config = DWHConfig(**results[0])
+        row = results[0]
+        dwh_config = DWHConfig(**{k: v for k, v in row.items()
+                                  if k in DWHConfig.model_fields})
+        # Stocker les infos SSH dans l'objet config pour get_connection
+        dwh_config._ssh = {
+            "enabled":     bool(row.get("ssh_enabled")),
+            "ssh_host":    row.get("ssh_host"),
+            "ssh_port":    row.get("ssh_port") or 22,
+            "ssh_user":    row.get("ssh_user"),
+            "ssh_private_key": row.get("ssh_private_key"),
+        }
         with self._cache_lock:
             self._dwh_cache[dwh_code] = (dwh_config, now)
         return dwh_config
@@ -279,6 +290,23 @@ class DWHConnectionPool:
         dwh_info = self._get_dwh_info(dwh_code)
         if not dwh_info:
             raise DWHNotFoundError(f"DWH '{dwh_code}' non trouve ou inactif")
+
+        # Tunnel SSH activé → passer par le tunnel
+        ssh = getattr(dwh_info, "_ssh", {})
+        if ssh.get("enabled") and ssh.get("ssh_host") and ssh.get("ssh_private_key"):
+            try:
+                from .services.ssh_tunnel_service import get_tunnel_conn_str
+                conn_str = get_tunnel_conn_str(
+                    dwh_code, ssh,
+                    dwh_info.base_dwh, dwh_info.user_dwh, dwh_info.password_dwh,
+                )
+                return pyodbc.connect(conn_str)
+            except Exception as ssh_err:
+                import logging
+                logging.getLogger("database_unified").warning(
+                    f"[SSH] Tunnel échoué pour {dwh_code} ({ssh_err}), fallback connexion directe"
+                )
+
         return pyodbc.connect(dwh_info.connection_string)
 
     def clear_cache(self, dwh_code: str = None):

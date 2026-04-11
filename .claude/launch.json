@@ -10,7 +10,7 @@
     },
     {
       "name": "Reporting - Backend API (FastAPI)",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "D:/kasoft-platform/OptiBoard/reporting-commercial/backend/venv/Scripts/python.exe",
       "runtimeArgs": ["run.py"],
       "port": 8084,
       "cwd": "reporting-commercial/backend"

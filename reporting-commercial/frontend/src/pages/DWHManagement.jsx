@@ -53,7 +53,8 @@ export default function DWHManagement() {
     pays: 'Maroc', telephone: '', email: '', logo_url: '',
     serveur_dwh: '', base_dwh: '', user_dwh: '', password_dwh: '',
     serveur_optiboard: '', base_optiboard: '', user_optiboard: '', password_optiboard: '',
-    actif: true
+    actif: true,
+    ssh_enabled: false, ssh_host: '', ssh_port: 22, ssh_user: '', ssh_private_key: '',
   })
 
   // Formulaire SMTP
@@ -121,14 +122,18 @@ export default function DWHManagement() {
       pays: 'Maroc', telephone: '', email: '', logo_url: '',
       serveur_dwh: '', base_dwh: '', user_dwh: '', password_dwh: '',
       serveur_optiboard: '', base_optiboard: '', user_optiboard: '', password_optiboard: '',
-      actif: true
+      actif: true,
+      ssh_enabled: false, ssh_host: '', ssh_port: 22, ssh_user: '', ssh_private_key: '',
     })
     setModalMode('create')
     setConnectionStatus(null)
     setShowModal(true)
   }
 
-  const openEditModal = (dwh) => {
+  const openEditModal = async (dwh) => {
+    setSelectedDWH(dwh)
+    setModalMode('edit')
+    setConnectionStatus(null)
     setFormData({
       code: dwh.code, nom: dwh.nom,
       raison_sociale: dwh.raison_sociale || '',
@@ -137,17 +142,31 @@ export default function DWHManagement() {
       email: dwh.email || '', logo_url: dwh.logo_url || '',
       serveur_dwh: dwh.serveur_dwh, base_dwh: dwh.base_dwh,
       user_dwh: dwh.user_dwh, password_dwh: '',
-      // OptiBoard : valeur enregistrée ou héritage DWH (vraie valeur dans le state)
       serveur_optiboard: dwh.serveur_optiboard || dwh.serveur_dwh || '',
       base_optiboard:    dwh.base_optiboard    || `OptiBoard_clt${dwh.code}`,
       user_optiboard:    dwh.user_optiboard    || dwh.user_dwh || '',
       password_optiboard: '',
-      actif: dwh.actif
+      actif: dwh.actif,
+      ssh_enabled: !!dwh.ssh_enabled,
+      ssh_host: dwh.ssh_host || '',
+      ssh_port: dwh.ssh_port || 22,
+      ssh_user: dwh.ssh_user || '',
+      ssh_private_key: '',
     })
-    setSelectedDWH(dwh)
-    setModalMode('edit')
-    setConnectionStatus(null)
     setShowModal(true)
+    // Charger le détail complet (inclut ssh_private_key) en arrière-plan
+    try {
+      const res = await api.get(`/dwh-admin/${dwh.code}`)
+      const d = res.data.data || {}
+      setFormData(f => ({
+        ...f,
+        ssh_enabled: !!d.ssh_enabled,
+        ssh_host: d.ssh_host || f.ssh_host,
+        ssh_port: d.ssh_port || f.ssh_port,
+        ssh_user: d.ssh_user || f.ssh_user,
+        ssh_private_key: d.ssh_private_key || '',
+      }))
+    } catch { /* silencieux */ }
   }
 
   const openSMTPModal = async (dwh) => {

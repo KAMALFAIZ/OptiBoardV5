@@ -4,8 +4,10 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { AgGridReact } from 'ag-grid-react'
 import {
   Table, RefreshCw, Edit, AlertCircle, Download, Settings2, Eye, Search, X, Filter,
-  Columns, Layers, RotateCcw, ArrowRight, TrendingUp, Presentation, SlidersHorizontal
+  Columns, Layers, RotateCcw, ArrowRight, TrendingUp, Presentation, SlidersHorizontal,
+  ChevronDown, FileSpreadsheet, FileText, Monitor
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import Loading from '../components/common/Loading'
 import CheckboxListFilter from '../components/common/CheckboxListFilter'
 import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions, exportGridPptx } from '../services/api'
@@ -80,7 +82,7 @@ export default function GridViewDisplay() {
   const [searchParams] = useSearchParams()
   const { isEditor, user } = useAuth()
   const { darkMode } = useTheme()
-  const { filters: globalFilters } = useGlobalFilters()
+  const { filters: globalFilters, updateFilter } = useGlobalFilters()
   const isMobile = useIsMobile()
   const gridRef = useRef(null)
 
@@ -106,6 +108,7 @@ export default function GridViewDisplay() {
 
   // Colonnes panel
   const [showColumnPanel, setShowColumnPanel] = useState(false)
+  const [columnVisState, setColumnVisState] = useState({})
 
 
   // Menu contextuel colonne
@@ -126,6 +129,8 @@ export default function GridViewDisplay() {
 
   // Drill-through rules (field → list of rules)
   const [drillByColumn, setDrillByColumn] = useState({})
+  // Menu contextuel drill-through multi-règles
+  const [drillMenu, setDrillMenu] = useState(null) // { x, y, rules, value }
 
   // Indices de lignes anormales (pour highlight AG Grid)
   const [anomalyRowIndices, setAnomalyRowIndices] = useState(new Set())
@@ -137,6 +142,16 @@ export default function GridViewDisplay() {
   const dtField = searchParams.get('dt_field')
   const dtValue = searchParams.get('dt_value')
   const dtSource = searchParams.get('dt_source')
+
+  // Appliquer les filtres globaux transmis par le rapport source (une seule fois au montage)
+  useEffect(() => {
+    const gfDateDebut = searchParams.get('gf_dateDebut')
+    const gfDateFin = searchParams.get('gf_dateFin')
+    const gfSociete = searchParams.get('gf_societe')
+    if (gfDateDebut) updateFilter('dateDebut', gfDateDebut)
+    if (gfDateFin) updateFilter('dateFin', gfDateFin)
+    if (gfSociete) updateFilter('societe', gfSociete)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce timer for saving prefs
   const saveTimerRef = useRef(null)
@@ -260,12 +275,18 @@ export default function GridViewDisplay() {
         let sourceRes
         let sourceIdentifier
 
-        if (hasSourceCode) {
-          sourceIdentifier = gridData.data_source_code
-          sourceRes = await getUnifiedDataSource(sourceIdentifier)
-        } else {
-          sourceIdentifier = gridData.data_source_id
-          sourceRes = await getDataSource(sourceIdentifier)
+        try {
+          if (hasSourceCode) {
+            sourceIdentifier = gridData.data_source_code
+            sourceRes = await getUnifiedDataSource(sourceIdentifier)
+          } else {
+            sourceIdentifier = gridData.data_source_id
+            sourceRes = await getDataSource(sourceIdentifier)
+          }
+        } catch (e) {
+          console.warn('DataSource introuvable (404), grille affichée sans données:', e?.response?.status)
+          setLoading(false)
+          return
         }
 
         if (sourceRes.data.success && sourceRes.data.data) {
@@ -322,6 +343,7 @@ export default function GridViewDisplay() {
             // Toujours afficher le dialogue EN PREMIER — l'utilisateur confirme/ajuste
             // les paramètres, puis clique "Appliquer" pour déclencher le chargement.
             // Les valeurs par défaut sont pré-remplies dans le formulaire.
+            setAllData([])  // Vider les données stale d'une navigation précédente
             setShowParamsModal(true)
             setLoading(false)
             return  // Ne pas charger les données avant que l'utilisateur valide
@@ -726,6 +748,12 @@ export default function GridViewDisplay() {
     if (savedState) {
       params.api.applyColumnState({ state: savedState, applyOrder: true })
     }
+    // Initialiser l'état React de visibilité depuis AG Grid (après application des prefs)
+    setTimeout(() => {
+      const vis = {}
+      params.api.getColumnState().forEach(c => { vis[c.colId] = !c.hide })
+      setColumnVisState(vis)
+    }, 0)
     // Sur mobile : toujours auto-size (jamais sizeColumnsToFit qui écrase les colonnes)
     if (isMobile) {
       setTimeout(() => params.api.autoSizeAllColumns(), 100)
@@ -835,6 +863,58 @@ export default function GridViewDisplay() {
     }
   }, [grid?.id, grid?.nom])
 
+  // Export Excel
+  const exportExcel = useCallback(() => {
+    if (!allData.length || !columns.length) return
+    const visibleCols = columns.filter(c => c.visible !== false)
+    const headers = visibleCols.map(c => c.label || c.field)
+    const rows = allData.map(row => visibleCols.map(c => row[c.field] ?? ''))
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Données')
+    XLSX.writeFile(wb, `${grid?.nom || 'grille'}.xlsx`)
+  }, [allData, columns, grid?.nom])
+
+  // Export PDF (impression navigateur)
+  const exportPDF = useCallback(() => {
+    if (!allData.length || !columns.length) return
+    const visibleCols = columns.filter(c => c.visible !== false)
+    const title = grid?.nom || 'Grille'
+    const headerRow = visibleCols.map(c => `<th>${c.label || c.field}</th>`).join('')
+    const bodyRows = allData.map(row =>
+      `<tr>${visibleCols.map(c => `<td>${row[c.field] ?? ''}</td>`).join('')}</tr>`
+    ).join('')
+    const html = `<!DOCTYPE html><html><head><title>${title}</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:11px;margin:20px}
+  h2{margin-bottom:8px}
+  table{border-collapse:collapse;width:100%}
+  th{background:#1e40af;color:#fff;padding:6px 8px;text-align:left;font-size:10px}
+  td{padding:4px 8px;border-bottom:1px solid #e5e7eb}
+  tr:nth-child(even) td{background:#f8fafc}
+</style></head><body>
+<h2>${title}</h2>
+<table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>
+</body></html>`
+    const w = window.open('', '_blank')
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+    w.print()
+  }, [allData, columns, grid?.nom])
+
+  // Dropdown export menu
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef(null)
+  useEffect(() => {
+    if (!showExportMenu) return
+    const handler = (e) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) setShowExportMenu(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showExportMenu])
+
   // Écouter l'événement export depuis le FAB mobile
   useEffect(() => {
     if (!isMobile) return
@@ -857,34 +937,14 @@ export default function GridViewDisplay() {
   // Toggle column visibility from panel
   const toggleColumnVisibility = useCallback((field) => {
     if (!gridRef.current?.api) return
-    const col = gridRef.current.api.getColumn(field)
-    if (col) {
-      const isVisible = gridRef.current.api.getColumnState().find(c => c.colId === field)
-      gridRef.current.api.setColumnsVisible([field], isVisible?.hide !== false ? true : !isVisible?.hide === false)
-      // Simpler: toggle
-      const currentState = gridRef.current.api.getColumnState()
-      const colState = currentState.find(c => c.colId === field)
-      if (colState) {
-        gridRef.current.api.setColumnsVisible([field], colState.hide === true)
-        saveColumnPrefs()
-      }
+    const colState = gridRef.current.api.getColumnState().find(c => c.colId === field)
+    if (colState) {
+      const newVisible = colState.hide === true
+      gridRef.current.api.setColumnsVisible([field], newVisible)
+      setColumnVisState(prev => ({ ...prev, [field]: newVisible }))
+      saveColumnPrefs()
     }
   }, [saveColumnPrefs])
-
-  // Get column visibility state
-  const getColumnVisibility = useCallback(() => {
-    if (!gridRef.current?.api) {
-      // Fallback: use columns config
-      const vis = {}
-      columns.forEach(c => { vis[c.field] = c.visible !== false })
-      return vis
-    }
-    const vis = {}
-    gridRef.current.api.getColumnState().forEach(c => {
-      vis[c.colId] = !c.hide
-    })
-    return vis
-  }, [columns])
 
   // Status bar (row count)
   const statusBar = useMemo(() => ({
@@ -903,17 +963,33 @@ export default function GridViewDisplay() {
     })
   }, [groupedData, dtField, dtValue])
 
+  // Construit l'URL de navigation drill-through avec filtres globaux propagés
+  const buildDrillUrl = useCallback((rule, value, sourceName) => {
+    const params = new URLSearchParams()
+    params.set('dt_field', rule.target_filter_field)
+    params.set('dt_value', value ?? '')
+    params.set('dt_source', sourceName)
+    if (globalFilters?.dateDebut) params.set('gf_dateDebut', globalFilters.dateDebut)
+    if (globalFilters?.dateFin) params.set('gf_dateFin', globalFilters.dateFin)
+    if (globalFilters?.societe) params.set('gf_societe', globalFilters.societe)
+    return `${rule.target_url}?${params.toString()}`
+  }, [globalFilters])
+
   // Gestion du clic sur une cellule drill-through
   const onCellClicked = useCallback((params) => {
     if (params.data?.__isGroupRow) return
     const field = params.column.getColId()
     const rules = drillByColumn[field]
     if (!rules || rules.length === 0) return
-    const rule = rules[0]
     const value = params.value
-    const url = `${rule.target_url}?dt_field=${encodeURIComponent(rule.target_filter_field)}&dt_value=${encodeURIComponent(value ?? '')}&dt_source=${encodeURIComponent(grid?.nom || '')}`
-    navigate(url)
-  }, [drillByColumn, navigate, grid?.nom])
+    if (rules.length === 1) {
+      navigate(buildDrillUrl(rules[0], value, grid?.nom || ''))
+    } else {
+      // Plusieurs règles : afficher le menu contextuel
+      const event = params.event
+      setDrillMenu({ x: event.clientX, y: event.clientY, rules, value })
+    }
+  }, [drillByColumn, navigate, grid?.nom, buildDrillUrl])
 
   if (loading) {
     return <Loading message="Chargement de la grille..." />
@@ -931,8 +1007,6 @@ export default function GridViewDisplay() {
       </div>
     )
   }
-
-  const columnVisibility = getColumnVisibility()
 
   return (
     <div className={`flex flex-col bg-slate-50 dark:bg-gray-900 ${isMobile ? 'h-[calc(100dvh-56px)]' : 'h-[calc(100vh-64px)] -m-3 lg:-m-4'}`}>
@@ -1110,7 +1184,7 @@ export default function GridViewDisplay() {
                           <label key={col.field} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 px-1.5 py-1 rounded">
                             <input
                               type="checkbox"
-                              checked={columnVisibility[col.field] !== false}
+                              checked={columnVisState[col.field] !== false}
                               onChange={() => toggleColumnVisibility(col.field)}
                               className="rounded border-primary-300 w-3.5 h-3.5"
                             />
@@ -1122,32 +1196,6 @@ export default function GridViewDisplay() {
                   </>
                 )}
               </div>
-            )}
-
-            <div className="w-px h-6 bg-gray-200 dark:bg-gray-600 mx-0.5" />
-
-            {/* Export */}
-            {features.show_export && (
-              <>
-                <button
-                  onClick={exportCSV}
-                  disabled={!allData.length}
-                  className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
-                  title="Exporter CSV"
-                >
-                  <Download className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={exportPptx}
-                  disabled={exportingPptx}
-                  className="p-1.5 rounded-lg text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors disabled:opacity-40"
-                  title="Exporter PowerPoint (.pptx)"
-                >
-                  {exportingPptx
-                    ? <RefreshCw className="w-4 h-4 animate-spin" />
-                    : <Presentation className="w-4 h-4" />}
-                </button>
-              </>
             )}
 
             {/* Auto-size */}
@@ -1258,6 +1306,60 @@ export default function GridViewDisplay() {
                   <Edit className="w-3.5 h-3.5" />
                   Builder
                 </Link>
+              </>
+            )}
+
+            {/* Export dropdown */}
+            {features.show_export && (
+              <>
+                <div className="w-px h-6 bg-gray-200 dark:bg-gray-600 mx-0.5" />
+                <div className="relative" ref={exportMenuRef}>
+                  <button
+                    onClick={() => setShowExportMenu(v => !v)}
+                    disabled={!allData.length}
+                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-40 text-sm font-medium"
+                    title="Exporter"
+                  >
+                    <Download className="w-4 h-4" />
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                      <button
+                        onClick={() => { exportCSV(); setShowExportMenu(false) }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        <Download className="w-4 h-4 text-gray-500" />
+                        Export CSV
+                      </button>
+                      <button
+                        onClick={() => { exportExcel(); setShowExportMenu(false) }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                        Export Excel
+                      </button>
+                      <button
+                        onClick={() => { exportPDF(); setShowExportMenu(false) }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        <FileText className="w-4 h-4 text-red-500" />
+                        Export PDF
+                      </button>
+                      <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+                      <button
+                        onClick={() => { exportPptx(); setShowExportMenu(false) }}
+                        disabled={exportingPptx}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                      >
+                        {exportingPptx
+                          ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+                          : <Monitor className="w-4 h-4 text-indigo-500" />}
+                        PowerPoint (.pptx)
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -1618,26 +1720,6 @@ export default function GridViewDisplay() {
             </div>
 
             <div className="space-y-4 mb-6">
-              {/* Période rapide (si params de type date) */}
-              {hasDateParams && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                    Période rapide
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {periodPresets.map((preset) => (
-                      <button
-                        key={preset.key}
-                        type="button"
-                        onClick={() => applyPeriod(preset.key)}
-                        className="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 text-left"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {sourceParams.map((param, i) => (
                 <div key={i}>
@@ -1707,6 +1789,34 @@ export default function GridViewDisplay() {
         </div>
         )
       })()}
+
+      {/* Menu contextuel drill-through multi-règles */}
+      {drillMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setDrillMenu(null)} />
+          <div
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[220px]"
+            style={{ left: drillMenu.x, top: drillMenu.y }}
+          >
+            <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-700">
+              <ArrowRight className="w-3 h-3 inline mr-1" />Naviguer vers...
+            </div>
+            {drillMenu.rules.map((rule, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  const url = buildDrillUrl(rule, drillMenu.value, grid?.nom || '')
+                  setDrillMenu(null)
+                  navigate(url)
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-primary-50 dark:hover:bg-primary-900/20 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
+              >
+                {rule.label || rule.nom}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Forecast Modal */}
       <ForecastModal

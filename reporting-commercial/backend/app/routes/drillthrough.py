@@ -11,19 +11,42 @@ router = APIRouter(prefix="/api/drillthrough", tags=["drillthrough"])
 # Types de rapports supportés comme source et cible
 REPORT_TYPES = ["gridview", "dashboard", "pivot"]
 
+# Pages fixes (singleton, pas d'ID en base)
+FIXED_PAGE_TYPES = {
+    "ventes":               "ventes",
+    "liste_ventes":         "liste-ventes",
+    "stocks":               "stocks",
+    "recouvrement":         "recouvrement",
+    "analyse_ca_creances":  "analyse-ca-creances",
+    "fiche_client":         "fiche-client",
+    "fiche_fournisseur":    "fiche-fournisseur",
+    "comptabilite":         "comptabilite",
+}
+
+FIXED_PAGE_LABELS = {
+    "ventes":               "Ventes",
+    "liste_ventes":         "Liste des Ventes",
+    "stocks":               "Stocks",
+    "recouvrement":         "Recouvrement",
+    "analyse_ca_creances":  "Analyse CA & Créances",
+    "fiche_client":         "Fiche Client",
+    "fiche_fournisseur":    "Fiche Fournisseur",
+    "comptabilite":         "Comptabilité",
+}
+
 
 # ==================== SCHEMAS ====================
 
 class DrillThroughRule(BaseModel):
     nom: str
     # Source
-    source_type: str   # gridview | dashboard | pivot
-    source_id: int
-    source_column: str  # nom de la colonne / champ source (pour gridview)
+    source_type: str            # gridview | dashboard | pivot | ventes | ...
+    source_id: Optional[int] = 0  # 0 pour les pages fixes (singleton)
+    source_column: str          # nom de la colonne / champ source
     # Cible
-    target_type: str   # gridview | dashboard | pivot
-    target_id: int
-    target_filter_field: str  # champ sur lequel filtrer dans la cible
+    target_type: str            # gridview | dashboard | pivot | ventes | ...
+    target_id: Optional[int] = 0  # 0 pour les pages fixes
+    target_filter_field: str    # champ sur lequel filtrer dans la cible
     # UI
     label: Optional[str] = None   # libellé affiché dans le menu contextuel
     is_active: bool = True
@@ -73,6 +96,9 @@ def init_drillthrough_tables():
 
 def _get_report_name(report_type: str, report_id: int) -> str:
     """Récupère le nom d'un rapport depuis la base."""
+    # Pages fixes — nom statique
+    if report_type in FIXED_PAGE_LABELS:
+        return FIXED_PAGE_LABELS[report_type]
     table_map = {
         "gridview":  "APP_GridViews",
         "dashboard": "APP_Dashboards",
@@ -120,15 +146,24 @@ async def get_rules(source_type: Optional[str] = None, source_id: Optional[int] 
 
 
 @router.get("/rules/by-source")
-async def get_rules_by_source(source_type: str, source_id: int):
-    """Retourne les règles actives pour une source donnée, groupées par colonne."""
+async def get_rules_by_source(source_type: str, source_id: Optional[int] = None):
+    """Retourne les règles actives pour une source donnée, groupées par colonne.
+    Pour les pages fixes (singleton), source_id est omis ou vaut 0."""
     try:
         init_drillthrough_tables()
-        rows = execute_central("""
-            SELECT * FROM APP_DrillThrough
-            WHERE source_type = ? AND source_id = ? AND is_active = 1
-            ORDER BY source_column
-        """, (source_type, source_id), use_cache=False)
+        is_fixed = source_type in FIXED_PAGE_TYPES
+        if is_fixed or source_id is None:
+            rows = execute_central("""
+                SELECT * FROM APP_DrillThrough
+                WHERE source_type = ? AND is_active = 1
+                ORDER BY source_column
+            """, (source_type,), use_cache=False)
+        else:
+            rows = execute_central("""
+                SELECT * FROM APP_DrillThrough
+                WHERE source_type = ? AND source_id = ? AND is_active = 1
+                ORDER BY source_column
+            """, (source_type, source_id), use_cache=False)
 
         for r in rows:
             r["target_name"] = _get_report_name(r["target_type"], r["target_id"])
@@ -238,12 +273,19 @@ async def get_available_reports():
         dashboards = execute_central("SELECT id, nom FROM APP_Dashboards ORDER BY nom", use_cache=False)
         pivots = execute_central("SELECT id, nom FROM APP_Pivots ORDER BY nom", use_cache=False)
 
+        # Pages fixes (singleton — id=0 conventionnel)
+        fixed_pages = [
+            {"id": 0, "nom": label, "type": ptype}
+            for ptype, label in FIXED_PAGE_LABELS.items()
+        ]
+
         return {
             "success": True,
             "data": {
                 "gridview":  [{"id": r["id"], "nom": r["nom"]} for r in gridviews],
                 "dashboard": [{"id": r["id"], "nom": r["nom"]} for r in dashboards],
                 "pivot":     [{"id": r["id"], "nom": r["nom"]} for r in pivots],
+                "fixed":     fixed_pages,
             }
         }
     except Exception as e:
@@ -269,6 +311,11 @@ async def get_gridview_columns(report_id: int):
 # ==================== HELPER URL ====================
 
 def _build_target_url(target_type: str, target_id: int) -> str:
-    route_map = {"gridview": "grid", "dashboard": "view", "pivot": "pivot-v2"}
-    route = route_map.get(target_type, "grid")
-    return f"/{route}/{target_id}"
+    # Pages dynamiques (avec ID)
+    dynamic_map = {"gridview": "grid", "dashboard": "view", "pivot": "pivot-v2"}
+    if target_type in dynamic_map:
+        return f"/{dynamic_map[target_type]}/{target_id}"
+    # Pages fixes (singleton — pas d'ID)
+    if target_type in FIXED_PAGE_TYPES:
+        return f"/{FIXED_PAGE_TYPES[target_type]}"
+    return f"/grid/{target_id}"

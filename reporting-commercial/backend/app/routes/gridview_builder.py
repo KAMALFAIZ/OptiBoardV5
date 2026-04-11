@@ -20,6 +20,9 @@ import time
 
 logger = logging.getLogger("GridViewBuilder")
 
+# Guard : les DDL de init_gridview_tables ne s'exécutent qu'une seule fois
+_gridview_tables_initialized = False
+
 
 # =============================================================================
 # HELPER — Routage client DB / centrale pour APP_GridViews
@@ -27,19 +30,28 @@ logger = logging.getLogger("GridViewBuilder")
 
 def _gv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
     """
-    Lit depuis APP_GridViews :
-    - Si dwh_code fourni et base client dispo → base client (OptiBoard_cltXX)
-    - Sinon → base centrale (OptiBoard_SaaS)
+    Lit depuis APP_GridViews avec priorité CENTRALE :
+    1. Cherche d'abord en base CENTRALE (OptiBoard_SaaS) — source de vérité pour tous les clients
+    2. Si pas trouvé en centrale → cherche dans la base client (grids spécifiques au client)
+    Cela évite que d'anciens grids en base client écrasent les configs centrales à jour.
     """
+    # 1. Centrale en priorité (execute_query = execute_central via import alias)
+    try:
+        central_result = execute_query(query, params, use_cache=False)
+        if central_result:
+            return central_result
+    except Exception as e:
+        logger.debug(f"_gv_read central error: {e}")
+
+    # 2. Fallback : base client (pour grids spécifiques non présents en centrale)
     if dwh_code:
         try:
             if client_manager.has_client_db(dwh_code):
-                result = execute_client(query, params, dwh_code=dwh_code, use_cache=False)
-                if result:  # Fallback sur centrale si client DB retourne vide
-                    return result
+                return execute_client(query, params, dwh_code=dwh_code, use_cache=False) or []
         except Exception as e:
             logger.debug(f"_gv_read client fallback ({dwh_code}): {e}")
-    return execute_query(query, params, use_cache=False)
+
+    return []
 
 
 def _gv_write(query: str, params: tuple = (), dwh_code: str = None) -> None:
@@ -143,7 +155,10 @@ class GridViewUpdate(BaseModel):
 
 
 def init_gridview_tables():
-    """Cree les tables pour le gridview builder"""
+    """Cree les tables pour le gridview builder — DDL exécuté une seule fois par démarrage."""
+    global _gridview_tables_initialized
+    if _gridview_tables_initialized:
+        return True
     # Créer la table si elle n'existe pas
     create_query = """
     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_GridViews' AND xtype='U')
@@ -197,6 +212,7 @@ def init_gridview_tables():
                 ALTER TABLE APP_GridViews ADD {col_name} {col_type}
                 """
                 cursor.execute(add_col_query)
+        _gridview_tables_initialized = True
         return True
     except Exception as e:
         print(f"Erreur init gridview tables: {e}")
@@ -221,8 +237,6 @@ async def get_gridviews(
 ):
     """Liste toutes les grilles (depuis base client si X-DWH-Code fourni, sinon centrale)"""
     try:
-        init_gridview_tables()
-
         if user_id:
             results = _gv_read(
                 """SELECT id, nom, code, description, data_source_id, page_size, is_public, created_by, created_at, updated_at, application
@@ -251,9 +265,6 @@ async def get_gridview(
 ):
     """Recupere une grille avec sa configuration (depuis base client si X-DWH-Code fourni)"""
     try:
-        # S'assurer que la colonne features existe
-        init_gridview_tables()
-
         results = _gv_read(
             "SELECT * FROM APP_GridViews WHERE id = ?",
             (grid_id,),
@@ -296,8 +307,6 @@ async def get_gridview(
 async def create_gridview(grid: Dict[str, Any], user_id: int = 1):
     """Cree une nouvelle grille"""
     try:
-        init_gridview_tables()
-
         nom = grid.get('nom', 'Sans nom')
         description = grid.get('description', '')
         data_source_id = grid.get('data_source_id')
@@ -352,9 +361,6 @@ async def create_gridview(grid: Dict[str, Any], user_id: int = 1):
 async def update_gridview(grid_id: int, grid: GridViewUpdate):
     """Met a jour une grille"""
     try:
-        # S'assurer que la colonne features existe
-        init_gridview_tables()
-
         updates = []
         params = []
 

@@ -6,7 +6,21 @@ const SOURCE_TYPES = [
   { value: 'gridview', label: 'GridView (tableau)' },
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'pivot', label: 'Pivot V2' },
+  { value: 'ventes', label: 'Ventes' },
+  { value: 'liste_ventes', label: 'Liste des Ventes' },
+  { value: 'stocks', label: 'Stocks' },
+  { value: 'recouvrement', label: 'Recouvrement' },
+  { value: 'analyse_ca_creances', label: 'Analyse CA & Créances' },
+  { value: 'fiche_client', label: 'Fiche Client' },
+  { value: 'fiche_fournisseur', label: 'Fiche Fournisseur' },
+  { value: 'comptabilite', label: 'Comptabilité' },
 ]
+
+// Types de pages fixes (sans ID de rapport)
+const FIXED_TYPES = new Set([
+  'ventes', 'liste_ventes', 'stocks', 'recouvrement',
+  'analyse_ca_creances', 'fiche_client', 'fiche_fournisseur', 'comptabilite',
+])
 
 const emptyRule = {
   nom: '',
@@ -22,7 +36,7 @@ const emptyRule = {
 
 export default function DrillThroughPage() {
   const [rules, setRules] = useState([])
-  const [availableReports, setAvailableReports] = useState({ gridview: [], dashboard: [], pivot: [] })
+  const [availableReports, setAvailableReports] = useState({ gridview: [], dashboard: [], pivot: [], fixed: [] })
   const [sourceColumns, setSourceColumns] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -91,13 +105,19 @@ export default function DrillThroughPage() {
   }
 
   const handleSave = async () => {
-    if (!form.nom || !form.source_id || !form.source_column || !form.target_id || !form.target_filter_field) {
+    const sourceIsFixed = FIXED_TYPES.has(form.source_type)
+    const targetIsFixed = FIXED_TYPES.has(form.target_type)
+    if (!form.nom || (!sourceIsFixed && !form.source_id) || !form.source_column || (!targetIsFixed && !form.target_id) || !form.target_filter_field) {
       alert('Veuillez remplir tous les champs obligatoires.')
       return
     }
     setSaving(true)
     try {
-      const payload = { ...form, source_id: Number(form.source_id), target_id: Number(form.target_id) }
+      const payload = {
+        ...form,
+        source_id: sourceIsFixed ? 0 : Number(form.source_id),
+        target_id: targetIsFixed ? 0 : Number(form.target_id),
+      }
       if (editingId) {
         await api.put(`/drillthrough/rules/${editingId}`, payload)
       } else {
@@ -124,8 +144,10 @@ export default function DrillThroughPage() {
     setRules(prev => prev.map(r => r.id === id ? { ...r, is_active: !r.is_active } : r))
   }
 
-  const sourceReports = availableReports[form.source_type] || []
-  const targetReports = availableReports[form.target_type] || []
+  const isSourceFixed = FIXED_TYPES.has(form.source_type)
+  const isTargetFixed = FIXED_TYPES.has(form.target_type)
+  const sourceReports = isSourceFixed ? [] : (availableReports[form.source_type] || [])
+  const targetReports = isTargetFixed ? [] : (availableReports[form.target_type] || [])
 
   return (
     <div className="p-4 max-w-5xl mx-auto">
@@ -236,14 +258,20 @@ export default function DrillThroughPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Rapport <span className="text-red-500">*</span></label>
-                    <select
-                      value={form.source_id}
-                      onChange={e => setForm(f => ({ ...f, source_id: e.target.value, source_column: '' }))}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                    >
-                      <option value="">-- Sélectionner --</option>
-                      {sourceReports.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
-                    </select>
+                    {isSourceFixed ? (
+                      <div className="w-full px-2.5 py-1.5 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-sm text-blue-600 dark:text-blue-400 font-medium">
+                        Page fixe — pas d'ID requis
+                      </div>
+                    ) : (
+                      <select
+                        value={form.source_id}
+                        onChange={e => setForm(f => ({ ...f, source_id: e.target.value, source_column: '' }))}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                      >
+                        <option value="">-- Sélectionner --</option>
+                        {sourceReports.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
+                      </select>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -284,17 +312,24 @@ export default function DrillThroughPage() {
                     >
                       {SOURCE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
+                    <p className="text-xs text-gray-400 mt-1">Les pages fixes navigueront directement vers leur route</p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Rapport <span className="text-red-500">*</span></label>
-                    <select
-                      value={form.target_id}
-                      onChange={e => setForm(f => ({ ...f, target_id: e.target.value }))}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
-                    >
-                      <option value="">-- Sélectionner --</option>
-                      {targetReports.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
-                    </select>
+                    {isTargetFixed ? (
+                      <div className="w-full px-2.5 py-1.5 border border-green-200 dark:border-green-700 rounded-lg bg-green-50 dark:bg-green-900/20 text-sm text-green-600 dark:text-green-400 font-medium">
+                        Page fixe — pas d'ID requis
+                      </div>
+                    ) : (
+                      <select
+                        value={form.target_id}
+                        onChange={e => setForm(f => ({ ...f, target_id: e.target.value }))}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm"
+                      >
+                        <option value="">-- Sélectionner --</option>
+                        {targetReports.map(r => <option key={r.id} value={r.id}>{r.nom}</option>)}
+                      </select>
+                    )}
                   </div>
                 </div>
                 <div>

@@ -15,12 +15,6 @@ const CHART_COLORS = [
   '#22c55e', '#d946ef', '#64748b', '#fb923c', '#2dd4bf'
 ]
 
-// Dégradés pour les barres et aires
-const GRADIENT_PAIRS = [
-  ['#3b82f6', '#60a5fa'], ['#10b981', '#34d399'], ['#f59e0b', '#fbbf24'],
-  ['#ef4444', '#f87171'], ['#8b5cf6', '#a78bfa'], ['#ec4899', '#f472b6'],
-  ['#06b6d4', '#22d3ee'], ['#84cc16', '#a3e635'],
-]
 
 export default function PivotChart({
   data = [],
@@ -193,27 +187,6 @@ export default function PivotChart({
   const xAxisTextAnchor = needsAngle ? 'end' : 'middle'
   const xAxisHeight = needsAngle ? 70 : 35
 
-  // SVG Gradients pour les barres
-  const GradientDefs = () => (
-    <defs>
-      {series.map((s, i) => {
-        const pair = GRADIENT_PAIRS[i % GRADIENT_PAIRS.length]
-        return (
-          <linearGradient key={`grad_${i}`} id={`gradient_${i}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={pair[0]} stopOpacity={0.9} />
-            <stop offset="100%" stopColor={pair[1]} stopOpacity={0.7} />
-          </linearGradient>
-        )
-      })}
-      {series.map((s, i) => (
-        <linearGradient key={`area_${i}`} id={`areaGrad_${i}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={s.color} stopOpacity={0.35} />
-          <stop offset="100%" stopColor={s.color} stopOpacity={0.05} />
-        </linearGradient>
-      ))}
-    </defs>
-  )
-
   // ─── Pie / Donut ───
   if (chartType === 'pie' || chartType === 'donut') {
     const isDonut = chartType === 'donut'
@@ -286,7 +259,6 @@ export default function PivotChart({
       <div className={`${className}`}>
         <ResponsiveContainer width="100%" height={chartHeight}>
           <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
-            <GradientDefs />
             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
             <YAxis
               type="category"
@@ -305,7 +277,8 @@ export default function PivotChart({
               <Bar
                 key={s.key}
                 dataKey={s.key}
-                fill={`url(#gradient_${i})`}
+                fill={colors[i % colors.length]}
+                fillOpacity={0.85}
                 radius={[0, 4, 4, 0]}
                 barSize={Math.max(14, Math.min(24, 400 / chartData.length))}
                 onClick={(data) => handleChartClick(data.name, s.key)}
@@ -358,7 +331,6 @@ export default function PivotChart({
             onClick={onCellClick ? (d) => { if (d?.activeLabel !== undefined && d?.activePayload?.[0]) handleChartClick(d.activeLabel, d.activePayload[0].name) } : undefined}
             style={onCellClick ? { cursor: 'pointer' } : undefined}
           >
-            <GradientDefs />
             <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
             <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={xAxisAngle} textAnchor={xAxisTextAnchor} height={xAxisHeight} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNumber(v, { format: 'abbreviated' })} />
@@ -371,7 +343,8 @@ export default function PivotChart({
                 dataKey={s.key}
                 stroke={s.color}
                 strokeWidth={2}
-                fill={`url(#areaGrad_${i})`}
+                fill={s.color}
+                fillOpacity={0.15}
               />
             ))}
           </AreaChart>
@@ -413,7 +386,6 @@ export default function PivotChart({
       )}
       <ResponsiveContainer width="100%" height={chartHeight}>
         <BarChart data={chartData} margin={{ left: 5, right: 10, top: 5, bottom: 5 }}>
-          <GradientDefs />
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
           <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={xAxisAngle} textAnchor={xAxisTextAnchor} height={xAxisHeight} />
           <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatNumber(v, { format: 'abbreviated' })} domain={yDomain} allowDataOverflow={true} />
@@ -423,7 +395,8 @@ export default function PivotChart({
             <Bar
               key={s.key}
               dataKey={s.key}
-              fill={`url(#gradient_${i})`}
+              fill={colors[i % colors.length]}
+              fillOpacity={0.85}
               radius={isStacked ? [0, 0, 0, 0] : [4, 4, 0, 0]}
               stackId={isStacked ? 'stack' : undefined}
               barSize={computedBarSize}
