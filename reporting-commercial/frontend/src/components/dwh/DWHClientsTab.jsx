@@ -3,7 +3,7 @@ import {
   Building2, Plus, Edit2, Trash2, Server, Database, Users, Mail,
   CheckCircle, AlertCircle, Loader2, ChevronDown, ChevronRight,
   MapPin, Phone, Link2, Download, XCircle, Info, Menu as MenuIcon,
-  RefreshCw, FlaskConical
+  RefreshCw, FlaskConical, FileJson
 } from 'lucide-react'
 import api from '../../services/api'
 
@@ -11,9 +11,10 @@ export default function DWHClientsTab({
   loading, dwhList, expandedDWH, toggleExpand,
   openCreateModal, openEditModal, openSMTPModal, openSourcesModal, handleDeleteDWH
 }) {
-  const [dlStatus, setDlStatus] = useState({})     // { [code]: 'loading'|'ok'|'error' }
-  const [menuStatus, setMenuStatus] = useState({}) // { [code]: 'loading'|'ok'|'exists'|'error' }
-  const [syncStatus, setSyncStatus] = useState({}) // { [code]: 'loading'|'ok'|'error' }
+  const [dlStatus, setDlStatus] = useState({})         // { [code]: 'loading'|'ok'|'error' }
+  const [menuStatus, setMenuStatus] = useState({})     // { [code]: 'loading'|'ok'|'exists'|'error' }
+  const [syncStatus, setSyncStatus] = useState({})     // { [code]: 'loading'|'ok'|'error' }
+  const [configStatus, setConfigStatus] = useState({}) // { [code]: 'loading'|'ok'|'error' }
 
   const handleSyncDemo = async (dwh) => {
     if (!confirm(`Réinitialiser les données démo de "${dwh.nom}" ?\nCela écrasera les alertes, abonnements et templates.`)) return
@@ -40,6 +41,24 @@ export default function DWHClientsTab({
       setTimeout(() => setMenuStatus(s => ({ ...s, [dwh.code]: null })), 4000)
     } catch {
       setMenuStatus(s => ({ ...s, [dwh.code]: 'error' }))
+    }
+  }
+
+  const handleDownloadAgentConfig = async (dwh) => {
+    setConfigStatus(s => ({ ...s, [dwh.code]: 'loading' }))
+    try {
+      const res = await api.get(`/dwh-admin/${dwh.code}/agent-config`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/json' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `agent_config_${dwh.code}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      setConfigStatus(s => ({ ...s, [dwh.code]: 'ok' }))
+      setTimeout(() => setConfigStatus(s => ({ ...s, [dwh.code]: null })), 4000)
+    } catch {
+      setConfigStatus(s => ({ ...s, [dwh.code]: 'error' }))
+      setTimeout(() => setConfigStatus(s => ({ ...s, [dwh.code]: null })), 4000)
     }
   }
 
@@ -226,6 +245,24 @@ export default function DWHClientsTab({
                     title="Modifier"
                   >
                     <Edit2 size={18} />
+                  </button>
+                  <button
+                    onClick={() => handleDownloadAgentConfig(dwh)}
+                    disabled={configStatus[dwh.code] === 'loading'}
+                    className={`p-2 rounded-lg ${
+                      configStatus[dwh.code] === 'ok' ? 'text-green-600 bg-green-50' :
+                      configStatus[dwh.code] === 'error' ? 'text-red-600 bg-red-50' :
+                      'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                    }`}
+                    title="Télécharger config Agent ETL"
+                  >
+                    {configStatus[dwh.code] === 'loading'
+                      ? <Loader2 size={18} className="animate-spin" />
+                      : configStatus[dwh.code] === 'ok'
+                      ? <CheckCircle size={18} />
+                      : configStatus[dwh.code] === 'error'
+                      ? <XCircle size={18} />
+                      : <FileJson size={18} />}
                   </button>
                   {(dwh.is_demo || dwh.code === 'KA') && (
                     <button

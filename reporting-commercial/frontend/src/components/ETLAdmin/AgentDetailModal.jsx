@@ -41,16 +41,27 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
 
   const loadData = async () => {
     try {
-      const [agentRes, tablesRes, availableRes] = await Promise.all([
-        getAgent(initialAgent.agent_id),
+      // Charger l'agent en priorite — les tables/available sont non-fatales
+      const agentRes = await getAgent(initialAgent.agent_id)
+      const agentData = agentRes.data?.data || agentRes.data
+
+      // Tables et available : erreurs tolerees (ex: base client non encore initialisee)
+      const [tablesRes, availableRes] = await Promise.allSettled([
         getAgentTables(initialAgent.agent_id),
         getAvailableETLTables()
       ])
-      // Support both formats: direct object or {data: {...}} or {tables: [...]}
-      const agentData = agentRes.data?.data || agentRes.data
-      const tablesData = tablesRes.data?.data || tablesRes.data || []
-      // Format pour available: {success: true, tables: [...]}
-      const availableData = availableRes.data?.tables || availableRes.data?.data || availableRes.data || []
+
+      const tablesData = tablesRes.status === 'fulfilled'
+        ? (tablesRes.value.data?.data || tablesRes.value.data || [])
+        : []
+      const availableData = availableRes.status === 'fulfilled'
+        ? (availableRes.value.data?.tables || availableRes.value.data?.data || availableRes.value.data || [])
+        : []
+
+      if (tablesRes.status === 'rejected')
+        console.warn('Tables non chargees:', tablesRes.reason)
+      if (availableRes.status === 'rejected')
+        console.warn('Tables disponibles non chargees:', availableRes.reason)
 
       setAgent(agentData)
       setTables(Array.isArray(tablesData) ? tablesData : [])
@@ -68,8 +79,8 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
         sage_password: ''
       })
     } catch (err) {
-      console.error('Erreur chargement:', err)
-      setError('Erreur lors du chargement')
+      console.error('Erreur chargement agent:', err)
+      setError('Erreur lors du chargement des données agent')
     }
   }
 

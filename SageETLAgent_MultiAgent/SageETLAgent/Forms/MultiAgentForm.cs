@@ -73,6 +73,7 @@ namespace SageETLAgent.Forms
 
         // Mode continu controls
         private TextBox txtDwhCode = null!;
+        private Button btnImportConfig = null!;
         private Button btnStartContinuous = null!;
         private Button btnStopContinuous = null!;
         private Button btnPause = null!;
@@ -234,6 +235,10 @@ namespace SageETLAgent.Forms
             txtDwhCode = new TextBox { Text = _dwhCode, Width = 120, Font = new Font("Segoe UI", 8.5F), BorderStyle = BorderStyle.FixedSingle };
             _toolTip.SetToolTip(txtDwhCode, "Code client DWH (ex: ESSA). Requis pour lire les agents avec credentials Sage.");
             serverPanel.Controls.Add(txtDwhCode);
+            btnImportConfig = CreateIconButton("\U0001F4C2", "Importer config depuis fichier agent_config_XXX.json", 28, ThemeTextMuted, Color.White, true);
+            btnImportConfig.Margin = new Padding(6, 1, 0, 0);
+            _toolTip.SetToolTip(btnImportConfig, "Importer serveur + code DWH depuis un fichier agent_config_XXX.json");
+            serverPanel.Controls.Add(btnImportConfig);
             configInner.Controls.Add(serverPanel, 0, 0);
 
             // Ligne 2: Mode
@@ -483,6 +488,7 @@ namespace SageETLAgent.Forms
         {
             btnTestConnection.Click += async (s, e) => await TestConnectionAsync();
             btnLoadAgents.Click += async (s, e) => await LoadAgentsAsync();
+            btnImportConfig.Click += (s, e) => ImportAgentConfig();
             btnSyncSelected.Click += async (s, e) => await SyncSelectedAsync();
             btnSyncAll.Click += async (s, e) => await SyncAllAsync();
             btnCancel.Click += (s, e) => _syncManager.Cancel();
@@ -1105,6 +1111,83 @@ namespace SageETLAgent.Forms
         #endregion
 
         #region Mode Manuel
+
+        // Clé AES-256-GCM partagée avec le backend Python (32 octets)
+        private static readonly byte[] AgentCfgKey =
+            System.Text.Encoding.ASCII.GetBytes("kasoft_optiboard_etl_key_2026!!!");
+
+        private static string DecryptAgentConfig(string encryptedBase64)
+        {
+            var combined = Convert.FromBase64String(encryptedBase64);
+            var nonce      = combined[..12];               // 12 premiers octets
+            var withTag    = combined[12..];               // reste = ciphertext + tag
+            var tag        = withTag[^16..];               // 16 derniers octets = tag GCM
+            var ciphertext = withTag[..^16];
+            var plaintext  = new byte[ciphertext.Length];
+
+            using var aesGcm = new System.Security.Cryptography.AesGcm(AgentCfgKey, 16);
+            aesGcm.Decrypt(nonce, ciphertext, tag, plaintext);
+            return System.Text.Encoding.UTF8.GetString(plaintext);
+        }
+
+        private void ImportAgentConfig()
+        {
+            using var dlg = new OpenFileDialog
+            {
+                Title = "Importer la configuration Agent ETL",
+                Filter = "Config Agent (agent_config_*.json)|agent_config_*.json|Fichiers JSON (*.json)|*.json",
+                CheckFileExists = true
+            };
+
+            if (dlg.ShowDialog() != DialogResult.OK) return;
+
+            try
+            {
+                var raw = File.ReadAllText(dlg.FileName);
+                var envelope = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(raw);
+
+                string jsonPayload;
+
+                // Fichier chiffré (v=1) ou plain JSON (rétrocompatibilité)
+                if (envelope?.v != null && (int)envelope.v == 1)
+                {
+                    string encryptedData = envelope.data?.ToString() ?? "";
+                    if (string.IsNullOrWhiteSpace(encryptedData))
+                        throw new Exception("Champ 'data' manquant dans le fichier chiffré.");
+                    jsonPayload = DecryptAgentConfig(encryptedData);
+                }
+                else
+                {
+                    jsonPayload = raw; // plain JSON (ancien format)
+                }
+
+                var config = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(jsonPayload);
+
+                string serverUrl = config?.server_url?.ToString() ?? "";
+                string dwhCode   = config?.dwh_code?.ToString()   ?? "";
+                string clientNom = config?.client_nom?.ToString()  ?? dwhCode;
+
+                if (string.IsNullOrWhiteSpace(serverUrl) || string.IsNullOrWhiteSpace(dwhCode))
+                {
+                    MessageBox.Show("Fichier de configuration invalide : server_url ou dwh_code manquant.",
+                        "Erreur import", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                txtServerUrl.Text = serverUrl;
+                txtDwhCode.Text   = dwhCode;
+                _serverUrl = serverUrl;
+                _dwhCode   = dwhCode;
+
+                AppendLog($"Config importee : client={clientNom}, serveur={serverUrl}, code={dwhCode}");
+                lblStatus.Text = $"Config : {clientNom} ({dwhCode})";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Erreur lors de la lecture du fichier :\n{ex.Message}",
+                    "Erreur import", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
 
         private async Task TestConnectionAsync()
         {
