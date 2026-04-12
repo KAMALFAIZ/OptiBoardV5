@@ -105,6 +105,8 @@ export default function GridViewDisplay() {
   // Groupement multi-champs
   const [groupByFields, setGroupByFields] = useState([])
   const [showGroupPanel, setShowGroupPanel] = useState(false)
+  // Tri courant (capturé depuis AG Grid pour l'appliquer dans les groupes)
+  const [sortState, setSortState] = useState({ field: null, direction: null })
 
   // Colonnes panel
   const [showColumnPanel, setShowColumnPanel] = useState(false)
@@ -519,9 +521,24 @@ export default function GridViewDisplay() {
 
     const totalColumns = grid?.total_columns || []
 
+    // Comparateur générique pour le tri métier
+    const compare = (aVal, bVal, direction) => {
+      if (aVal == null && bVal == null) return 0
+      if (aVal == null) return 1
+      if (bVal == null) return -1
+      let cmp = typeof aVal === 'number' && typeof bVal === 'number'
+        ? aVal - bVal
+        : String(aVal).localeCompare(String(bVal), 'fr-FR', { sensitivity: 'base' })
+      return direction === 'asc' ? cmp : -cmp
+    }
+
     // Fonction récursive pour grouper à chaque niveau
     const buildGroupRows = (rows, level, parentPath) => {
-      if (level >= groupByFields.length) return rows // plus de niveaux → lignes détail
+      // Niveau feuille : trier les lignes détail par la colonne active
+      if (level >= groupByFields.length) {
+        if (!sortState.field) return rows
+        return [...rows].sort((a, b) => compare(a[sortState.field], b[sortState.field], sortState.direction))
+      }
 
       const field = groupByFields[level]
       const label = columns.find(c => c.field === field)?.header || field
@@ -534,14 +551,37 @@ export default function GridViewDisplay() {
         groups[key].push(row)
       })
 
+      // Calculer les agrégats par groupe pour trier les groupes eux-mêmes
+      // Logique métier :
+      //   - Colonne numérique → trier par somme du groupe
+      //   - Colonne texte      → trier par la valeur de regroupement (clé du groupe)
+      //   - Colonne = champ de regroupement → trier la clé alphabétiquement
+      if (sortState.field) {
+        const isNumericField = rows.some(r => typeof r[sortState.field] === 'number')
+        order.sort((a, b) => {
+          let aVal, bVal
+          if (sortState.field === field) {
+            // On trie sur le champ de groupement lui-même → ordre alphabétique des clés
+            aVal = a; bVal = b
+          } else if (isNumericField) {
+            // Colonne numérique → somme du groupe
+            aVal = groups[a].reduce((s, r) => s + (typeof r[sortState.field] === 'number' ? r[sortState.field] : 0), 0)
+            bVal = groups[b].reduce((s, r) => s + (typeof r[sortState.field] === 'number' ? r[sortState.field] : 0), 0)
+          } else {
+            // Colonne texte → première valeur du groupe
+            aVal = groups[a][0]?.[sortState.field]
+            bVal = groups[b][0]?.[sortState.field]
+          }
+          return compare(aVal, bVal, sortState.direction)
+        })
+      }
+
       const result = []
       order.forEach(key => {
         const groupRows = groups[key]
         const path = parentPath ? `${parentPath}|||${key}` : key
         const isExpanded = expandedGroups[path] !== false
 
-        // Ligne de groupe — on met une valeur dans la 1ère colonne visible
-        // pour forcer AG Grid à appeler le cellRenderer
         const groupRow = {
           __isGroupRow: true,
           __groupPath: path,
@@ -551,7 +591,6 @@ export default function GridViewDisplay() {
           __expanded: isExpanded,
           __level: level
         }
-        // Injecter le label dans le champ de la première colonne visible
         if (firstVisibleField) {
           groupRow[firstVisibleField] = `${label}: ${key} (${groupRows.length})`
         }
@@ -561,7 +600,6 @@ export default function GridViewDisplay() {
         })
         result.push(groupRow)
 
-        // Enfants (récursif)
         if (isExpanded) {
           const children = buildGroupRows(groupRows, level + 1, path)
           children.forEach(r => result.push(r))
@@ -571,7 +609,11 @@ export default function GridViewDisplay() {
     }
 
     return buildGroupRows(allData, 0, '')
-  }, [allData, groupByFields, expandedGroups, grid?.total_columns, columns, firstVisibleField])
+  }, [allData, groupByFields, expandedGroups, grid?.total_columns, columns, firstVisibleField, sortState])
+
+  // Ref toujours à jour pour postSortRows (évite le stale closure)
+  const groupedDataRef = useRef(groupedData)
+  useEffect(() => { groupedDataRef.current = groupedData }, [groupedData])
 
   // Totals row (pinned bottom)
   const totalsRowData = useMemo(() => {
@@ -583,6 +625,9 @@ export default function GridViewDisplay() {
   // Default column def
   const defaultColDef = useMemo(() => ({
     sortable: features.allow_sorting !== false,
+    // Quand groupement actif : comparator neutre (AG Grid ne réordonne pas les nœuds)
+    // Le tri est géré dans groupedData (pré-trié). L'icône de tri reste visible.
+    comparator: groupByFields.length > 0 ? () => 0 : undefined,
     resizable: true,
     floatingFilter: features.show_column_filters && showFilters,
     filterParams: { buttons: ['reset'] },
@@ -1459,14 +1504,18 @@ export default function GridViewDisplay() {
           animateRows={true}
           enableCellTextSelection={true}
           ensureDomOrder={true}
-          // Quand le groupement est actif, on empêche AG Grid de re-trier les lignes
-          // car notre groupedData est déjà dans l'ordre hiérarchique correct
-          postSortRows={groupByFields.length > 0 ? (params) => {
-            // Restaurer l'ordre original de groupedData (ignorer le tri AG Grid)
-            const indexMap = new Map()
-            groupedData.forEach((row, i) => indexMap.set(row, i))
-            params.nodes.sort((a, b) => (indexMap.get(a.data) ?? 0) - (indexMap.get(b.data) ?? 0))
-          } : undefined}
+          // postSortRows uniquement sans groupement (avec groupement, le comparator neutre
+          // empêche AG Grid de réordonner — groupedData est déjà pré-trié)
+          postSortRows={undefined}
+          onSortChanged={(params) => {
+            const sorted = params.api.getColumnState().find(c => c.sort)
+            const newSort = sorted ? { field: sorted.colId, direction: sorted.sort } : { field: null, direction: null }
+            setSortState(prev => {
+              // Forcer une mise à jour du ref immédiatement
+              // pour que postSortRows ait la bonne version
+              return newSort
+            })
+          }}
           // Pagination
           pagination={features.show_pagination}
           paginationPageSize={grid?.page_size || 25}

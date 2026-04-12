@@ -30,10 +30,15 @@ namespace SageETLAgent.Services
         public DwhWriter(string server, string database, string username, string password, string? agentName = null)
         {
             _agentName = agentName ?? "";
-            // Pour les serveurs locaux, utiliser Windows Auth (Integrated Security)
-            string auth = IsLocalServer(server)
-                ? "Integrated Security=True;Trusted_Connection=True"
-                : $"User Id={username};Password={password}";
+            // Utiliser SQL Auth si un username est fourni (meme si le password est vide)
+            // Utiliser Windows Auth uniquement si le username est vide ET le serveur est local
+            string auth;
+            if (!string.IsNullOrWhiteSpace(username))
+                auth = $"User Id={username};Password={password ?? ""}";
+            else if (IsLocalServer(server))
+                auth = "Integrated Security=True;Trusted_Connection=True";
+            else
+                auth = $"User Id={username};Password={password ?? ""}";
             _connectionString = $"Server={server};Database={database};{auth};" +
                               $"TrustServerCertificate=True;Connection Timeout=60;" +
                               $"Packet Size=32768;Application Name=SageETL_Turbo";

@@ -720,30 +720,63 @@ async def get_agent(
     agent_id: str,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
-    """[CLIENT] Recupere les details d'un agent depuis la base client."""
+    """[CLIENT] Recupere les details d'un agent depuis la base client.
+    Fallback automatique vers APP_ETL_Agents_Monitoring si base client non disponible.
+    """
     try:
         dwh_code = _get_dwh_for_agent(agent_id, x_dwh_code)
-        with client_cursor(dwh_code) as cursor:
-            cursor.execute(
-                """
-                SELECT *,
-                    CASE
-                        WHEN is_active = 0 THEN 'Desactive'
-                        WHEN last_heartbeat IS NULL THEN 'Jamais connecte'
-                        WHEN DATEDIFF(SECOND, last_heartbeat, GETDATE()) > heartbeat_interval_secondes * 3 THEN 'Hors ligne'
-                        WHEN statut = 'erreur' THEN 'Erreur'
-                        WHEN statut = 'actif' THEN 'En ligne'
-                        ELSE 'Inactif'
-                    END AS health_status
-                FROM APP_ETL_Agents WHERE agent_id = ?
-                """,
-                (agent_id,)
-            )
-            row = cursor.fetchone()
-            cols = [c[0] for c in cursor.description] if cursor.description else []
+        row = None
+        cols = []
 
+        # Essayer d'abord la base client
+        try:
+            with client_cursor(dwh_code) as cursor:
+                cursor.execute(
+                    """
+                    SELECT *,
+                        CASE
+                            WHEN statut = 'inactif' THEN 'Desactive'
+                            WHEN last_heartbeat IS NULL THEN 'Jamais connecte'
+                            WHEN DATEDIFF(SECOND, last_heartbeat, GETDATE()) > heartbeat_interval_secondes * 3 THEN 'Hors ligne'
+                            WHEN statut = 'erreur' THEN 'Erreur'
+                            WHEN statut = 'actif' THEN 'En ligne'
+                            ELSE 'Inactif'
+                        END AS health_status
+                    FROM APP_ETL_Agents WHERE agent_id = ?
+                    """,
+                    (agent_id,)
+                )
+                row = cursor.fetchone()
+                cols = [c[0] for c in cursor.description] if cursor.description else []
+        except Exception as client_err:
+            logger.warning(f"Base client indisponible pour {dwh_code}, fallback central: {client_err}")
+
+        # Fallback vers monitoring central si pas trouve en base client
         if not row:
-            raise HTTPException(status_code=404, detail="Agent non trouve")
+            monitoring_rows = execute_central(
+                """
+                SELECT agent_id, nom, dwh_code, statut, last_heartbeat, last_sync,
+                       last_sync_statut, hostname, ip_address, os_info, agent_version,
+                       total_syncs, total_lignes_sync, consecutive_failures,
+                       date_enregistrement AS created_at, date_modification AS updated_at,
+                       CASE
+                           WHEN last_heartbeat IS NULL THEN 'Jamais connecte'
+                           WHEN DATEDIFF(SECOND, last_heartbeat, GETDATE()) > 180 THEN 'Hors ligne'
+                           WHEN statut = 'erreur' THEN 'Erreur'
+                           WHEN statut = 'actif' THEN 'En ligne'
+                           ELSE 'Inactif'
+                       END AS health_status,
+                       1 AS is_active,
+                       300 AS sync_interval_secondes, 30 AS heartbeat_interval_secondes,
+                       10000 AS batch_size, '' AS description,
+                       '' AS sage_server, '' AS sage_database, '' AS sage_username
+                FROM APP_ETL_Agents_Monitoring WHERE agent_id = ?
+                """,
+                (agent_id,), use_cache=False
+            )
+            if not monitoring_rows:
+                raise HTTPException(status_code=404, detail="Agent non trouve")
+            return {"success": True, "data": monitoring_rows[0], "_source": "monitoring"}
 
         return {"success": True, "data": dict(zip(cols, row))}
 

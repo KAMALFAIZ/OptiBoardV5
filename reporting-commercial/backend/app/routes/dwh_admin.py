@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pyodbc
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel
 
 from ..database_unified import (
@@ -41,6 +41,82 @@ router = APIRouter(prefix="/api", tags=["dwh-admin"])
 
 # Bases protegees contre la suppression / reset
 PROTECTED_DWH_CODES = {"KA"}  # Kasoft-Démo : client de démonstration protégé
+
+
+def _ensure_app_dwh_optiboard_columns():
+    """
+    Migration 009 — Ajoute les colonnes serveur_optiboard / base_optiboard /
+    user_optiboard / password_optiboard dans APP_DWH si elles n'existent pas.
+    Remplit base_optiboard pour les clients existants (convention OptiBoard_clt{code}).
+    """
+    migrations = [
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='serveur_optiboard') ALTER TABLE APP_DWH ADD serveur_optiboard NVARCHAR(200) NULL",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='base_optiboard') ALTER TABLE APP_DWH ADD base_optiboard NVARCHAR(200) NULL",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='user_optiboard') ALTER TABLE APP_DWH ADD user_optiboard NVARCHAR(100) NULL",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='password_optiboard') ALTER TABLE APP_DWH ADD password_optiboard NVARCHAR(200) NULL",
+        # Remplir base_optiboard pour les clients existants si vide
+        "UPDATE APP_DWH SET base_optiboard = CONCAT('OptiBoard_clt', code) WHERE base_optiboard IS NULL OR base_optiboard = ''",
+    ]
+    try:
+        with get_db_cursor() as cursor:
+            for sql in migrations:
+                try:
+                    cursor.execute(sql)
+                    cursor.commit()
+                except Exception as e:
+                    logger.debug(f"Migration 009 skipped: {e}")
+        logger.info("APP_DWH: colonnes optiboard verifiees (migration 009)")
+    except Exception as e:
+        logger.warning(f"Migration 009 APP_DWH partielle: {e}")
+
+
+def _migrate_client_db_schema(dwh_code: str):
+    """
+    Migration automatique des bases clients existantes — ajoute les colonnes
+    manquantes dans APP_ETL_Agents (is_active, auto_start, etc.) si le schema
+    est plus ancien que le schema courant.
+    """
+    client_migrations = [
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='is_active') ALTER TABLE APP_ETL_Agents ADD is_active BIT DEFAULT 1",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='auto_start') ALTER TABLE APP_ETL_Agents ADD auto_start BIT DEFAULT 1",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='description') ALTER TABLE APP_ETL_Agents ADD description NVARCHAR(500) NULL",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='batch_size') ALTER TABLE APP_ETL_Agents ADD batch_size INT DEFAULT 10000",
+    ]
+    try:
+        config = client_manager._get_client_db_info(dwh_code)
+        if not config:
+            return
+        from ..config_multitenant import get_central_settings
+        settings = get_central_settings()
+        conn_str = config.get_connection_string(settings)
+        with pyodbc.connect(conn_str, timeout=10) as conn:
+            conn.autocommit = True
+            cursor = conn.cursor()
+            for sql in client_migrations:
+                try:
+                    cursor.execute(sql)
+                except Exception as e:
+                    logger.debug(f"Client migration {dwh_code} skipped: {e}")
+        logger.info(f"APP_ETL_Agents [{dwh_code}]: schema client mis a jour")
+    except Exception as e:
+        logger.debug(f"Migration client DB {dwh_code}: {e}")
+
+
+def _migrate_all_client_dbs():
+    """Applique les migrations de schema a toutes les bases clients actives."""
+    try:
+        dwh_list = execute_central("SELECT code FROM APP_DWH WHERE actif = 1", use_cache=False)
+        for dwh in dwh_list:
+            _migrate_client_db_schema(dwh["code"])
+    except Exception as e:
+        logger.warning(f"Migration globale bases clients: {e}")
+
+
+try:
+    _ensure_app_dwh_optiboard_columns()
+    _migrate_all_client_dbs()
+except Exception:
+    pass
 
 
 # =============================================================================
@@ -1436,14 +1512,27 @@ def _patch_missing_tables(dwh_code: str) -> Dict[str, Any]:
     """
     Ajoute les tables manquantes dans la base client OptiBoard_{code}.
     Utilise CLIENT_OPTIBOARD_TABLES_SQL (idempotent — IF NOT EXISTS).
+    Ajoute aussi les colonnes manquantes dans les tables existantes (ALTER TABLE).
     """
     conn_str = _get_optiboard_conn_str(dwh_code)
     tables_created = 0
     errors = []
+
+    # Migrations de colonnes pour les bases existantes (schema plus ancien)
+    column_migrations = [
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='is_active') ALTER TABLE APP_ETL_Agents ADD is_active BIT DEFAULT 1",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='auto_start') ALTER TABLE APP_ETL_Agents ADD auto_start BIT DEFAULT 1",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='description') ALTER TABLE APP_ETL_Agents ADD description NVARCHAR(500) NULL",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='batch_size') ALTER TABLE APP_ETL_Agents ADD batch_size INT DEFAULT 10000",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='api_key_hash') ALTER TABLE APP_ETL_Agents ADD api_key_hash VARCHAR(64) NULL",
+        "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agents') AND name='api_key_prefix') ALTER TABLE APP_ETL_Agents ADD api_key_prefix VARCHAR(20) NULL",
+    ]
+
     try:
         with pyodbc.connect(conn_str, timeout=30) as conn:
             conn.autocommit = True
             cursor = conn.cursor()
+            # 1 — Créer les tables manquantes
             for stmt in CLIENT_OPTIBOARD_TABLES_SQL.split(";"):
                 lines = [l for l in stmt.strip().split("\n") if l.strip() and not l.strip().startswith("--")]
                 clean = "\n".join(lines).strip()
@@ -1456,6 +1545,12 @@ def _patch_missing_tables(dwh_code: str) -> Dict[str, Any]:
                 except Exception as e:
                     if "already exists" not in str(e).lower():
                         errors.append(str(e)[:120])
+            # 2 — Ajouter les colonnes manquantes dans les tables existantes
+            for migration in column_migrations:
+                try:
+                    cursor.execute(migration)
+                except Exception as e:
+                    errors.append(str(e)[:120])
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -2188,6 +2283,62 @@ class RepairClientDBRequest(BaseModel):
     user_optiboard: Optional[str] = None       # utilisateur SQL (ex: sa)
     password_optiboard: Optional[str] = None   # mot de passe SQL
     recreate: bool = False                     # si True, supprime APP_ClientDB et recrée la base
+
+
+@router.get("/dwh-admin/{code}/agent-config")
+async def dwh_admin_agent_config(code: str, request: Request):
+    """
+    Génère un fichier de configuration chiffré (AES-256-GCM) pour l'Agent ETL Sage.
+    Contient le couple (server_url + dwh_code) lié au client — évite toute
+    saisie manuelle et empêche le mélange serveur/code DWH.
+    Le fichier est illisible en clair : seul l'agent C# possède la clé de déchiffrement.
+    """
+    import base64
+    import os as _os
+    import json as _json
+    from fastapi.responses import Response
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from ..config_multitenant import get_central_settings
+
+    rows = execute_query(
+        "SELECT code, nom FROM APP_DWH WHERE code = ?",
+        (code,), use_cache=False
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="DWH introuvable")
+
+    dwh = rows[0]
+
+    # URL publique : priorité à SERVER_PUBLIC_URL, sinon Host header, sinon base_url
+    settings = get_central_settings()
+    if settings.SERVER_PUBLIC_URL:
+        server_url = settings.SERVER_PUBLIC_URL.rstrip("/")
+    else:
+        host = request.headers.get("X-Forwarded-Host") or request.headers.get("Host", "")
+        proto = request.headers.get("X-Forwarded-Proto", "http")
+        server_url = f"{proto}://{host}".rstrip("/") if host else str(request.base_url).rstrip("/")
+
+    payload = {
+        "dwh_code": dwh["code"],
+        "server_url": server_url,
+        "client_nom": dwh["nom"]
+    }
+
+    # Chiffrement AES-256-GCM — clé partagée avec l'agent C#
+    _KEY = b"kasoft_optiboard_etl_key_2026!!!"  # 32 octets
+    aesgcm = AESGCM(_KEY)
+    nonce = _os.urandom(12)
+    plaintext = _json.dumps(payload, ensure_ascii=False).encode()
+    ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+    encrypted_b64 = base64.b64encode(nonce + ciphertext).decode()
+
+    envelope = _json.dumps({"v": 1, "data": encrypted_b64}, indent=2)
+    filename = f"agent_config_{code}.json"
+    return Response(
+        content=envelope,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.post("/dwh-admin/{code}/repair-client-db")
