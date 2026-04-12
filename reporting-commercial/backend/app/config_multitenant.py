@@ -37,6 +37,7 @@ class CentralDBSettings(BaseSettings):
     APP_NAME: str = "OptiBoard"
     DEBUG: bool = True
     SECRET_KEY: str = "optiboard-secret-key-change-in-production"
+    SERVER_PUBLIC_URL: str = ""  # URL publique du serveur (ex: https://optiboard.kasoft.ma)
 
     # Cache settings
     CACHE_TTL: int = 300  # 5 minutes

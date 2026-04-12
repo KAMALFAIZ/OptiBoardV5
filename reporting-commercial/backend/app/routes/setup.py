@@ -268,8 +268,10 @@ async def configure_database(config: DatabaseConfig):
 
         save_env_config(env_config)
 
-        # Recharger les settings
+        # Recharger les settings (config.py ET config_multitenant.py — deux caches independants)
         settings = reload_settings()
+        from ..config_multitenant import reload_central_settings
+        reload_central_settings()
 
         # Initialiser TOUTES les tables APP automatiquement
         init_result = await init_all_tables()

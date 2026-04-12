@@ -38,9 +38,9 @@ IF NOT EXISTS (
     ALTER TABLE APP_DWH ADD password_optiboard NVARCHAR(200) NULL;
 
 -- Remplir base_optiboard pour les clients existants
--- (hérite de OptiBoard_{code} si non renseigné)
+-- (convention : OptiBoard_clt{code})
 UPDATE APP_DWH
-SET base_optiboard = CONCAT('OptiBoard_', code)
+SET base_optiboard = CONCAT('OptiBoard_clt', code)
 WHERE base_optiboard IS NULL OR base_optiboard = '';
 
 -- ─────────────────────────────────────────────────────
