@@ -167,8 +167,9 @@ set ERRORS=0
 echo  [1/7] Feature Containers...
 powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Containers).Installed) { Write-Host '  [OK] Installe' } else { Write-Host '  [KO] Non installe' } } catch { Write-Host '  [INFO] Non disponible' }" 2>nul
 
-echo  [2/7] Hyper-V...
-powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Hyper-V).Installed) { Write-Host '  [OK] Installe' } else { Write-Host '  [INFO] Absent (non bloquant)' } } catch { Write-Host '  [INFO] Non disponible' }" 2>nul
+echo  [2/7] Hyper-V (requis pour conteneurs Linux)...
+powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Hyper-V).Installed) { $svc=(Get-Service vmms -EA SilentlyContinue).Status; if ($svc -eq 'Running') { Write-Host '  [OK] Installe et actif' } else { Write-Host '  [WARN] Installe mais inactif - redemarrage requis' } } else { Write-Host '  [KO] Non installe - Linux containers impossible' } } catch { Write-Host '  [INFO] Verification impossible' }" 2>nul
+set /a ERRORS+=0
 
 echo  [3/7] Service Docker...
 sc query Docker >nul 2>&1
@@ -303,6 +304,29 @@ pause & goto FIN
 :DEPLOY
 :: ============================================================
 echo  == Deploiement OptiBoard ===================================
+echo.
+
+:: -- Verifier Hyper-V actif (requis pour conteneurs Linux)
+echo  [*] Verification Hyper-V...
+powershell -NoProfile -Command "(Get-Service vmms -ErrorAction SilentlyContinue).Status" 2>nul | findstr "Running" >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo.
+    echo  [ERREUR] Hyper-V non actif sur ce serveur.
+    echo  Les conteneurs Linux necessitent Hyper-V.
+    echo.
+    echo  Solution : activer Hyper-V puis redemarrer Windows.
+    echo.
+    set /p FIX="  Activer Hyper-V et redemarrer maintenant ? (o/n) : "
+    if /i "!FIX!"=="o" (
+        powershell -NoProfile -Command "Install-WindowsFeature -Name Hyper-V -IncludeManagementTools"
+        echo.
+        echo  Hyper-V installe. Redemarrage dans 15 secondes...
+        echo  Relancez DOCKER_SETUP.bat apres le redemarrage.
+        shutdown /r /t 15 /c "Activation Hyper-V pour Docker Linux containers"
+    )
+    pause & goto FIN
+)
+echo  [OK] Hyper-V actif
 echo.
 
 :: -- Copier docker-compose.prod.yml si present a cote du .bat
