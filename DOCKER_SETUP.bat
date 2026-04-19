@@ -4,8 +4,8 @@ title OptiBoard - Docker Manager (Windows Server 2022)
 setlocal enabledelayedexpansion
 
 :: ============================================================
-::  OptiBoard - Docker Manager v2
-::  Compatible Windows Server 2022
+::  OptiBoard - Docker Manager v3
+::  Windows Server 2022  |  Images Linux via GHCR
 ::  Clic droit -> Executer en tant qu'administrateur
 :: ============================================================
 
@@ -30,7 +30,7 @@ echo.
 echo  [1] Installer Docker         (Docker Engine + Compose)
 echo  [2] Verifier l'installation  (diagnostic complet)
 echo  [3] Creer le fichier .env    (parametres base de donnees)
-echo  [4] Deployer OptiBoard       (login GHCR + docker compose up)
+echo  [4] Deployer OptiBoard       (pull GHCR + docker compose up)
 echo  [5] Etat des conteneurs      (docker compose ps)
 echo  [6] Voir les logs            (docker compose logs)
 echo  [7] Arreter OptiBoard        (docker compose down)
@@ -82,7 +82,7 @@ powershell -NoProfile -Command "Expand-Archive -Path '%DOCKER_ZIP%' -Destination
 del /f /q "%DOCKER_ZIP%" >nul 2>&1
 echo  [OK] Extrait dans C:\Program Files\Docker
 
-echo  [*] Ajout au PATH...
+echo  [*] Ajout au PATH systeme...
 powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('Path', $env:Path + ';C:\Program Files\Docker', [System.EnvironmentVariableTarget]::Machine)"
 set "PATH=%PATH%;C:\Program Files\Docker"
 
@@ -142,7 +142,7 @@ if exist "%SRC%nginx\nginx.prod.conf" (
 )
 
 docker version >nul 2>&1
-if %ERRORLEVEL% equ 0 ( echo  [OK] Docker repond correctement ) else ( echo  [WARN] Docker muet - un redemarrage peut etre necessaire )
+if %ERRORLEVEL% equ 0 ( echo  [OK] Docker repond ) else ( echo  [WARN] Docker muet - redemarrage Windows peut etre necessaire )
 
 echo.
 echo  ============================================================
@@ -150,8 +150,8 @@ echo   Installation terminee !
 echo  ============================================================
 echo.
 echo  Etapes suivantes :
-echo  [3] Creer le .env    ->  parametres SQL Server
-echo  [4] Deployer         ->  demarrer OptiBoard
+echo  [3] Creer le .env   ->  parametres SQL Server
+echo  [4] Deployer        ->  demarrer OptiBoard
 echo.
 set /p RB="  Redemarrer Windows maintenant ? (o/n) : "
 if /i "!RB!"=="o" shutdown /r /t 10 /c "Redemarrage Docker"
@@ -165,10 +165,10 @@ echo.
 set ERRORS=0
 
 echo  [1/7] Feature Containers...
-powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Containers).Installed) { Write-Host '  [OK] Installe' } else { Write-Host '  [KO] Non installe' } } catch { Write-Host '  [INFO] Commande non disponible' }" 2>nul
+powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Containers).Installed) { Write-Host '  [OK] Installe' } else { Write-Host '  [KO] Non installe' } } catch { Write-Host '  [INFO] Non disponible' }" 2>nul
 
 echo  [2/7] Hyper-V...
-powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Hyper-V).Installed) { Write-Host '  [OK] Installe' } else { Write-Host '  [INFO] Absent (non bloquant si Docker tourne)' } } catch { Write-Host '  [INFO] Commande non disponible' }" 2>nul
+powershell -NoProfile -Command "try { if ((Get-WindowsFeature -Name Hyper-V).Installed) { Write-Host '  [OK] Installe' } else { Write-Host '  [INFO] Absent (non bloquant)' } } catch { Write-Host '  [INFO] Non disponible' }" 2>nul
 
 echo  [3/7] Service Docker...
 sc query Docker >nul 2>&1
@@ -180,7 +180,7 @@ if %ERRORLEVEL% neq 0 (
     if %ERRORLEVEL% equ 0 (
         echo  [OK] En cours d'execution
     ) else (
-        echo  [KO] Service arrete - tentative...
+        echo  [KO] Service arrete - tentative demarrage...
         net start Docker >nul 2>&1
         set /a ERRORS+=1
     )
@@ -189,8 +189,7 @@ if %ERRORLEVEL% neq 0 (
 echo  [4/7] Docker Engine...
 docker version >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    for /f "tokens=3" %%v in ('docker version --format "{{.Server.Version}}" 2^>nul') do echo  [OK] Version serveur : %%v
-    if "%%v"=="" echo  [OK] Docker repond
+    echo  [OK] Docker repond
 ) else (
     echo  [KO] Docker ne repond pas
     set /a ERRORS+=1
@@ -199,7 +198,7 @@ if %ERRORLEVEL% equ 0 (
 echo  [5/7] Docker Compose...
 docker compose version >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    for /f "delims=" %%v in ('docker compose version') do echo  [OK] %%v
+    echo  [OK] Docker Compose present
 ) else (
     echo  [KO] Docker Compose introuvable
     set /a ERRORS+=1
@@ -217,16 +216,16 @@ echo  [7/7] Fichier .env...
 if exist "C:\optiboard\.env" (
     echo  [OK] Present dans C:\optiboard\
 ) else (
-    echo  [KO] Absent - lancez option [3] pour le creer
+    echo  [KO] Absent - lancez option [3]
     set /a ERRORS+=1
 )
 
 echo.
 echo  ------------------------------------------------------------
 if !ERRORS! equ 0 (
-    echo   BILAN : Tout est OK  -  Pret pour le deploiement [4]
+    echo   BILAN : Tout est OK  -  Pret pour [4] Deployer
 ) else (
-    echo   BILAN : !ERRORS! probleme(s) detecte(s) - voir [KO] ci-dessus
+    echo   BILAN : !ERRORS! probleme(s) detecte(s)
 )
 echo  ------------------------------------------------------------
 echo.
@@ -246,15 +245,15 @@ if exist "C:\optiboard\.env" (
 )
 
 echo  -- SQL Server --
-set /p DB_SERVER="  Serveur SQL  (ex: 192.168.1.10 ou SRV\SQLEXPRESS) : "
-set /p DB_NAME="  Base de donnees                                   : "
-set /p DB_USER="  Utilisateur                                       : "
-set /p DB_PASSWORD="  Mot de passe                                     : "
+set /p DB_SERVER="  Serveur SQL     (ex: 192.168.1.10 ou SRV\SQLEXPRESS) : "
+set /p DB_NAME="  Base de donnees (ex: GROUPE_ALBOUGHAZE)               : "
+set /p DB_USER="  Utilisateur     (ex: sa)                               : "
+set /p DB_PASSWORD="  Mot de passe                                          : "
 echo.
 echo  -- Application --
-set /p RAW_URL="  URL du serveur  (ex: 192.168.1.20 ou monsite.com) : "
+set /p RAW_URL="  URL du serveur  (ex: 192.168.1.20 ou monsite.com)     : "
 
-:: Ajouter http:// si pas de protocole
+:: Ajouter http:// si absent
 echo !RAW_URL! | findstr /i "^http" >nul 2>&1
 if %ERRORLEVEL% neq 0 ( set "ALLOWED_ORIGINS=http://!RAW_URL!" ) else ( set "ALLOWED_ORIGINS=!RAW_URL!" )
 echo  [OK] URL : !ALLOWED_ORIGINS!
@@ -306,9 +305,16 @@ pause & goto FIN
 echo  == Deploiement OptiBoard ===================================
 echo.
 
+:: -- Copier docker-compose.prod.yml si present a cote du .bat
+set "SRC=%~dp0"
+if exist "%SRC%docker-compose.prod.yml" (
+    copy /y "%SRC%docker-compose.prod.yml" "C:\optiboard\" >nul
+    echo  [OK] docker-compose.prod.yml mis a jour
+)
+
 if not exist "C:\optiboard\docker-compose.prod.yml" (
     echo  [ERREUR] docker-compose.prod.yml introuvable dans C:\optiboard\
-    echo  Lancez l'option [1] ou copiez le fichier manuellement.
+    echo  Placez docker-compose.prod.yml dans le meme dossier que ce .bat
     pause & goto FIN
 )
 if not exist "C:\optiboard\.env" (
@@ -318,40 +324,48 @@ if not exist "C:\optiboard\.env" (
     goto FIN
 )
 
-:: -- Login GHCR
-echo  -- Connexion GitHub Container Registry (GHCR) --
+:: -- Login GHCR (skip si deja connecte)
+echo  -- Connexion GitHub Container Registry --
 echo.
-echo  Token GitHub PAT requis (permission : read:packages)
-echo  Creer : https://github.com/settings/tokens/new  -^>  cocher read:packages
-echo.
-set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
-echo !GHCR_TOKEN! | docker login ghcr.io -u kamalfaiz --password-stdin
-if %ERRORLEVEL% neq 0 (
+docker pull ghcr.io/kamalfaiz/optiboard-backend:latest >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo  [OK] Deja connecte a ghcr.io
+) else (
+    echo  Token GitHub PAT requis (permission : read:packages)
+    echo  Creer : https://github.com/settings/tokens/new  -^>  cocher read:packages
     echo.
-    echo  [ERREUR] Login GHCR echoue. Verifiez le token.
-    pause & goto FIN
+    set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
+    echo !GHCR_TOKEN! | docker login ghcr.io -u kamalfaiz --password-stdin
+    if !ERRORLEVEL! neq 0 (
+        echo.
+        echo  [ERREUR] Login GHCR echoue. Verifiez le token.
+        pause & goto FIN
+    )
+    echo  [OK] Connecte a ghcr.io
 )
-echo  [OK] Connecte a ghcr.io
 echo.
 
-:: -- Forcer Linux containers (Windows Server = Windows mode par defaut)
+:: -- Platform Linux (obligatoire sur Windows Server)
 set DOCKER_DEFAULT_PLATFORM=linux/amd64
 
-:: -- Pull
+:: -- Pull images
 cd /d "C:\optiboard"
-echo  [*] Telechargement des images (platform: linux/amd64)...
+echo  [*] Telechargement des images (linux/amd64)...
 docker compose -f docker-compose.prod.yml pull
 if %ERRORLEVEL% neq 0 (
     echo  [ERREUR] Impossible de telecharger les images.
+    echo  Verifiez le token GHCR et la connexion internet.
     pause & goto FIN
 )
 echo.
 
-:: -- Up
+:: -- Demarrage
 echo  [*] Demarrage des conteneurs...
 docker compose -f docker-compose.prod.yml up -d
 echo.
-echo  -- Etat --
+
+:: -- Etat
+echo  -- Etat des conteneurs --
 docker compose -f docker-compose.prod.yml ps
 echo.
 echo  [OK] OptiBoard demarre
@@ -373,7 +387,7 @@ pause & goto FIN
 :: ============================================================
 :LOGS
 :: ============================================================
-echo  == Logs (Ctrl+C pour quitter) ==============================
+echo  == Logs en direct (Ctrl+C pour quitter) ===================
 echo.
 cd /d "C:\optiboard" 2>nul
 docker compose -f docker-compose.prod.yml logs -f --tail=50
@@ -385,7 +399,7 @@ pause & goto FIN
 :: ============================================================
 echo  == Arret OptiBoard =========================================
 echo.
-set /p CONF="  Confirmer l'arret ? (o/n) : "
+set /p CONF="  Confirmer l'arret de tous les conteneurs ? (o/n) : "
 if /i "!CONF!"=="o" (
     cd /d "C:\optiboard" 2>nul
     docker compose -f docker-compose.prod.yml down

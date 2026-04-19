@@ -1,6 +1,7 @@
 # ============================================================
 # OptiBoard v5 - Production Docker Compose
-# Compatible Windows Server 2022 (Linux containers via platform)
+# Compatible Windows Server 2022
+# Images buildees par GitHub Actions -> GHCR
 # ============================================================
 
 services:
@@ -55,7 +56,7 @@ services:
     networks:
       - optiboard-net
 
-  # -- Watchtower : mise a jour auto ---------------------------
+  # -- Watchtower : mises a jour automatiques ------------------
   watchtower:
     image: containrrr/watchtower
     platform: linux/amd64
