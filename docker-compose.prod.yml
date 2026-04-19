@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ============================================================
 # OptiBoard v5 — Production Docker Compose
 # Utilise les images pre-buildées depuis GitHub Container Registry
@@ -61,8 +59,11 @@ services:
     container_name: optiboard-watchtower
     restart: always
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json:ro
+      # Windows Server 2022 : pipe Docker natif
+      - type: npipe
+        source: \\.\pipe\docker_engine
+        target: /var/run/docker.sock
+      - ${USERPROFILE}/.docker/config.json:/config.json:ro
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=300        # vérifie toutes les 5 min
