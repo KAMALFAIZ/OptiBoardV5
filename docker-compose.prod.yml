@@ -1,13 +1,14 @@
 # ============================================================
-# OptiBoard v5 — Production Docker Compose
-# Utilise les images pre-buildées depuis GitHub Container Registry
+# OptiBoard v5 - Production Docker Compose
+# Compatible Windows Server 2022 (Linux containers via platform)
 # ============================================================
 
 services:
 
-  # ── Backend FastAPI ──────────────────────────────────────
+  # -- Backend FastAPI -----------------------------------------
   backend:
     image: ghcr.io/kamalfaiz/optiboard-backend:latest
+    platform: linux/amd64
     container_name: optiboard-backend
     restart: always
     env_file: .env
@@ -36,16 +37,17 @@ services:
       retries: 3
       start_period: 60s
 
-  # ── Frontend React/Nginx ─────────────────────────────────
+  # -- Frontend React/Nginx ------------------------------------
   frontend:
     image: ghcr.io/kamalfaiz/optiboard-frontend:latest
+    platform: linux/amd64
     container_name: optiboard-frontend
     restart: always
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/ssl:/etc/nginx/ssl:ro          # Certificats SSL
+      - ./nginx/ssl:/etc/nginx/ssl:ro
       - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       backend:
@@ -53,22 +55,22 @@ services:
     networks:
       - optiboard-net
 
-  # ── Watchtower : mise à jour auto des images ─────────────
+  # -- Watchtower : mise a jour auto ---------------------------
   watchtower:
     image: containrrr/watchtower
+    platform: linux/amd64
     container_name: optiboard-watchtower
     restart: always
     volumes:
-      # Windows Server 2022 : pipe Docker natif
       - type: npipe
         source: \\.\pipe\docker_engine
         target: /var/run/docker.sock
       - ${USERPROFILE}/.docker/config.json:/config.json:ro
     environment:
       - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_POLL_INTERVAL=300        # vérifie toutes les 5 min
+      - WATCHTOWER_POLL_INTERVAL=300
       - WATCHTOWER_INCLUDE_STOPPED=false
-      - WATCHTOWER_LABEL_ENABLE=true        # uniquement les containers labelisés
+      - WATCHTOWER_LABEL_ENABLE=true
     command: --interval 300
 
 volumes:

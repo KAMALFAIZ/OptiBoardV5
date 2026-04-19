@@ -334,9 +334,12 @@ if %ERRORLEVEL% neq 0 (
 echo  [OK] Connecte a ghcr.io
 echo.
 
+:: -- Forcer Linux containers (Windows Server = Windows mode par defaut)
+set DOCKER_DEFAULT_PLATFORM=linux/amd64
+
 :: -- Pull
 cd /d "C:\optiboard"
-echo  [*] Telechargement des images...
+echo  [*] Telechargement des images (platform: linux/amd64)...
 docker compose -f docker-compose.prod.yml pull
 if %ERRORLEVEL% neq 0 (
     echo  [ERREUR] Impossible de telecharger les images.
