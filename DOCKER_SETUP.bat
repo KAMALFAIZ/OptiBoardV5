@@ -359,6 +359,25 @@ if %ERRORLEVEL% equ 0 (
 )
 echo.
 
+:: -- Demarrer le service Docker si arrete
+echo  [*] Demarrage service Docker...
+sc query Docker >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo  [INFO] Service Docker introuvable - re-enregistrement...
+    "C:\Program Files\Docker\dockerd.exe" --register-service >nul 2>&1
+    sc config Docker start= auto >nul 2>&1
+)
+net start Docker >nul 2>&1
+timeout /t 8 /nobreak >nul
+
+docker version >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo  [ERREUR] Docker daemon ne repond pas.
+    echo  Essayez : net start Docker  puis relancez option [4]
+    pause & goto FIN
+)
+echo  [OK] Docker daemon actif
+
 :: -- Platform Linux (obligatoire sur Windows Server)
 set DOCKER_DEFAULT_PLATFORM=linux/amd64
 
