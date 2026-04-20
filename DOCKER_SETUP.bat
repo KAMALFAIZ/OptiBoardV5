@@ -109,16 +109,14 @@ echo.
 echo  == 3/5  Docker Compose =====================================
 echo.
 docker compose version >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    for /f "delims=" %%v in ('docker compose version') do echo  [OK] %%v
-    goto DAEMON_CONFIG
+if %ERRORLEVEL% neq 0 (
+    if not exist "%ProgramFiles%\Docker\cli-plugins" mkdir "%ProgramFiles%\Docker\cli-plugins"
+    echo  [*] Telechargement Docker Compose v2.27.1...
+    powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-windows-x86_64.exe' -OutFile '%ProgramFiles%\Docker\cli-plugins\docker-compose.exe' -UseBasicParsing"
+    if !ERRORLEVEL! neq 0 ( echo  [ERREUR] Echec telechargement Compose & pause & exit /b 1 )
+    echo  [OK] Docker Compose v2.27.1 installe
 )
-set "COMPOSE_DIR=%ProgramFiles%\Docker\cli-plugins"
-if not exist "%COMPOSE_DIR%" mkdir "%COMPOSE_DIR%"
-echo  [*] Telechargement Docker Compose v2.27.1...
-powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-windows-x86_64.exe' -OutFile '%COMPOSE_DIR%\docker-compose.exe' -UseBasicParsing"
-if %ERRORLEVEL% neq 0 ( echo  [ERREUR] Echec telechargement Compose & pause & exit /b 1 )
-echo  [OK] Docker Compose v2.27.1 installe
+for /f "delims=" %%v in ('docker compose version 2^>nul') do echo  [OK] %%v
 
 :DAEMON_CONFIG
 echo.
@@ -126,7 +124,7 @@ echo  == 4/5  Configuration daemon ================================
 echo.
 set "DAEMON_DIR=%ProgramData%\Docker\config"
 if not exist "%DAEMON_DIR%" mkdir "%DAEMON_DIR%"
-powershell -NoProfile -Command "$c='{\"experimental\":true,\"features\":{\"buildkit\":true},\"log-driver\":\"json-file\",\"log-opts\":{\"max-size\":\"10m\",\"max-file\":\"3\"}}'; Set-Content -Path '%DAEMON_DIR%\daemon.json' -Value $c -Encoding UTF8"
+powershell -NoProfile -Command "$c='{\"features\":{\"buildkit\":true},\"log-driver\":\"json-file\",\"log-opts\":{\"max-size\":\"10m\",\"max-file\":\"3\"}}'; Set-Content -Path '%DAEMON_DIR%\daemon.json' -Value $c -Encoding UTF8"
 echo  [OK] daemon.json configure
 net stop Docker >nul 2>&1 & timeout /t 3 /nobreak >nul
 net start Docker >nul 2>&1 & timeout /t 5 /nobreak >nul
