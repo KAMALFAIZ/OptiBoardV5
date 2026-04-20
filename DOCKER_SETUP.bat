@@ -308,25 +308,13 @@ pause & goto FIN
 echo  == Deploiement OptiBoard ===================================
 echo.
 
-:: -- Verifier Hyper-V actif (requis pour conteneurs Linux)
+:: -- Verifier Hyper-V actif, sinon basculer sur WSL2 automatiquement
 echo  [*] Verification Hyper-V...
 powershell -NoProfile -Command "(Get-Service vmms -ErrorAction SilentlyContinue).Status" 2>nul | findstr "Running" >nul 2>&1
 if %ERRORLEVEL% neq 0 (
+    echo  [INFO] Hyper-V absent - bascule automatique sur WSL2
     echo.
-    echo  [ERREUR] Hyper-V non actif sur ce serveur.
-    echo  Les conteneurs Linux necessitent Hyper-V.
-    echo.
-    echo  Solution : activer Hyper-V puis redemarrer Windows.
-    echo.
-    set /p FIX="  Activer Hyper-V et redemarrer maintenant ? (o/n) : "
-    if /i "!FIX!"=="o" (
-        powershell -NoProfile -Command "Install-WindowsFeature -Name Hyper-V -IncludeManagementTools"
-        echo.
-        echo  Hyper-V installe. Redemarrage dans 15 secondes...
-        echo  Relancez DOCKER_SETUP.bat apres le redemarrage.
-        shutdown /r /t 15 /c "Activation Hyper-V pour Docker Linux containers"
-    )
-    pause & goto FIN
+    goto DEPLOY_WSL
 )
 echo  [OK] Hyper-V actif
 echo.
