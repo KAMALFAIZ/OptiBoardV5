@@ -426,15 +426,15 @@ pause & goto FIN
 :: ============================================================
 echo  == Deploiement via WSL2 (sans Hyper-V) ====================
 echo.
-echo  Cette methode installe Docker DANS Ubuntu (WSL2)
-echo  et lance OptiBoard depuis Linux - pas besoin d'Hyper-V.
+echo  Cette methode utilise Docker dans Ubuntu (WSL2).
+echo  Pas besoin d'Hyper-V - fonctionne en VM ou sans nested-virt.
 echo.
 
 :: -- Verifier WSL disponible
 wsl --status >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo  [ERREUR] WSL non disponible sur ce serveur.
-    echo  Verifiez que VirtualMachinePlatform est active (option [1]).
+    echo  Activez VirtualMachinePlatform via option [1] puis redemarrez.
     pause & goto FIN
 )
 
@@ -452,51 +452,85 @@ if %ERRORLEVEL% neq 0 (
 )
 echo  [OK] Ubuntu WSL2 disponible
 
+:: -- Copier les fichiers dans C:\optiboard
+set "SRC=%~dp0"
+if exist "%SRC%docker-compose.prod.yml" (
+    copy /y "%SRC%docker-compose.prod.yml" "C:\optiboard\" >nul
+    echo  [OK] docker-compose.prod.yml copie
+)
+if not exist "C:\optiboard\docker-compose.prod.yml" (
+    echo  [ERREUR] docker-compose.prod.yml introuvable dans C:\optiboard\
+    echo  Placez docker-compose.prod.yml dans le meme dossier que ce .bat
+    pause & goto FIN
+)
+if not exist "C:\optiboard\.env" (
+    echo  [ERREUR] .env introuvable - lancez option [3]
+    pause & goto FIN
+)
+
+:: -- Token GHCR
+if "!GHCR_TOKEN!"=="" (
+    set /p GHCR_TOKEN="  Token PAT GHCR (ghp_...) : "
+)
+echo !GHCR_TOKEN!>"C:\optiboard\ghcr.token"
+echo  [OK] Token pret
+
+:: -------------------------------------------------------
+:: Ecriture des scripts bash dans des fichiers temporaires
+:: IMPORTANT : setlocal disabledelayedexpansion evite que
+:: CMD interprete ! comme variable et altere les scripts.
+:: Les | sont echappes ^| pour etre ecrits litteralement.
+:: -------------------------------------------------------
+echo  [*] Preparation des scripts bash...
+setlocal disabledelayedexpansion
+
+(
+echo #!/bin/bash
+echo if ! docker version ^> /dev/null 2^>^&1; then
+echo   curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+echo   sh /tmp/get-docker.sh
+echo fi
+echo service docker start ^|^| true
+) > "C:\optiboard\setup_docker_ubuntu.sh"
+
+(
+echo #!/bin/bash
+echo set -e
+echo mkdir -p /opt/optiboard/nginx/ssl
+echo cp /mnt/c/optiboard/docker-compose.prod.yml /opt/optiboard/
+echo cp /mnt/c/optiboard/.env /opt/optiboard/
+echo cat /mnt/c/optiboard/ghcr.token ^| docker login ghcr.io -u %GHCR_USER% --password-stdin
+echo cd /opt/optiboard
+echo docker compose -f docker-compose.prod.yml pull
+echo docker compose -f docker-compose.prod.yml up -d
+echo echo "--- Conteneurs actifs ---"
+echo docker compose -f docker-compose.prod.yml ps
+) > "C:\optiboard\deploy_wsl.sh"
+
+endlocal
+echo  [OK] Scripts prepares
+
 :: -- Installer Docker dans Ubuntu si absent
 echo  [*] Verification Docker dans Ubuntu...
 wsl -d Ubuntu -- docker version >nul 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo  [*] Installation Docker Engine dans Ubuntu...
-    wsl -d Ubuntu -- bash -c "curl -fsSL https://get.docker.com | sh"
-    wsl -d Ubuntu -- bash -c "sudo usermod -aG docker $USER"
+    echo  [*] Installation Docker Engine dans Ubuntu (quelques minutes)...
+    wsl -d Ubuntu -- sudo bash /mnt/c/optiboard/setup_docker_ubuntu.sh
     echo  [OK] Docker installe dans Ubuntu
 )
 wsl -d Ubuntu -- sudo service docker start >nul 2>&1
-echo  [OK] Service Docker demarre dans Ubuntu
+echo  [OK] Service Docker actif dans Ubuntu
 
-:: -- Copier les fichiers dans WSL2
-echo  [*] Copie des fichiers vers Ubuntu...
-set "SRC=%~dp0"
-wsl -d Ubuntu -- mkdir -p /opt/optiboard/nginx/ssl
-wsl -d Ubuntu -- cp /mnt/c/optiboard/.env /opt/optiboard/.env 2>nul
-wsl -d Ubuntu -- bash -c "cp /mnt/$(echo %SRC:\=/%| sed 's/://g' | tr '[:upper:]' '[:lower:]')docker-compose.prod.yml /opt/optiboard/" 2>nul
-if exist "C:\optiboard\docker-compose.prod.yml" (
-    powershell -NoProfile -Command "wsl -d Ubuntu -- bash -c 'cp /mnt/c/optiboard/docker-compose.prod.yml /opt/optiboard/'"
-    echo  [OK] docker-compose.prod.yml copie
-)
-if exist "C:\optiboard\.env" (
-    powershell -NoProfile -Command "wsl -d Ubuntu -- bash -c 'cp /mnt/c/optiboard/.env /opt/optiboard/'"
-    echo  [OK] .env copie
-)
-
-:: -- Login GHCR depuis Ubuntu
-echo  [*] Connexion GHCR depuis Ubuntu...
-wsl -d Ubuntu -- bash -c "echo '!GHCR_TOKEN!' | docker login ghcr.io -u !GHCR_USER! --password-stdin"
-if %ERRORLEVEL% neq 0 ( echo  [ERREUR] Login GHCR echoue & pause & goto FIN )
-echo  [OK] Connecte a ghcr.io
-
-:: -- Pull et deploy depuis Ubuntu
+:: -- Lancer le deploiement via le script bash
 echo.
-echo  [*] Telechargement et demarrage depuis Ubuntu...
-wsl -d Ubuntu -- bash -c "cd /opt/optiboard && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d"
-if %ERRORLEVEL% neq 0 ( echo  [ERREUR] Echec deploiement & pause & goto FIN )
+echo  [*] Telechargement des images et demarrage...
+wsl -d Ubuntu -- sudo bash /mnt/c/optiboard/deploy_wsl.sh
+if %ERRORLEVEL% neq 0 ( echo  [ERREUR] Echec deploiement WSL2 & pause & goto FIN )
 
-echo.
-wsl -d Ubuntu -- bash -c "cd /opt/optiboard && docker compose -f docker-compose.prod.yml ps"
 echo.
 echo  [OK] OptiBoard demarre via WSL2
 echo  Frontend : http://localhost
-echo  API docs : http://localhost:8080/api/docs
+echo  API docs  : http://localhost:8080/api/docs
 echo.
 pause & goto FIN
 
