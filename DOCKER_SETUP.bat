@@ -26,6 +26,13 @@ if %ERRORLEVEL% neq 0 (
 echo  [OK] Administrateur confirme
 echo.
 
+:: -- Token GHCR lu depuis C:\optiboard\ghcr.token ------------
+set "GHCR_USER=kamalfaiz"
+set "GHCR_TOKEN="
+if exist "C:\optiboard\ghcr.token" (
+    set /p GHCR_TOKEN=<"C:\optiboard\ghcr.token"
+)
+
 :: -- Menu ----------------------------------------------------
 echo  [1] Installer Docker         (Docker Engine + Compose)
 echo  [2] Verifier l'installation  (diagnostic complet)
@@ -345,14 +352,18 @@ docker pull ghcr.io/kamalfaiz/optiboard-backend:latest >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo  [OK] Deja connecte a ghcr.io
 ) else (
-    echo  Token GitHub PAT requis (permission : read:packages)
-    echo  Creer : https://github.com/settings/tokens/new  -^>  cocher read:packages
-    echo.
-    set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
-    echo !GHCR_TOKEN! | docker login ghcr.io -u kamalfaiz --password-stdin
+    if "!GHCR_TOKEN!"=="" (
+        echo  Token GitHub PAT requis (permission : read:packages)
+        set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
+        echo !GHCR_TOKEN!>"C:\optiboard\ghcr.token"
+        echo  [OK] Token sauvegarde dans C:\optiboard\ghcr.token
+    ) else (
+        echo  [OK] Token charge depuis C:\optiboard\ghcr.token
+    )
+    echo !GHCR_TOKEN! | docker login ghcr.io -u !GHCR_USER! --password-stdin
     if !ERRORLEVEL! neq 0 (
-        echo.
-        echo  [ERREUR] Login GHCR echoue. Verifiez le token.
+        echo  [ERREUR] Login GHCR echoue - suppression token cache...
+        del /f "C:\optiboard\ghcr.token" >nul 2>&1
         pause & goto FIN
     )
     echo  [OK] Connecte a ghcr.io
@@ -378,8 +389,17 @@ if %ERRORLEVEL% neq 0 (
 )
 echo  [OK] Docker daemon actif
 
-:: -- Platform Linux (obligatoire sur Windows Server)
+:: -- Tester si Docker supporte les conteneurs Linux
 set DOCKER_DEFAULT_PLATFORM=linux/amd64
+echo  [*] Test compatibilite conteneurs Linux...
+docker pull --platform linux/amd64 hello-world >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo  [INFO] Docker en mode Windows Containers
+    echo  [INFO] Bascule automatique sur WSL2 pour Linux...
+    echo.
+    goto DEPLOY_WSL
+)
+docker rmi hello-world >nul 2>&1
 
 :: -- Pull images
 cd /d "C:\optiboard"
@@ -466,10 +486,8 @@ if exist "C:\optiboard\.env" (
 )
 
 :: -- Login GHCR depuis Ubuntu
-echo.
-echo  Token GitHub PAT (read:packages) :
-set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
-wsl -d Ubuntu -- bash -c "echo '%GHCR_TOKEN%' | docker login ghcr.io -u kamalfaiz --password-stdin"
+echo  [*] Connexion GHCR depuis Ubuntu...
+wsl -d Ubuntu -- bash -c "echo '!GHCR_TOKEN!' | docker login ghcr.io -u !GHCR_USER! --password-stdin"
 if %ERRORLEVEL% neq 0 ( echo  [ERREUR] Login GHCR echoue & pause & goto FIN )
 echo  [OK] Connecte a ghcr.io
 
