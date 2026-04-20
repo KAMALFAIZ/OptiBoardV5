@@ -345,29 +345,23 @@ if not exist "C:\optiboard\.env" (
     goto FIN
 )
 
-:: -- Login GHCR (skip si deja connecte)
+:: -- Login GHCR
 echo  -- Connexion GitHub Container Registry --
 echo.
-docker pull ghcr.io/kamalfaiz/optiboard-backend:latest >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    echo  [OK] Deja connecte a ghcr.io
-) else (
-    if "!GHCR_TOKEN!"=="" (
-        echo  Token GitHub PAT requis (permission : read:packages)
-        set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
-        echo !GHCR_TOKEN!>"C:\optiboard\ghcr.token"
-        echo  [OK] Token sauvegarde dans C:\optiboard\ghcr.token
-    ) else (
-        echo  [OK] Token charge depuis C:\optiboard\ghcr.token
-    )
-    echo !GHCR_TOKEN! | docker login ghcr.io -u !GHCR_USER! --password-stdin
-    if !ERRORLEVEL! neq 0 (
-        echo  [ERREUR] Login GHCR echoue - suppression token cache...
-        del /f "C:\optiboard\ghcr.token" >nul 2>&1
-        pause & goto FIN
-    )
-    echo  [OK] Connecte a ghcr.io
+if "!GHCR_TOKEN!"=="" (
+    echo  Token GitHub PAT requis (permission : read:packages)
+    set /p GHCR_TOKEN="  Token PAT (ghp_...) : "
+    echo !GHCR_TOKEN!>"C:\optiboard\ghcr.token"
+    echo  [OK] Token sauvegarde dans C:\optiboard\ghcr.token
 )
+if not "!GHCR_TOKEN!"=="" echo  [OK] Token charge : C:\optiboard\ghcr.token
+echo !GHCR_TOKEN! | docker login ghcr.io -u !GHCR_USER! --password-stdin
+if %ERRORLEVEL% neq 0 (
+    echo  [ERREUR] Login GHCR echoue - suppression token cache...
+    del /f "C:\optiboard\ghcr.token" >nul 2>&1
+    pause & goto FIN
+)
+echo  [OK] Connecte a ghcr.io
 echo.
 
 :: -- Demarrer le service Docker si arrete
