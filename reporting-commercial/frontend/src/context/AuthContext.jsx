@@ -91,20 +91,23 @@ export function AuthProvider({ children }) {
 
   const _isAdminRole = (role) => role === 'admin' || role === 'superadmin'
 
+  // Support both old format (user.role) and new format (user.role_global / user.role_dwh)
+  const _effectiveRole = (u) => u?.role_global || u?.role_dwh || u?.role
+
   const hasAccess = (pageCode) => {
     if (!user) return false
-    if (_isAdminRole(user.role)) return true
+    if (_isAdminRole(_effectiveRole(user))) return true
     return user.pages_autorisees?.includes(pageCode)
   }
 
   const hasSocieteAccess = (societeCode) => {
     if (!user) return false
-    if (_isAdminRole(user.role)) return true
+    if (_isAdminRole(_effectiveRole(user))) return true
     return user.societes?.includes(societeCode)
   }
 
-  const isAdmin   = () => _isAdminRole(user?.role)
-  const isEditor  = () => user?.role === 'editeur'
+  const isAdmin   = () => _isAdminRole(_effectiveRole(user))
+  const isEditor  = () => _effectiveRole(user) === 'editeur'
 
   return (
     <AuthContext.Provider value={{

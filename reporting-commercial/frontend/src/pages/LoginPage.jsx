@@ -349,7 +349,12 @@ export default function LoginPage({ onLogin, appName }) {
           return
         }
 
-        store('user',  JSON.stringify(response.data.user))
+        const userToStore = {
+          ...response.data.user,
+          pages_autorisees: response.data.context?.pages_accessibles || [],
+          role_dwh: response.data.context?.role_dwh,
+        }
+        store('user',  JSON.stringify(userToStore))
         store('token', response.data.token)
 
         // ── C) Toujours écrire currentDWH complet si clientCode présent ──────
