@@ -36,6 +36,21 @@ class DatabaseConfig(BaseModel):
     create_first_dwh: bool = False
     first_dwh_code: Optional[str] = None
     first_dwh_name: Optional[str] = None
+    # Admin du client (cree dans APP_Users + lie au DWH via APP_UserDWH)
+    create_admin_client: bool = False
+    admin_username: Optional[str] = None
+    admin_password: Optional[str] = None
+    admin_email: Optional[str] = None
+    admin_nom: Optional[str] = None
+    admin_prenom: Optional[str] = None
+    # Source Sage du client (insere dans APP_DWH_Sources)
+    create_sage_source: bool = False
+    sage_server: Optional[str] = None
+    sage_database: Optional[str] = None
+    sage_username: Optional[str] = None
+    sage_password: Optional[str] = None
+    sage_societe_code: Optional[str] = None
+    sage_societe_nom: Optional[str] = None
 
 
 class TestConnectionRequest(BaseModel):
@@ -210,6 +225,62 @@ async def test_connection(config: TestConnectionRequest):
         return {"success": False, "error": str(e)}
 
 
+@router.post("/test-sage-connection")
+async def test_sage_connection(config: TestConnectionRequest):
+    """
+    Teste une connexion a la base Sage source du client.
+    Verifie qu'on peut se connecter et que la base existe.
+    """
+    try:
+        # Connexion directe a la base Sage (doit deja exister)
+        conn_str = (
+            f"DRIVER={config.driver};"
+            f"SERVER={config.server};"
+            f"DATABASE={config.database};"
+            f"UID={config.username};"
+            f"PWD={config.password};"
+            f"TrustServerCertificate=yes"
+        )
+        try:
+            conn = pyodbc.connect(conn_str, timeout=10)
+        except pyodbc.Error as e:
+            error_msg = str(e)
+            if "Login failed" in error_msg:
+                return {"success": False, "error": "Identifiants Sage incorrects"}
+            elif "Cannot open database" in error_msg:
+                return {"success": False, "error": f"Base Sage '{config.database}' introuvable sur ce serveur"}
+            elif "server was not found" in error_msg or "Network" in error_msg:
+                return {"success": False, "error": f"Serveur Sage '{config.server}' inaccessible"}
+            else:
+                return {"success": False, "error": f"Erreur Sage: {error_msg[:200]}"}
+
+        cursor = conn.cursor()
+        # Heuristique : detecter si c'est bien une base Sage (table F_COMPTET ou F_ARTICLE)
+        cursor.execute("""
+            SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_NAME IN ('F_COMPTET', 'F_ARTICLE', 'F_DOCENTETE', 'F_ECRITUREC')
+        """)
+        sage_tables = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
+        total_tables = cursor.fetchone()[0]
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "success": True,
+            "message": "Connexion Sage reussie",
+            "is_sage_db": sage_tables >= 2,
+            "table_count": total_tables,
+            "sage_tables_found": sage_tables,
+            "warning": None if sage_tables >= 2 else "Aucune table Sage detectee (F_COMPTET, F_ARTICLE...). Verifiez la base."
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @router.post("/configure")
 async def configure_database(config: DatabaseConfig):
     """
@@ -268,11 +339,39 @@ async def configure_database(config: DatabaseConfig):
 
         save_env_config(env_config)
 
-        # Recharger les settings
+        # Recharger les settings (config.py ET config_multitenant.py)
         settings = reload_settings()
+        from ..config_multitenant import reload_central_settings
+        reload_central_settings()
 
         # Initialiser TOUTES les tables APP automatiquement
         init_result = await init_all_tables()
+
+        # Creer le premier DWH (client local) si demande
+        # + admin client + source Sage si fournis
+        dwh_result = None
+        if config.create_first_dwh and config.first_dwh_code:
+            dwh_result = _create_first_local_dwh(
+                code=config.first_dwh_code,
+                nom=config.first_dwh_name or config.first_dwh_code,
+                server=config.server,
+                user=config.username,
+                password=config.password,
+                driver=config.driver,
+                # Admin client
+                admin_username=config.admin_username if config.create_admin_client else None,
+                admin_password=config.admin_password if config.create_admin_client else None,
+                admin_email=config.admin_email if config.create_admin_client else None,
+                admin_nom=config.admin_nom if config.create_admin_client else None,
+                admin_prenom=config.admin_prenom if config.create_admin_client else None,
+                # Source Sage
+                sage_server=config.sage_server if config.create_sage_source else None,
+                sage_database=config.sage_database if config.create_sage_source else None,
+                sage_username=config.sage_username if config.create_sage_source else None,
+                sage_password=config.sage_password if config.create_sage_source else None,
+                sage_societe_code=config.sage_societe_code if config.create_sage_source else None,
+                sage_societe_nom=config.sage_societe_nom if config.create_sage_source else None,
+            )
 
         return {
             "success": True,
@@ -280,7 +379,8 @@ async def configure_database(config: DatabaseConfig):
             "configured": settings.is_configured,
             "app_name": settings.APP_NAME,
             "tables_created": init_result.get("created_tables", []),
-            "admin_credentials": init_result.get("admin_credentials")
+            "admin_credentials": init_result.get("admin_credentials"),
+            "dwh": dwh_result,
         }
 
     except HTTPException:
@@ -1107,6 +1207,18 @@ async def init_central_database_tables():
             # =====================================================
             try:
                 alter_statements = [
+                    # APP_DWH - colonnes attendues par dwh_admin / etl_agents
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='serveur_optiboard') ALTER TABLE APP_DWH ADD serveur_optiboard VARCHAR(200) NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='base_optiboard') ALTER TABLE APP_DWH ADD base_optiboard VARCHAR(100) NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='user_optiboard') ALTER TABLE APP_DWH ADD user_optiboard VARCHAR(100) NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='password_optiboard') ALTER TABLE APP_DWH ADD password_optiboard VARCHAR(200) NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='is_demo') ALTER TABLE APP_DWH ADD is_demo BIT DEFAULT 0",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='ssh_enabled') ALTER TABLE APP_DWH ADD ssh_enabled BIT DEFAULT 0",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='ssh_host') ALTER TABLE APP_DWH ADD ssh_host VARCHAR(200) NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='ssh_port') ALTER TABLE APP_DWH ADD ssh_port INT NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='ssh_user') ALTER TABLE APP_DWH ADD ssh_user VARCHAR(100) NULL",
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='ssh_password') ALTER TABLE APP_DWH ADD ssh_password VARCHAR(200) NULL",
+                    # Master code columns
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_GridViews') AND name='code') ALTER TABLE APP_GridViews ADD code VARCHAR(100) NULL",
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Pivots_V2') AND name='code') ALTER TABLE APP_Pivots_V2 ADD code VARCHAR(100) NULL",
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Dashboards') AND name='code') ALTER TABLE APP_Dashboards ADD code VARCHAR(100) NULL",
@@ -1337,3 +1449,213 @@ async def create_admin(req: CreateAdminRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Helper - Création du premier DWH (client local)
+# ============================================================
+
+def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
+                            password: str, driver: str,
+                            admin_username: Optional[str] = None,
+                            admin_password: Optional[str] = None,
+                            admin_email: Optional[str] = None,
+                            admin_nom: Optional[str] = None,
+                            admin_prenom: Optional[str] = None,
+                            sage_server: Optional[str] = None,
+                            sage_database: Optional[str] = None,
+                            sage_username: Optional[str] = None,
+                            sage_password: Optional[str] = None,
+                            sage_societe_code: Optional[str] = None,
+                            sage_societe_nom: Optional[str] = None) -> dict:
+    """
+    Crée un premier client (DWH) local pendant le setup initial:
+      1. CREATE DATABASE [OptiBoard_<code>] sur le meme serveur SQL
+      2. INSERT INTO APP_DWH avec les memes credentials
+      3. INSERT INTO APP_UserDWH pour superadmin et admin (acces complet)
+      4. (optionnel) Crer un admin client dans APP_Users + le lier au DWH
+      5. (optionnel) INSERT INTO APP_DWH_Sources pour la base Sage source
+    """
+    from ..config import reload_settings
+    settings = reload_settings()
+
+    code = (code or "LOCAL").strip().upper().replace(" ", "_")[:50]
+    nom = (nom or code).strip()[:200]
+    client_db = f"OptiBoard_{code}"
+    result = {"code": code, "nom": nom, "db_name": client_db,
+              "db_created": False, "dwh_inserted": False, "users_linked": 0,
+              "admin_client_created": False, "admin_client_username": None,
+              "sage_source_inserted": False, "sage_societe_code": None,
+              "errors": []}
+
+    # 1. Creer la base client + provisionner APP_Users (table multi-tenant)
+    try:
+        conn_master = (
+            f"DRIVER={driver};SERVER={server};UID={user};PWD={password};"
+            f"TrustServerCertificate=yes"
+        )
+        with pyodbc.connect(conn_master, autocommit=True, timeout=30) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT DB_ID(?)", (client_db,))
+            if cur.fetchone()[0] is None:
+                cur.execute(f"CREATE DATABASE [{client_db}]")
+                result["db_created"] = True
+            else:
+                result["db_created"] = False
+                result["errors"].append(f"Base {client_db} existait deja")
+
+        # 1b. Creer APP_Users dans la base client (schema multi-tenant)
+        # L'auth multi-tenant cherche les users dans OptiBoard_<CODE>.APP_Users,
+        # pas dans la base centrale. Sans cette table, aucun login client ne marche.
+        conn_client_str = (
+            f"DRIVER={driver};SERVER={server};DATABASE={client_db};"
+            f"UID={user};PWD={password};TrustServerCertificate=yes"
+        )
+        with pyodbc.connect(conn_client_str, autocommit=True, timeout=30) as conn_c:
+            cur_c = conn_c.cursor()
+            cur_c.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Users' AND xtype='U')
+                CREATE TABLE APP_Users (
+                    id                    INT IDENTITY(1,1) PRIMARY KEY,
+                    username              VARCHAR(100) UNIQUE NOT NULL,
+                    password_hash         VARCHAR(200) NULL,
+                    nom                   NVARCHAR(200),
+                    prenom                NVARCHAR(100),
+                    email                 VARCHAR(200),
+                    role_dwh              VARCHAR(50) DEFAULT 'user',
+                    actif                 BIT DEFAULT 1,
+                    must_change_password  BIT DEFAULT 0,
+                    derniere_connexion    DATETIME NULL,
+                    date_creation         DATETIME DEFAULT GETDATE()
+                )
+            """)
+    except Exception as e:
+        result["errors"].append(f"CREATE DATABASE / APP_Users client: {e}")
+        return result
+
+    # 2. Inserer dans APP_DWH (base centrale) + admin client + Sage source
+    try:
+        conn_central = (
+            f"DRIVER={driver};SERVER={settings.DB_SERVER};"
+            f"DATABASE={settings.DB_NAME};UID={settings.DB_USER};"
+            f"PWD={settings.DB_PASSWORD};TrustServerCertificate=yes"
+        )
+        with pyodbc.connect(conn_central, autocommit=True, timeout=30) as conn:
+            cur = conn.cursor()
+
+            # Verifier si le DWH existe deja
+            cur.execute("SELECT id FROM APP_DWH WHERE code = ?", (code,))
+            existing = cur.fetchone()
+            if existing:
+                result["errors"].append(f"DWH {code} existait deja (id={existing[0]})")
+                dwh_id = existing[0]
+            else:
+                cur.execute("""
+                    INSERT INTO APP_DWH
+                        (code, nom, raison_sociale, serveur_dwh, base_dwh,
+                         user_dwh, password_dwh, actif)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """, (code, nom, nom, server, client_db, user, password))
+                cur.execute("SELECT @@IDENTITY")
+                dwh_id = int(cur.fetchone()[0])
+                result["dwh_inserted"] = True
+
+            # 3. Lier superadmin et admin a ce DWH
+            cur.execute(
+                "SELECT id FROM APP_Users WHERE username IN ('superadmin','admin')"
+            )
+            user_ids = [row[0] for row in cur.fetchall()]
+            for uid in user_ids:
+                cur.execute(
+                    "SELECT id FROM APP_UserDWH WHERE user_id = ? AND dwh_code = ?",
+                    (uid, code)
+                )
+                if not cur.fetchone():
+                    cur.execute("""
+                        INSERT INTO APP_UserDWH
+                            (user_id, dwh_code, role_dwh, is_default)
+                        VALUES (?, ?, 'admin', 1)
+                    """, (uid, code))
+                    result["users_linked"] += 1
+
+            # 3b. Enregistrer la base client dans APP_ClientDB (routage multi-tenant)
+            cur.execute("SELECT id FROM APP_ClientDB WHERE dwh_code = ?", (code,))
+            if not cur.fetchone():
+                cur.execute("""
+                    INSERT INTO APP_ClientDB (dwh_code, db_name, actif)
+                    VALUES (?, ?, 1)
+                """, (code, client_db))
+
+            # 4. Admin du client (optionnel) - INSERT dans la base CLIENT, pas centrale
+            # L'auth multi-tenant cherche dans OptiBoard_<CODE>.APP_Users via dwh_code.
+            if admin_username and admin_password:
+                admin_username = admin_username.strip().lower()[:50]
+                pwd_hash = hashlib.sha256(admin_password.encode()).hexdigest()
+                try:
+                    with pyodbc.connect(
+                        f"DRIVER={driver};SERVER={server};DATABASE={client_db};"
+                        f"UID={user};PWD={password};TrustServerCertificate=yes",
+                        autocommit=True, timeout=30
+                    ) as conn_a:
+                        cur_a = conn_a.cursor()
+                        cur_a.execute("SELECT id FROM APP_Users WHERE username = ?", (admin_username,))
+                        existing = cur_a.fetchone()
+                        if existing:
+                            cur_a.execute("""
+                                UPDATE APP_Users
+                                SET password_hash=?, role_dwh='admin_client', actif=1,
+                                    must_change_password=0,
+                                    nom=?, prenom=?, email=?
+                                WHERE id=?
+                            """, (
+                                pwd_hash,
+                                (admin_nom or 'Admin')[:200],
+                                (admin_prenom or 'Client')[:100],
+                                (admin_email or f"{admin_username}@optiboard.local")[:200],
+                                existing[0],
+                            ))
+                            result["admin_client_username"] = admin_username
+                            result["errors"].append(f"Utilisateur '{admin_username}' existait deja - mot de passe mis a jour")
+                        else:
+                            cur_a.execute("""
+                                INSERT INTO APP_Users
+                                    (username, password_hash, nom, prenom, email,
+                                     role_dwh, actif, must_change_password)
+                                VALUES (?, ?, ?, ?, ?, 'admin_client', 1, 0)
+                            """, (
+                                admin_username, pwd_hash,
+                                (admin_nom or 'Admin')[:200],
+                                (admin_prenom or 'Client')[:100],
+                                (admin_email or f"{admin_username}@optiboard.local")[:200],
+                            ))
+                            result["admin_client_created"] = True
+                            result["admin_client_username"] = admin_username
+                except Exception as e:
+                    result["errors"].append(f"Admin client (base {client_db}): {e}")
+
+            # 5. Source Sage (optionnel) - INSERT INTO APP_DWH_Sources
+            if sage_server and sage_database and sage_username:
+                societe_code = (sage_societe_code or code).strip().upper()[:50]
+                societe_nom = (sage_societe_nom or nom).strip()[:200]
+                cur.execute(
+                    "SELECT id FROM APP_DWH_Sources WHERE dwh_code = ? AND code_societe = ?",
+                    (code, societe_code)
+                )
+                if cur.fetchone():
+                    result["errors"].append(f"Source Sage {societe_code} deja liee au DWH {code}")
+                else:
+                    cur.execute("""
+                        INSERT INTO APP_DWH_Sources
+                            (dwh_code, code_societe, nom_societe,
+                             serveur_sage, base_sage, user_sage, password_sage,
+                             etl_enabled, etl_mode, actif)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'incremental', 1)
+                    """, (code, societe_code, societe_nom,
+                          sage_server, sage_database, sage_username,
+                          sage_password or ''))
+                    result["sage_source_inserted"] = True
+                    result["sage_societe_code"] = societe_code
+    except Exception as e:
+        result["errors"].append(f"APP_DWH/UserDWH/Admin/Sage: {e}")
+
+    return result

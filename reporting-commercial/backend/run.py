@@ -35,6 +35,7 @@ from app.routes.etl_tables import router as etl_tables_router       # ETL Tables
 from app.routes.etl_colonnes import router as etl_colonnes_router   # ETL Colonnes catalogue + choix client
 from app.routes.client_users import router as client_users_router   # Users & UserDWH locaux
 from app.routes.update_manager import router as update_manager_router  # Module MAJ clients
+from app.routes.master_export import router as master_export_router    # Master Catalog HTTP API
 from app.routes.client_package import router as client_package_router  # Package installation client
 from app.routes.env_manager import router as env_manager_router         # Gestion .env via UI
 from app.routes.roles import router as roles_router                     # Gestion des rôles utilisateurs
@@ -142,6 +143,7 @@ app.include_router(etl_tables_router)       # ETL Tables : publication central �
 app.include_router(etl_colonnes_router)     # ETL Colonnes : catalogue central + choix client
 app.include_router(client_users_router)     # Users & UserDWH locaux client
 app.include_router(update_manager_router)   # Module MAJ : check/pull updates depuis central
+app.include_router(master_export_router)    # Master Catalog : expose le catalogue maître via HTTP
 app.include_router(roles_router)            # Gestion rôles & permissions
 app.include_router(client_package_router)   # Package installation client autonome
 app.include_router(env_manager_router)      # Gestion .env via UI admin
