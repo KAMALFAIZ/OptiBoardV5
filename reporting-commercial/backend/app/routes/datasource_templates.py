@@ -607,7 +607,7 @@ async def preview_unified_datasource(
             "columns": columns,
             "total": len(results),
             "origin": datasource.get('origin'),
-            "executed_query": final_query[:500] + "..." if len(final_query) > 500 else final_query
+            "executed_query": final_query
         }
     except HTTPException:
         raise

@@ -80,7 +80,7 @@ export default function GridViewDisplay() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { isEditor, user } = useAuth()
+  const { isEditor, isAdmin, user } = useAuth()
   const { darkMode } = useTheme()
   const { filters: globalFilters, updateFilter } = useGlobalFilters()
   const isMobile = useIsMobile()
@@ -93,7 +93,12 @@ export default function GridViewDisplay() {
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
-  const isSuperAdmin = user?.role === 'superadmin'
+  const effectiveRole = user?.role_global || user?.role_dwh || user?.role
+  const isSuperAdmin = isAdmin()
+  const isDebugAllowed = isSuperAdmin
+    || user?.role_dwh === 'admin_client'
+    || user?.role === 'admin_client'
+    || user?.role_global === 'admin_client'
   const [showDebug, setShowDebug] = useState(false)
 
   // Recherche globale
@@ -222,6 +227,8 @@ export default function GridViewDisplay() {
   const loadGrid = async () => {
     setLoading(true)
     setError(null)
+    setAllData([])  // Vider données stale du grid précédent
+    setDebugInfo(null)
     try {
       const gridRes = await getGridView(id)
       const gridData = gridRes.data.data
@@ -285,8 +292,9 @@ export default function GridViewDisplay() {
             sourceIdentifier = gridData.data_source_id
             sourceRes = await getDataSource(sourceIdentifier)
           }
+          console.log('[DBG] sourceRes success:', sourceRes?.data?.success, 'data?', !!sourceRes?.data?.data)
         } catch (e) {
-          console.warn('DataSource introuvable (404), grille affichée sans données:', e?.response?.status)
+          console.warn('[DBG] DataSource 404/erreur:', e?.response?.status, e?.response?.data)
           setLoading(false)
           return
         }
@@ -425,23 +433,89 @@ export default function GridViewDisplay() {
       dbg.responseTotal = response.data.total ?? response.data.count ?? sourceData.length
       dbg.rowsReceived = sourceData.length
       dbg.responseKeys = response.data ? Object.keys(response.data) : []
+      dbg.executedQuery = response.data.executed_query || null
+      dbg.origin = response.data.origin || null
 
       // Capturer les erreurs API retournées avec HTTP 200 mais success: false
       if (response.data.success === false && response.data.error) {
         dbg.error = `[API] ${response.data.error}`
       }
 
-      setAllData(sourceData)
+      // ─── REMAPPAGE UNIVERSEL des clés data vers fields/headers colonnes ───
+      // Plusieurs stratégies de matching (normalisé, prefixes "num"/"no", header fallback)
+      const normalizeKey = (k) => String(k || '')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '') // retirer accents
+        .toLowerCase()
+        .replace(/n[°º]/g, 'num')   // "N°" → "num"
+        .replace(/numero/g, 'num')   // "numero" → "num"
+        .replace(/[^a-z0-9]/g, '')   // garder uniquement alphanum
+      let remappedData = sourceData
+      if (sourceData.length > 0 && columns && columns.length > 0) {
+        const dataKeys = Object.keys(sourceData[0])
+        const dataKeyByNorm = {}
+        dataKeys.forEach(k => { dataKeyByNorm[normalizeKey(k)] = k })
+        const fieldToDataKey = {}
+        let anyRemap = false
+        const unmatchedFields = []
+        columns.forEach(col => {
+          const f = col.field
+          if (!f) return
+          // 1. Match exact
+          if (dataKeys.includes(f)) {
+            fieldToDataKey[f] = f
+            return
+          }
+          // 2. Match normalisé sur field
+          let matched = dataKeyByNorm[normalizeKey(f)]
+          // 3. Fallback : match normalisé sur header
+          if (!matched && col.header) {
+            matched = dataKeyByNorm[normalizeKey(col.header)]
+          }
+          if (matched) {
+            fieldToDataKey[f] = matched
+            if (matched !== f) anyRemap = true
+          } else {
+            unmatchedFields.push(f)
+          }
+        })
+        if (unmatchedFields.length > 0) {
+          dbg.unmatchedFields = unmatchedFields
+        }
+        if (anyRemap) {
+          dbg.remappedFields = Object.entries(fieldToDataKey).filter(([f, k]) => f !== k)
+          remappedData = sourceData.map(row => {
+            const newRow = { ...row }
+            Object.entries(fieldToDataKey).forEach(([field, dataKey]) => {
+              if (field !== dataKey && row[dataKey] !== undefined) {
+                newRow[field] = row[dataKey]
+              }
+            })
+            return newRow
+          })
+        }
+      }
+      setAllData(remappedData)
 
-      // Ouvrir automatiquement le debug pour superadmin si erreur ou 0 résultats
-      if (user?.role === 'superadmin' && (dbg.error || sourceData.length === 0)) {
+      // Log toujours visible dans la console pour diagnostic
+      if (sourceData.length === 0 || dbg.error) {
+        console.warn('[OptiBoard] GridView 0 résultats / erreur:', {
+          query: dbg.executedQuery,
+          error: dbg.error,
+          origin: dbg.origin,
+          context: dbg.mergedContext,
+          responseKeys: dbg.responseKeys,
+        })
+      }
+
+      // Ouvrir automatiquement le debug pour admin/admin_client si erreur ou 0 résultats
+      if (isDebugAllowed && (dbg.error || sourceData.length === 0)) {
         setShowDebug(true)
       }
     } catch (err) {
       console.error('Erreur chargement source:', err)
       dbg.error = err?.response?.data?.detail || err?.message || String(err)
       setError('Erreur lors du chargement des données')
-      if (user?.role === 'superadmin') setShowDebug(true)
+      if (isDebugAllowed) setShowDebug(true)
     } finally {
       setRefreshing(false)
       setDebugInfo(dbg)
@@ -827,6 +901,23 @@ export default function GridViewDisplay() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [features.display_full_height, isMobile])
+
+  // Re-fit les colonnes apres toggle des filtres pour eviter le retrecissement
+  useEffect(() => {
+    const api = gridRef.current?.api
+    if (!api) return
+    // Sauvegarder les largeurs actuelles avant que AG Grid ne les ecrase
+    const colState = api.getColumnState()
+    setTimeout(() => {
+      if (!gridRef.current?.api) return
+      if (features.display_full_height && !isMobile) {
+        gridRef.current.api.sizeColumnsToFit()
+      } else {
+        // Restaurer les largeurs d'avant le toggle
+        gridRef.current.api.applyColumnState({ state: colState })
+      }
+    }, 50)
+  }, [showFilters, features.display_full_height, isMobile])
 
   // Attacher le clic droit sur les headers — via capture phase pour intercepter avant AG Grid
   useEffect(() => {
@@ -1252,8 +1343,8 @@ export default function GridViewDisplay() {
               <RotateCcw className="w-4 h-4" />
             </button>
 
-            {/* Bouton Debug — superadmin uniquement */}
-            {isSuperAdmin && (
+            {/* Bouton Debug — superadmin et admin_client */}
+            {isDebugAllowed && (
               <button
                 onClick={() => setShowDebug(v => !v)}
                 className={`p-1.5 rounded-lg transition-colors ${
@@ -1261,7 +1352,7 @@ export default function GridViewDisplay() {
                     ? 'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/30'
                     : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
-                title="Panneau debug (superadmin)"
+                title="Panneau debug"
               >
                 <span className="text-sm leading-none">🐛</span>
               </button>
@@ -1461,7 +1552,7 @@ export default function GridViewDisplay() {
       </div>}
 
       {/* 🐛 DEBUG PANEL — affiche les infos de chargement des données */}
-      {isSuperAdmin && showDebug && debugInfo && (
+      {isDebugAllowed && showDebug && debugInfo && (
         <div className="flex-none bg-yellow-50 border-b-2 border-yellow-400 px-4 py-2 text-xs font-mono z-10">
           <div className="flex items-center justify-between mb-1">
             <span className="font-bold text-yellow-800 text-sm">🐛 DEBUG — Chargement des données</span>
@@ -1480,8 +1571,27 @@ export default function GridViewDisplay() {
                 {debugInfo.dataSource === 'sage' ? '⚡ Sage Live (connexion directe Sage)' : '🗄️ DWH (base OptiBoard)'}
               </span>
             </div>
+            <div><b>Origin datasource:</b> <span className="text-indigo-700">{debugInfo.origin ?? '—'}</span></div>
             <div className="col-span-2"><b>mergedContext envoyé:</b> <span className="text-purple-700">{JSON.stringify(debugInfo.mergedContext)}</span></div>
             <div className="col-span-2"><b>Clés réponse API:</b> {JSON.stringify(debugInfo.responseKeys)}</div>
+            {debugInfo.remappedFields && debugInfo.remappedFields.length > 0 && (
+              <div className="col-span-2 bg-green-50 border border-green-300 rounded px-2 py-1 mt-1">
+                <span className="text-green-700 font-bold">🔄 Champs remappés:</span>{' '}
+                <span className="text-green-900">{debugInfo.remappedFields.map(([f, k]) => `${f} ← ${k}`).join(', ')}</span>
+              </div>
+            )}
+            {debugInfo.unmatchedFields && debugInfo.unmatchedFields.length > 0 && (
+              <div className="col-span-2 bg-orange-50 border border-orange-400 rounded px-2 py-1 mt-1">
+                <span className="text-orange-700 font-bold">⚠️ Champs sans match data:</span>{' '}
+                <span className="text-orange-900">{debugInfo.unmatchedFields.join(', ')}</span>
+              </div>
+            )}
+            {debugInfo.executedQuery && (
+              <div className="col-span-2 bg-blue-50 border border-blue-300 rounded px-2 py-1 mt-1">
+                <span className="text-blue-700 font-bold">🔍 Requête exécutée:</span>{' '}
+                <span className="text-blue-900 break-all whitespace-pre-wrap">{debugInfo.executedQuery}</span>
+              </div>
+            )}
             {debugInfo.error && (
               <div className="col-span-2 bg-red-100 border border-red-400 rounded px-2 py-1 mt-1">
                 <span className="text-red-700 font-bold">❌ Erreur backend:</span>{' '}
