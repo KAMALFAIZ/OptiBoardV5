@@ -48,7 +48,7 @@ const defaultSettings = {
   refreshInterval: 0, // 0 = manuel, sinon en secondes
 
   // Sécurité
-  watermarkEnabled: true, // Filigrane utilisateur (anti-copie/impression)
+  watermarkEnabled: false, // Filigrane utilisateur (anti-copie/impression)
 }
 
 export function SettingsProvider({ children }) {
@@ -56,7 +56,8 @@ export function SettingsProvider({ children }) {
     const saved = localStorage.getItem('appSettings')
     if (saved) {
       try {
-        return { ...defaultSettings, ...JSON.parse(saved) }
+        // Force watermarkEnabled=false pour desactiver le filigrane existant
+        return { ...defaultSettings, ...JSON.parse(saved), watermarkEnabled: false }
       } catch (e) {
         return defaultSettings
       }

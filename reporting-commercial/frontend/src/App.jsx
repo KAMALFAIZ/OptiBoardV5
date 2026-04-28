@@ -46,6 +46,7 @@ import UpdateManagerPage from './pages/UpdateManagerPage'
 import AIQueryLibraryPage from './pages/AIQueryLibraryPage'
 import AIPromptsPage from './pages/AIPromptsPage'
 import EnvManagerPage from './pages/EnvManagerPage'
+import MasterConfigPage from './pages/MasterConfigPage'
 import RolesAdmin from './pages/RolesAdmin'
 import AlertsPage from './pages/AlertsPage'
 import MySubscriptionsPage from './pages/MySubscriptionsPage'
@@ -290,6 +291,7 @@ function AppContent() {
       <Route path="/admin/ai-library" element={<ProtectedRoute pageCode="admin"><AIQueryLibraryPage /></ProtectedRoute>} />
       <Route path="/admin/ai-prompts" element={<ProtectedRoute pageCode="admin"><AIPromptsPage /></ProtectedRoute>} />
       <Route path="/admin/env" element={<ProtectedRoute pageCode="admin"><EnvManagerPage /></ProtectedRoute>} />
+      <Route path="/admin/master-config" element={<ProtectedRoute pageCode="admin"><MasterConfigPage /></ProtectedRoute>} />
       <Route path="/admin/roles" element={<ProtectedRoute pageCode="admin"><RolesAdmin /></ProtectedRoute>} />
       <Route path="/admin/alerts" element={<ProtectedRoute pageCode="admin"><AlertsPage /></ProtectedRoute>} />
       <Route path="/admin/subscriptions" element={<ProtectedRoute pageCode="admin"><AdminSubscriptionsPage /></ProtectedRoute>} />

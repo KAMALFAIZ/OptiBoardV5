@@ -103,11 +103,11 @@
 .ag-theme-quartz .ag-header-row-floating-filter {
   background-color: #ffffff;
   border-bottom: 1px solid #e2e8f0;
-  height: 28px !important;
+  height: 36px !important;
 }
 .ag-theme-quartz .ag-floating-filter {
   border-right: 1px solid #f1f5f9;
-  padding: 2px 4px;
+  padding: 4px 4px;
 }
 /* Icône filtre (≡) dans floating filter — réduite */
 .ag-theme-quartz .ag-floating-filter-button,
@@ -126,8 +126,8 @@
   opacity: 1;
 }
 .ag-theme-quartz .ag-floating-filter-input input {
-  font-size: 8pt;
-  height: 22px;
+  font-size: 9pt;
+  height: 28px;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background-color: #f8fafc;
@@ -322,11 +322,11 @@
 .ag-theme-quartz-dark .ag-header-row-floating-filter {
   background-color: #0f172a;
   border-bottom: 1px solid #334155;
-  height: 28px !important;
+  height: 36px !important;
 }
 .ag-theme-quartz-dark .ag-floating-filter {
   border-right: 1px solid #1e293b;
-  padding: 2px 4px;
+  padding: 4px 4px;
 }
 /* Icône filtre dark (≡) — réduite */
 .ag-theme-quartz-dark .ag-floating-filter-button,
@@ -345,8 +345,8 @@
   opacity: 1;
 }
 .ag-theme-quartz-dark .ag-floating-filter-input input {
-  font-size: 8pt;
-  height: 22px;
+  font-size: 9pt;
+  height: 28px;
   border: 1px solid #334155;
   border-radius: 12px;
   background-color: #1e293b;

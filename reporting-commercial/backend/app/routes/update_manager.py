@@ -9,21 +9,84 @@ Flux :
   Client  demande /check          → liste des MAJ disponibles vs installees
   Client  demande /pull           → tire et applique les MAJ manquantes
 
+Source du catalogue maitre :
+  - Si MASTER_API_URL configuré dans .env → fetch HTTP vers serveur central distant
+  - Sinon → fallback sur la base centrale LOCALE (OptiBoard_SaaS)
+
 Clients autonomes : se connectent ponctuellement via ce module uniquement.
 Clients connectes : MAJ automatiques + possibilite manuelle ici.
 """
 import logging
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
+
+import urllib.request
+import urllib.error
+import urllib.parse
 
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
+from ..config import get_settings
 from ..database_unified import (
     execute_central, write_central, central_cursor,
     execute_client, write_client, client_cursor,
 )
+
+
+# ============================================================
+# Master remote fetch helpers
+# ============================================================
+
+def _master_remote_enabled() -> bool:
+    """True si MASTER_API_URL est configurée → on tire depuis HTTP distant."""
+    s = get_settings()
+    return bool((getattr(s, "MASTER_API_URL", "") or "").strip())
+
+
+def _master_fetch(path: str) -> Dict[str, Any]:
+    """
+    GET HTTP sur le serveur master distant. Renvoie le JSON parsé.
+    Lève HTTPException 502/504 en cas d'échec réseau.
+    """
+    s = get_settings()
+    base_url = (s.MASTER_API_URL or "").rstrip("/")
+    api_key  = (s.MASTER_API_KEY or "").strip()
+    timeout  = int(getattr(s, "MASTER_TIMEOUT", 30) or 30)
+
+    if not base_url:
+        raise HTTPException(status_code=400, detail="MASTER_API_URL non configuré")
+
+    url = f"{base_url}{path}"
+    req = urllib.request.Request(url, method="GET")
+    if api_key:
+        req.add_header("X-Master-Api-Key", api_key)
+    req.add_header("Accept", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read().decode("utf-8")
+            return json.loads(data)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore") if e.fp else ""
+        raise HTTPException(
+            status_code=502,
+            detail=f"Master {url} → HTTP {e.code} : {body[:200]}"
+        )
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise HTTPException(status_code=504, detail=f"Master {url} injoignable : {e}")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"Master {url} → JSON invalide : {e}")
+
+
+def _master_get_items(entity: str) -> List[Dict[str, Any]]:
+    """
+    Récupère la liste d'items pour une entité depuis le master distant.
+    entity ∈ {'menus', 'dashboards', 'gridviews', 'pivots', 'datasources'}
+    """
+    payload = _master_fetch(f"/api/master/{entity}")
+    return payload.get("items", []) or []
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +101,99 @@ def _require_dwh(dwh_code: Optional[str]) -> str:
     if not dwh_code:
         raise HTTPException(status_code=400, detail="X-DWH-Code header requis")
     return dwh_code
+
+
+# ============================================================
+# Master config endpoints (test/update connexion serveur central)
+# ============================================================
+
+class MasterConfigPayload(BaseModel):
+    MASTER_API_URL: str = ""
+    MASTER_API_KEY: str = ""
+    MASTER_TIMEOUT: int = 30
+
+
+class MasterTestPayload(BaseModel):
+    """Test connexion ad-hoc sans sauvegarder dans .env."""
+    url: str
+    api_key: str = ""
+    timeout: int = 15
+
+
+@router.get("/master/config")
+async def get_master_config():
+    """Renvoie la config master courante (clé masquée)."""
+    s = get_settings()
+    return {
+        "MASTER_API_URL": s.MASTER_API_URL,
+        "MASTER_API_KEY": "***" if s.MASTER_API_KEY else "",
+        "MASTER_TIMEOUT": getattr(s, "MASTER_TIMEOUT", 30),
+        "enabled": _master_remote_enabled(),
+    }
+
+
+@router.post("/master/config")
+async def save_master_config(cfg: MasterConfigPayload):
+    """Sauvegarde MASTER_API_URL/KEY/TIMEOUT dans .env et recharge les settings."""
+    from ..config import save_env_config, reload_settings
+    payload = {
+        "MASTER_API_URL": cfg.MASTER_API_URL.strip().rstrip("/"),
+        "MASTER_TIMEOUT": str(int(cfg.MASTER_TIMEOUT or 30)),
+    }
+    # Ne pas écraser la clé si masquée par "***"
+    if cfg.MASTER_API_KEY and cfg.MASTER_API_KEY != "***":
+        payload["MASTER_API_KEY"] = cfg.MASTER_API_KEY.strip()
+    save_env_config(payload)
+    s = reload_settings()
+    return {
+        "success": True,
+        "MASTER_API_URL": s.MASTER_API_URL,
+        "enabled": _master_remote_enabled(),
+    }
+
+
+@router.post("/master/test")
+async def test_master_connection(cfg: MasterTestPayload):
+    """
+    Teste une URL/clé master sans la sauvegarder.
+    Appelle GET /api/master/info sur l'URL fournie.
+    """
+    base = (cfg.url or "").strip().rstrip("/")
+    if not base:
+        raise HTTPException(status_code=400, detail="URL master requise")
+
+    api_key = (cfg.api_key or "").strip()
+    # Si la clé est masquée → utiliser celle du .env
+    if api_key == "***":
+        api_key = (get_settings().MASTER_API_KEY or "").strip()
+
+    url = f"{base}/api/master/info"
+    req = urllib.request.Request(url, method="GET")
+    if api_key:
+        req.add_header("X-Master-Api-Key", api_key)
+    req.add_header("Accept", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=int(cfg.timeout or 15)) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return {
+            "success": True,
+            "url": url,
+            "version": data.get("version"),
+            "counts":  data.get("counts", {}),
+            "total":   data.get("total", 0),
+        }
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore") if e.fp else ""
+        if e.code == 503:
+            return {"success": False, "error": "Master désactivé sur ce serveur (MASTER_API_KEY non configuré côté serveur)"}
+        if e.code in (401, 403):
+            return {"success": False, "error": f"Clé API invalide ou manquante (HTTP {e.code})"}
+        return {"success": False, "error": f"HTTP {e.code} : {body[:200]}"}
+    except (urllib.error.URLError, TimeoutError) as e:
+        return {"success": False, "error": f"Serveur injoignable : {e}"}
+    except json.JSONDecodeError:
+        return {"success": False, "error": "Réponse non-JSON (URL incorrecte ?)"}
 
 
 def _get_client_last_update(dwh_code: str, type_entite: str) -> Optional[datetime]:
@@ -105,14 +261,19 @@ async def check_updates(
     except Exception as e:
         logger.warning(f"check_updates ETL tables: {e}")
 
+    remote = _master_remote_enabled()
+
     # --- Dashboards ---
     try:
         last_dash = _get_client_last_update(code, "dashboard")
         result["dashboards"]["last_applied"] = last_dash.isoformat() if last_dash else None
 
-        central_dash = execute_central(
-            "SELECT code, nom, date_modification FROM APP_Dashboards WHERE actif=1",
-        )
+        if remote:
+            central_dash = _master_get_items("dashboards")
+        else:
+            central_dash = execute_central(
+                "SELECT code, nom, date_modification FROM APP_Dashboards WHERE actif=1",
+            )
         installed_dash = {
             r["code_entite"]
             for r in (execute_client(
@@ -134,9 +295,12 @@ async def check_updates(
         last_gv = _get_client_last_update(code, "gridview")
         result["gridviews"]["last_applied"] = last_gv.isoformat() if last_gv else None
 
-        central_gv = execute_central(
-            "SELECT code, nom, date_modification FROM APP_GridViews WHERE actif=1",
-        )
+        if remote:
+            central_gv = _master_get_items("gridviews")
+        else:
+            central_gv = execute_central(
+                "SELECT code, nom, date_modification FROM APP_GridViews WHERE actif=1",
+            )
         installed_gv = {
             r["code_entite"]
             for r in (execute_client(
@@ -158,9 +322,12 @@ async def check_updates(
         last_menu = _get_client_last_update(code, "menu")
         result["menus"]["last_applied"] = last_menu.isoformat() if last_menu else None
 
-        central_menus = execute_central(
-            "SELECT code, nom, date_modification FROM APP_Menus WHERE actif=1",
-        )
+        if remote:
+            central_menus = _master_get_items("menus")
+        else:
+            central_menus = execute_central(
+                "SELECT code, nom, date_modification FROM APP_Menus WHERE actif=1",
+            )
         installed_menus = {
             r["code_entite"]
             for r in (execute_client(
@@ -182,6 +349,7 @@ async def check_updates(
         "success": True,
         "total_pending": total_pending,
         "categories": result,
+        "source": "remote_http" if remote else "local_central_db",
         "checked_at": datetime.now().isoformat(),
     }
 
@@ -296,17 +464,28 @@ async def pull_etl_updates(
 async def pull_builder_updates(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
-    """Applique les mises a jour Builder depuis le central."""
+    """
+    Applique les mises a jour Builder depuis le central.
+
+    Source :
+      - MASTER_API_URL configuré → fetch HTTP /api/master/*
+      - sinon → lecture base centrale locale OptiBoard_SaaS
+    """
     code = _require_dwh(dwh_code)
+    remote = _master_remote_enabled()
 
     applied = 0
     errors  = []
+    source  = "remote_http" if remote else "local_central_db"
 
     # --- Dashboards ---
     try:
-        central_dashes = execute_central(
-            "SELECT code, nom, description, config, widgets, is_public FROM APP_Dashboards WHERE actif=1",
-        )
+        if remote:
+            central_dashes = _master_get_items("dashboards")
+        else:
+            central_dashes = execute_central(
+                "SELECT code, nom, description, config, widgets, is_public FROM APP_Dashboards WHERE actif=1",
+            )
         for d in (central_dashes or []):
             d_code = d.get("code") or d[0]
             try:
@@ -339,9 +518,12 @@ async def pull_builder_updates(
 
     # --- Menus ---
     try:
-        central_menus = execute_central(
-            "SELECT code, nom, parent_code, ordre, page_code, icone, actif FROM APP_Menus WHERE actif=1",
-        )
+        if remote:
+            central_menus = _master_get_items("menus")
+        else:
+            central_menus = execute_central(
+                "SELECT code, nom, parent_code, ordre, page_code, icone, actif FROM APP_Menus WHERE actif=1",
+            )
         for m in (central_menus or []):
             m_code = m.get("code") or m[0]
             try:
@@ -372,7 +554,8 @@ async def pull_builder_updates(
         "success": True,
         "applied": applied,
         "errors": errors,
-        "message": f"{applied} element(s) Builder mis a jour",
+        "source":  source,
+        "message": f"{applied} element(s) Builder mis a jour ({source})",
     }
 
 

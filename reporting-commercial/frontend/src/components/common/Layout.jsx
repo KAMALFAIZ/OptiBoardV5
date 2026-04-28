@@ -161,6 +161,7 @@ const adminNavigation = [
       { name: 'Dashboard Builder', href: '/builder', icon: LayoutGrid, pageCode: 'admin' },
       { name: 'Pivot Builder', href: '/pivot-builder-v2', icon: Table2, pageCode: 'admin' },
       { name: 'GridView Builder', href: '/gridview-builder', icon: Table, pageCode: 'admin' },
+      { name: 'Excel Builder', href: '/excel-builder', icon: FileSpreadsheet, pageCode: 'admin' },
       { name: 'DataSource Templates', href: '/admin/datasources', icon: Database, pageCode: 'admin' },
       { name: 'Créateur IA', href: '/ai-presentation', icon: Sparkles, pageCode: 'dashboard', subtitle: 'PPTX & Excel par IA' },
       { name: 'Deck IA', href: '/ai-deck', icon: Sparkles, pageCode: 'dashboard', subtitle: 'Présentation interactive' },
@@ -977,7 +978,7 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
       <ChatWidget />
 
       {/* Filigrane dynamique utilisateur (canvas tuilé, anti-copie/impression) */}
-      {(settings?.watermarkEnabled ?? true) && <Watermark user={user} darkMode={darkMode} />}
+      {settings?.watermarkEnabled === true && <Watermark user={user} darkMode={darkMode} />}
     </div>
   )
 }

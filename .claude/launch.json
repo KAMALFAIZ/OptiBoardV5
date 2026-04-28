@@ -3,10 +3,10 @@
   "configurations": [
     {
       "name": "Reporting - Frontend (Vite/React)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["D:/kasoft-platform/OptiBoard/reporting-commercial/frontend/run-dev.sh"],
       "port": 3003,
-      "cwd": "reporting-commercial/frontend"
+      "autoPort": true
     },
     {
       "name": "Reporting - Backend API (FastAPI)",

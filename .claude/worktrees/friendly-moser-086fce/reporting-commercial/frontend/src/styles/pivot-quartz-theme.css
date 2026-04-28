@@ -1,0 +1,359 @@
+/* ═══════════════════════════════════════════════════════════════════ */
+/* Pivot Table & DrillDown — Thème dynamique var(--color-primary-*)   */
+/* S'adapte automatiquement au thème actif de l'application          */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Wrapper ─── */
+.pivot-quartz {
+  font-family: 'Tableau Medium', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 8pt;
+  line-height: 1.4;
+  color: #1e293b;
+}
+
+.pivot-quartz table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  border: 1px solid #cbd5e1;
+}
+
+/* ─── Header (thead) — couleur primaire du thème ─── */
+.pivot-quartz thead th {
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-900);
+  font-weight: 700;
+  font-size: 8pt;
+  height: 34px;
+  padding: 4px 10px;
+  border-left: 1px solid var(--color-primary-100);
+  border-right: 1px solid var(--color-primary-100);
+  border-top: none;
+  border-bottom: 2px solid var(--color-primary-200);
+  white-space: nowrap;
+  text-transform: capitalize;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+}
+
+/* Pivot column header */
+.pivot-quartz .pivot-col-header {
+  background-color: var(--color-primary-100);
+  color: var(--color-primary-900);
+  font-weight: 700;
+  font-size: 8pt;
+  text-align: center;
+  border-left: 1px solid var(--color-primary-100);
+  border-right: 1px solid var(--color-primary-100);
+  border-top: none;
+  border-bottom: 2px solid var(--color-primary-200);
+}
+
+/* Total column header */
+.pivot-quartz .pivot-total-header {
+  background-color: var(--color-primary-100);
+  color: var(--color-primary-800);
+  font-weight: 700;
+  text-align: center;
+  border-left: 1px solid var(--color-primary-200);
+  border-right: 1px solid var(--color-primary-200);
+  border-top: none;
+  border-bottom: 2px solid var(--color-primary-200);
+}
+
+/* ─── Body rows ─── */
+.pivot-quartz tbody td {
+  height: 28px;
+  padding: 2px 10px;
+  border-left: 1px solid #f1f5f9;
+  border-right: 1px solid #f1f5f9;
+  border-top: none;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 8pt;
+  background-color: #ffffff;
+  vertical-align: middle;
+}
+
+/* Alternance */
+.pivot-quartz tbody tr:nth-child(odd):not(.pivot-subtotal-row):not(.pivot-collapsed-row) td {
+  background-color: #f8fafc;
+}
+
+/* Row hover */
+.pivot-quartz tbody tr:not(.pivot-subtotal-row):not(.pivot-collapsed-row):hover td {
+  background-color: var(--color-primary-50);
+}
+
+/* ─── Row field cells (première colonne) ─── */
+.pivot-quartz .pivot-row-cell {
+  font-weight: 600;
+  color: #1e293b;
+  background-color: var(--color-primary-50) !important;
+  border-right: 2px solid var(--color-primary-200) !important;
+}
+
+/* ─── Subtotal row ─── */
+.pivot-quartz .pivot-subtotal-row td {
+  background-color: var(--color-primary-50) !important;
+  font-weight: 700;
+  font-style: normal;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: none;
+  color: var(--color-primary-800);
+}
+
+/* Collapsed subtotal */
+.pivot-quartz .pivot-collapsed-row td {
+  background-color: #f1f5f9 !important;
+  font-weight: 700;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: none;
+  color: #334155;
+}
+
+/* ─── Grand Total (tfoot) ─── */
+.pivot-quartz tfoot .pivot-grandtotal-row td {
+  background-color: var(--color-primary-50) !important;
+  color: var(--color-primary-800);
+  font-weight: 700;
+  border-left: 1px solid var(--color-primary-200);
+  border-right: 1px solid var(--color-primary-200);
+  border-bottom: none;
+  border-top: 2px solid var(--color-primary-300);
+}
+
+/* Summary row — violet distinctif */
+.pivot-quartz tfoot .pivot-summary-row td {
+  background-color: #f5f3ff !important;
+  color: #5b21b6;
+  font-weight: 700;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: none;
+  border-top: 2px solid #a78bfa;
+}
+
+/* ─── Value cells ─── */
+.pivot-quartz .pivot-value-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #334155;
+}
+
+/* Total value column */
+.pivot-quartz .pivot-total-cell {
+  background-color: var(--color-primary-50) !important;
+  font-weight: 600;
+  color: var(--color-primary-800);
+}
+
+/* Window calculation columns */
+.pivot-quartz .pivot-wc-cell {
+  background-color: var(--color-primary-50) !important;
+  color: var(--color-primary-700);
+}
+
+/* ─── Filter dropdown ─── */
+.pivot-quartz .pivot-filter-dropdown {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── Sort indicator ─── */
+.pivot-quartz .pivot-sort-icon {
+  color: var(--color-primary-600);
+}
+
+/* ─── Clickable value cell ─── */
+.pivot-quartz .pivot-clickable:hover {
+  background-color: var(--color-primary-100) !important;
+  cursor: pointer;
+}
+
+/* ═══════════════════════════════════════════════════ */
+/* DARK MODE                                          */
+/* ═══════════════════════════════════════════════════ */
+
+.dark .pivot-quartz {
+  color: #cbd5e1;
+}
+
+.dark .pivot-quartz table {
+  border-color: #334155;
+}
+
+.dark .pivot-quartz thead th {
+  background-color: color-mix(in srgb, var(--color-primary-900) 50%, #0f172a);
+  color: var(--color-primary-100);
+  border-left-color: rgba(255, 255, 255, 0.06);
+  border-right-color: rgba(255, 255, 255, 0.06);
+  border-bottom: 2px solid color-mix(in srgb, var(--color-primary-800) 40%, #334155);
+}
+
+.dark .pivot-quartz .pivot-col-header {
+  background-color: color-mix(in srgb, var(--color-primary-900) 40%, #0f172a);
+  color: var(--color-primary-100);
+  border-left-color: rgba(255, 255, 255, 0.06);
+  border-right-color: rgba(255, 255, 255, 0.06);
+  border-bottom: 2px solid color-mix(in srgb, var(--color-primary-800) 40%, #334155);
+}
+
+.dark .pivot-quartz .pivot-total-header {
+  background-color: color-mix(in srgb, var(--color-primary-900) 60%, #0f172a);
+  color: var(--color-primary-200);
+  border-left-color: rgba(255, 255, 255, 0.06);
+  border-right-color: rgba(255, 255, 255, 0.06);
+  border-bottom: 2px solid color-mix(in srgb, var(--color-primary-800) 40%, #334155);
+}
+
+.dark .pivot-quartz tbody td {
+  background-color: #0f172a;
+  border-left-color: #1e293b;
+  border-right-color: #1e293b;
+  border-top: none;
+  border-bottom: 1px solid #1e293b;
+  color: #cbd5e1;
+}
+
+.dark .pivot-quartz tbody tr:nth-child(odd):not(.pivot-subtotal-row):not(.pivot-collapsed-row) td {
+  background-color: #131c2e;
+}
+
+.dark .pivot-quartz tbody tr:not(.pivot-subtotal-row):not(.pivot-collapsed-row):hover td {
+  background-color: color-mix(in srgb, var(--color-primary-900) 30%, #0f172a);
+}
+
+.dark .pivot-quartz .pivot-row-cell {
+  background-color: color-mix(in srgb, var(--color-primary-900) 40%, #0f172a) !important;
+  color: var(--color-primary-100);
+  border-right-color: #334155 !important;
+}
+
+.dark .pivot-quartz .pivot-subtotal-row td {
+  background-color: color-mix(in srgb, var(--color-primary-900) 30%, #0f172a) !important;
+  border-left-color: #334155;
+  border-right-color: #334155;
+  border-top: 1px solid #334155;
+  border-bottom: none;
+  color: var(--color-primary-200);
+}
+
+.dark .pivot-quartz .pivot-collapsed-row td {
+  background-color: #131c2e !important;
+  border-left-color: #334155;
+  border-right-color: #334155;
+  border-top: 1px solid #334155;
+  border-bottom: none;
+  color: #e2e8f0;
+}
+
+.dark .pivot-quartz tfoot .pivot-grandtotal-row td {
+  background-color: color-mix(in srgb, var(--color-primary-900) 40%, #0f172a) !important;
+  color: var(--color-primary-300);
+  border-left-color: #334155;
+  border-right-color: #334155;
+  border-bottom: none;
+  border-top: 2px solid var(--color-primary-700);
+}
+
+.dark .pivot-quartz tfoot .pivot-summary-row td {
+  background-color: #1e1b2e !important;
+  color: #c4b5fd;
+  border-left-color: #334155;
+  border-right-color: #334155;
+  border-bottom: none;
+  border-top: 2px solid #7c3aed;
+}
+
+.dark .pivot-quartz .pivot-value-cell {
+  color: #94a3b8;
+}
+
+.dark .pivot-quartz .pivot-total-cell {
+  background-color: color-mix(in srgb, var(--color-primary-900) 40%, #0f172a) !important;
+  color: var(--color-primary-200);
+}
+
+.dark .pivot-quartz .pivot-wc-cell {
+  background-color: color-mix(in srgb, var(--color-primary-900) 30%, #0f172a) !important;
+  color: var(--color-primary-300);
+}
+
+.dark .pivot-quartz .pivot-filter-dropdown {
+  border-color: #334155;
+}
+
+.dark .pivot-quartz .pivot-clickable:hover {
+  background-color: color-mix(in srgb, var(--color-primary-900) 30%, #0f172a) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/* DrillDown Modal table — même thème dynamique                      */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+.drilldown-quartz table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  font-family: 'Tableau Medium', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 8pt;
+  border: 1px solid #cbd5e1;
+}
+.drilldown-quartz thead th {
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-900);
+  font-weight: 700;
+  font-size: 8pt;
+  height: 34px;
+  padding: 4px 10px;
+  border-left: 1px solid var(--color-primary-100);
+  border-right: 1px solid var(--color-primary-100);
+  border-top: none;
+  border-bottom: 2px solid var(--color-primary-200);
+  white-space: nowrap;
+  text-transform: capitalize;
+  letter-spacing: 0.4px;
+}
+.drilldown-quartz tbody td {
+  height: 28px;
+  padding: 2px 10px;
+  border-left: 1px solid #f1f5f9;
+  border-right: 1px solid #f1f5f9;
+  border-top: none;
+  border-bottom: 1px solid #f1f5f9;
+  background-color: #ffffff;
+}
+.drilldown-quartz tbody tr:nth-child(odd) td {
+  background-color: #f8fafc;
+}
+.drilldown-quartz tbody tr:hover td {
+  background-color: var(--color-primary-50);
+}
+
+.dark .drilldown-quartz table {
+  border-color: #334155;
+}
+.dark .drilldown-quartz thead th {
+  background-color: color-mix(in srgb, var(--color-primary-900) 50%, #0f172a);
+  color: var(--color-primary-100);
+  border-left-color: rgba(255, 255, 255, 0.06);
+  border-right-color: rgba(255, 255, 255, 0.06);
+  border-bottom: 2px solid color-mix(in srgb, var(--color-primary-800) 40%, #334155);
+}
+.dark .drilldown-quartz tbody td {
+  background-color: #0f172a;
+  border-left-color: #1e293b;
+  border-right-color: #1e293b;
+  border-top: none;
+  border-bottom: 1px solid #1e293b;
+  color: #cbd5e1;
+}
+.dark .drilldown-quartz tbody tr:nth-child(odd) td {
+  background-color: #131c2e;
+}
+.dark .drilldown-quartz tbody tr:hover td {
+  background-color: color-mix(in srgb, var(--color-primary-900) 30%, #0f172a);
+}

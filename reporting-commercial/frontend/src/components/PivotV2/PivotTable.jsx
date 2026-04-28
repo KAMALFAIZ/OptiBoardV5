@@ -392,6 +392,19 @@ export default function PivotTable({
     })
   }, [visibleRows, sortConfig])
 
+  // Compter les lignes detail par groupe sur les donnees completes (avant filtrage collapse)
+  const groupCounts = useMemo(() => {
+    if (rowFieldNames.length <= 1) return new Map()
+    const counts = new Map()
+    for (let i = 0; i < filteredData.length; i++) {
+      const row = filteredData[i]
+      if (row.__isSubtotal__ || row.__isGrandTotal__ || row.__isSummary__) continue
+      const groupVal = row[rowFieldNames[0]]
+      counts.set(groupVal, (counts.get(groupVal) || 0) + 1)
+    }
+    return counts
+  }, [filteredData, rowFieldNames])
+
   // Calculer l'info de groupe pour chaque ligne (pour eviter de repeter la 1ere colonne)
   const rowGroupInfo = useMemo(() => {
     if (rowFieldNames.length <= 1) return new Map()
@@ -654,8 +667,11 @@ export default function PivotTable({
                     const isFirstOfGroup = rowGroupInfo.get(origIdx) === true
                     const isDetailRow = rowGroupInfo.has(origIdx) && !rowGroupInfo.get(origIdx)
 
-                    const showChevronOnSubtotal = isGroupCol && isCollapsedSubtotal
-                    const showChevronOnDetail = isGroupCol && isFirstOfGroup && !isSubtotal
+                    // Ne montrer le chevron que si le groupe a plus d'une ligne detail
+                    const groupHasMultiple = groupCounts.get(cellVal) > 1
+                    const subtotalGroupHasMultiple = groupCounts.get(subtotalGroupVal) > 1
+                    const showChevronOnSubtotal = isGroupCol && isCollapsedSubtotal && subtotalGroupHasMultiple
+                    const showChevronOnDetail = isGroupCol && isFirstOfGroup && !isSubtotal && groupHasMultiple
                     const showChevron = showChevronOnSubtotal || showChevronOnDetail
 
                     const groupKeyForChevron = showChevronOnSubtotal ? subtotalGroupVal : cellVal

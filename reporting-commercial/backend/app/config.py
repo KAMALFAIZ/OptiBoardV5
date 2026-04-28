@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     LICENSE_GRACE_DAYS: int = 7  # Jours de grace si serveur injoignable
     LICENSE_SIGNING_SECRET: str = "optiboard-license-secret-clé-2025-kasoft"  # Overridable via .env
 
+    # Master Catalog (sync depuis serveur central distant)
+    # Si MASTER_API_URL est configuré, le bouton "Récupérer base maître"
+    # tire les menus/dashboards/gridviews/pivots depuis cette URL distante
+    # au lieu de la base centrale locale.
+    # Si MASTER_API_KEY est configuré sur le serveur central, il expose
+    # /api/master/* (sinon ces routes renvoient 503).
+    MASTER_API_URL: str = ""        # ex: "https://central.kasoft.ma" (sans /api final)
+    MASTER_API_KEY: str = ""        # clé API partagée serveur central <-> clients
+    MASTER_TIMEOUT: int = 30        # timeout HTTP en secondes
+
     # AI Module settings
     AI_PROVIDER: str = ""  # "openai" | "anthropic" | "ollama"
     AI_MODEL: str = ""
@@ -154,6 +164,10 @@ def save_env_config(config: dict) -> bool:
         f.write("\n# License Settings\n")
         f.write(f"LICENSE_KEY={existing_content.get('LICENSE_KEY', '')}\n")
         f.write(f"LICENSE_SERVER_URL={existing_content.get('LICENSE_SERVER_URL', 'http://kasoft.selfip.net:44100/api')}\n")
+        f.write("\n# Master Catalog Settings\n")
+        f.write(f"MASTER_API_URL={existing_content.get('MASTER_API_URL', '')}\n")
+        f.write(f"MASTER_API_KEY={existing_content.get('MASTER_API_KEY', '')}\n")
+        f.write(f"MASTER_TIMEOUT={existing_content.get('MASTER_TIMEOUT', '30')}\n")
         f.write("\n# AI Module Settings\n")
         f.write(f"AI_PROVIDER={existing_content.get('AI_PROVIDER', '')}\n")
         f.write(f"AI_MODEL={existing_content.get('AI_MODEL', '')}\n")

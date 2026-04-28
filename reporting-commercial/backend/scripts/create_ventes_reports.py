@@ -37,6 +37,15 @@ CA_FILTER = "li.[Valorise CA] = 'Oui'"
 
 DATE_FILTER = "li.[Date BL] BETWEEN @dateDebut AND @dateFin"
 
+
+def date_filter(col: str) -> str:
+    """Filtre de date paramétré par colonne (ex: 'Date document', 'Date BC').
+
+    À utiliser pour les grilles de documents où la date métier diffère de
+    [Date BL] (ex: une Facture peut avoir Date BL NULL → BETWEEN exclut tout).
+    """
+    return f"li.[{col}] BETWEEN @dateDebut AND @dateFin"
+
 SOCIETE_FILTER = "(@societe IS NULL OR li.[societe] = @societe)"
 
 COMMERCIAL_FILTER = "(@commercial IS NULL OR en.[Nom représentant] = @commercial)"
@@ -76,7 +85,7 @@ templates.append(("DS_VTE_FACTURES", "Factures de Ventes", f"""SELECT
     en.Souche
 {BASE_JOIN}
 WHERE li.[Type Document] IN ('Facture', 'Facture comptabilis\u00e9e')
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND {date_filter("Date document")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date document] DESC, li.[N\u00b0 Pi\u00e8ce]"""))
 
 # --- 2. Bons de Livraison ---
@@ -118,7 +127,7 @@ templates.append(("DS_VTE_BC", "Bons de Commande", f"""SELECT
     li.[Montant TTC Net] AS [Montant TTC]
 {BASE_JOIN}
 WHERE li.[N\u00b0 Pi\u00e8ce BC] <> ''
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND {date_filter("Date BC")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date BC] DESC"""))
 
 # --- 4. Devis ---
@@ -139,7 +148,7 @@ templates.append(("DS_VTE_DEVIS", "Devis", f"""SELECT
     li.[Catalogue 1] AS [Famille]
 {BASE_JOIN}
 WHERE li.[Type Document] = 'Devis'
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND {date_filter("Date document")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date document] DESC"""))
 
 # --- 5. Avoirs ---
@@ -159,7 +168,7 @@ templates.append(("DS_VTE_AVOIRS", "Avoirs", f"""SELECT
     li.[Catalogue 1] AS [Famille]
 {BASE_JOIN}
 WHERE li.[Type Document] IN ('Bon avoir financier', 'Facture avoir', 'Facture avoir comptabilis\u00e9e')
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND {date_filter("Date document")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date document] DESC"""))
 
 # --- 6. Bons de Retour ---
@@ -180,7 +189,7 @@ templates.append(("DS_VTE_RETOURS", "Bons de Retour", f"""SELECT
     li.[Intitul\u00e9 d\u00e9p\u00f4t] AS [Depot]
 {BASE_JOIN}
 WHERE li.[Type Document] IN ('Bon de retour', 'Facture de retour', 'Facture de retour comptabilis\u00e9e')
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND {date_filter("Date document")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date document] DESC"""))
 
 # --- 7. Preparations Livraison ---
@@ -200,7 +209,7 @@ templates.append(("DS_VTE_PL", "Preparations de Livraison", f"""SELECT
     li.[Intitul\u00e9 d\u00e9p\u00f4t] AS [Depot]
 {BASE_JOIN}
 WHERE li.[Type Document] = 'Pr\u00e9paration de livraison'
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND {date_filter("Date PL")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date PL] DESC"""))
 
 # =========================================================
@@ -870,6 +879,28 @@ GROUP BY li.[Code client], li.[Intitul\u00e9 client], li.[societe], en.[Nom repr
 HAVING MAX(li.[Date BL]) < DATEADD(MONTH, -3, GETDATE())
 ORDER BY [CA HT Historique] DESC"""))
 
+
+# =============================================================================
+#  CONSISTENCY CHECK : SELECT date alias must match WHERE date column
+# =============================================================================
+# Empêche qu'un template SELECT [Date document] AS [Date Document] mais
+# filtre sur [Date BL] dans le WHERE — bug ayant causé "0 lignes" sur Factures.
+import re as _re
+
+# Exemptions explicites — à revoir, ne pas étendre cette liste sans raison forte.
+# - DS_VTE_PERF_DEVIS : même bug que DS_VTE_FACTURES (Date BL vs Date document) — à corriger.
+# - DS_VTE_DETAIL_COMPLET : filtre Date BL volontaire (analyse CA livré) bien que SELECT expose Date document.
+_DATE_CHECK_EXEMPT = {"DS_VTE_PERF_DEVIS", "DS_VTE_DETAIL_COMPLET"}
+
+for _code, _nom, _sql in templates:
+    if _code in _DATE_CHECK_EXEMPT:
+        continue
+    _select_dates = set(_re.findall(r"li\.\[(Date [^\]]+)\]\s+AS\s+\[Date", _sql))
+    _where_dates = set(_re.findall(r"li\.\[(Date [^\]]+)\]\s+BETWEEN", _sql))
+    if _select_dates and _where_dates and not (_select_dates & _where_dates):
+        raise SystemExit(
+            f"[{_code}] incohérence date: SELECT={_select_dates} WHERE={_where_dates}"
+        )
 
 # =============================================================================
 #  INSERT ALL TEMPLATES INTO DATABASE

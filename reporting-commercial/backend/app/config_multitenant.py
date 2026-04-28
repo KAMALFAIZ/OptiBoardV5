@@ -75,13 +75,15 @@ class CentralDBSettings(BaseSettings):
     @property
     def central_database_url(self) -> str:
         """Connection string pour la base centrale"""
+        timeout = getattr(self, "DB_CONNECT_TIMEOUT", 3)
         return (
             f"DRIVER={self._effective_driver};"
             f"SERVER={self._effective_server};"
             f"DATABASE={self._effective_name};"
             f"UID={self._effective_user};"
             f"PWD={self._effective_password};"
-            f"TrustServerCertificate=yes"
+            f"TrustServerCertificate=yes;"
+            f"Connection Timeout={timeout}"
         )
 
     @property
@@ -233,18 +235,35 @@ class UserContext(BaseModel):
 _settings_cache: Optional[CentralDBSettings] = None
 
 
+def _build_settings() -> CentralDBSettings:
+    """Construit CentralDBSettings en se rabattant sur config.py si le .env n'est pas lu."""
+    s = CentralDBSettings()
+    if not s.is_configured:
+        from .config import get_settings as _get_main
+        m = _get_main()
+        if m.is_configured:
+            s = CentralDBSettings(
+                DB_SERVER=m.DB_SERVER,
+                DB_NAME=m.DB_NAME,
+                DB_USER=m.DB_USER,
+                DB_PASSWORD=m.DB_PASSWORD,
+                DB_DRIVER=m.DB_DRIVER,
+            )
+    return s
+
+
 def get_central_settings() -> CentralDBSettings:
     """Retourne les settings de la base centrale"""
     global _settings_cache
-    if _settings_cache is None:
-        _settings_cache = CentralDBSettings()
+    if _settings_cache is None or not _settings_cache.is_configured:
+        _settings_cache = _build_settings()
     return _settings_cache
 
 
 def reload_central_settings() -> CentralDBSettings:
     """Force le rechargement des settings"""
     global _settings_cache
-    _settings_cache = CentralDBSettings()
+    _settings_cache = _build_settings()
     return _settings_cache
 
 

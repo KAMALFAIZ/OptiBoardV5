@@ -34,12 +34,26 @@ router = APIRouter(prefix="/api/v2/pivots", tags=["Pivot V2"])
 
 
 def _pv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
-    """Lit depuis la DB client (APP_Pivots_V2 client) si dwh_code présent, sinon centrale."""
+    """Lit depuis la DB client (APP_Pivots_V2 client) si dwh_code présent, sinon centrale.
+    Resout par code quand la requete cherche par ID, car les IDs different entre centrale et client."""
     if dwh_code:
         try:
             if client_manager.has_client_db(dwh_code):
+                # Si la requete cherche par ID, resoudre via le code pour eviter le decalage d'IDs
+                if "WHERE id = ?" in query and len(params) == 1:
+                    central = execute_query("SELECT code FROM APP_Pivots_V2 WHERE id = ?", params, use_cache=False)
+                    if central and central[0].get("code"):
+                        code = central[0]["code"]
+                        code_query = query.replace("WHERE id = ?", "WHERE code = ?")
+                        try:
+                            result = execute_client(code_query, (code,), dwh_code=dwh_code, use_cache=False)
+                            if result:
+                                return result
+                        except Exception:
+                            pass
+                # Fallback: requete originale sur client
                 result = execute_client(query, params, dwh_code=dwh_code, use_cache=False)
-                if result:  # Fallback sur centrale si client DB retourne vide
+                if result:
                     return result
         except Exception as e:
             logger.debug(f"_pv_read client fallback ({dwh_code}): {e}")

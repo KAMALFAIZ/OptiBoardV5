@@ -536,4 +536,29 @@ export const invalidateSageCache = () =>
 export const testSageSql = (sageSql, dbName = 'bijou', societeCode = 'TEST') =>
   api.post('/admin/sage-config/test-sql', { sage_sql: sageSql, db_name: dbName, societe_code: societeCode })
 
+// ── Excel Builder ──────────────────────────────────────────────────────────────
+export const getExcelBuilders = (userId) =>
+  api.get('/excel-builder', { params: { user_id: userId } })
+
+export const getExcelBuilder = (id) =>
+  api.get(`/excel-builder/${id}`)
+
+export const createExcelBuilder = (data) =>
+  api.post('/excel-builder', data)
+
+export const updateExcelBuilder = (id, data) =>
+  api.put(`/excel-builder/${id}`, data)
+
+export const deleteExcelBuilder = (id) =>
+  api.delete(`/excel-builder/${id}`)
+
+export const executeExcelBuilder = (id, params = {}) =>
+  api.post(`/excel-builder/${id}/execute`, params)
+
+export const exportExcelBuilder = (id, params = {}) =>
+  api.post(`/excel-builder/${id}/export`, params, {
+    responseType: 'blob',
+    timeout: 120000,
+  }).then(res => res.data)
+
 export default api
