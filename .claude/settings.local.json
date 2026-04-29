@@ -649,7 +649,9 @@
       "Read(//c/OptiBoard_test/backend/app/**)",
       "Bash(cmd //c \"netstat -ano | findstr :8084 | findstr LISTENING\")",
       "Bash(cmd //c \"taskkill /F /PID 31088\")",
-      "Bash(cmd //c \"taskkill /F /PID 32728 2>&1\")"
+      "Bash(cmd //c \"taskkill /F /PID 32728 2>&1\")",
+      "Bash(xcopy /E /I /Y \"D:\\\\kasoft-platform\\\\OptiBoard\\\\reporting-commercial\\\\backend\\\\etl\" \"C:\\\\OptiBoard\\\\backend\\\\etl\")",
+      "Bash(C:/OptiBoard/nssm.exe get *)"
     ]
   }
 }

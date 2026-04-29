@@ -6,8 +6,12 @@ import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
+
+# Frontend SPA dist directory (built React app)
+FRONTEND_DIST = r"C:\inetpub\optiboard"
 
 # Configure logging
 logging.basicConfig(
@@ -35,7 +39,6 @@ from app.routes.etl_tables import router as etl_tables_router       # ETL Tables
 from app.routes.etl_colonnes import router as etl_colonnes_router   # ETL Colonnes catalogue + choix client
 from app.routes.client_users import router as client_users_router   # Users & UserDWH locaux
 from app.routes.update_manager import router as update_manager_router  # Module MAJ clients
-from app.routes.master_export import router as master_export_router    # Master Catalog HTTP API
 from app.routes.client_package import router as client_package_router  # Package installation client
 from app.routes.env_manager import router as env_manager_router         # Gestion .env via UI
 from app.routes.roles import router as roles_router                     # Gestion des rôles utilisateurs
@@ -143,7 +146,6 @@ app.include_router(etl_tables_router)       # ETL Tables : publication central �
 app.include_router(etl_colonnes_router)     # ETL Colonnes : catalogue central + choix client
 app.include_router(client_users_router)     # Users & UserDWH locaux client
 app.include_router(update_manager_router)   # Module MAJ : check/pull updates depuis central
-app.include_router(master_export_router)    # Master Catalog : expose le catalogue maître via HTTP
 app.include_router(roles_router)            # Gestion rôles & permissions
 app.include_router(client_package_router)   # Package installation client autonome
 app.include_router(env_manager_router)      # Gestion .env via UI admin
@@ -407,9 +409,9 @@ async def shutdown_event():
         print(f"[SHUTDOWN] Erreur arrêt tunnels SSH: {e}")
 
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
+@app.get("/api")
+async def api_root():
+    """API root endpoint"""
     return {
         "application": settings.APP_NAME,
         "version": "1.0.0",
@@ -517,6 +519,35 @@ async def get_societes():
             "error": str(e),
             "data": []
         }
+
+
+# ─── Service du frontend SPA (React) ──────────────────────────────────────────
+# Doit être enregistré APRÈS toutes les routes API pour ne pas les masquer
+if os.path.isdir(FRONTEND_DIST):
+    _assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Ne pas intercepter les routes API/docs
+        if full_path.startswith("api/") or full_path.startswith("api"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+        # Fichier statique direct (favicon.svg, etc.)
+        candidate = os.path.join(FRONTEND_DIST, full_path)
+        if full_path and os.path.isfile(candidate):
+            return FileResponse(candidate)
+
+        # Fallback : index.html (SPA routing client-side)
+        index = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.isfile(index):
+            return FileResponse(index)
+        return JSONResponse(status_code=404, content={"detail": "Frontend not built"})
+
+    print(f"[STARTUP] Frontend SPA servi depuis: {FRONTEND_DIST}")
+else:
+    print(f"[STARTUP] AVERTISSEMENT: dossier frontend introuvable: {FRONTEND_DIST}")
 
 
 if __name__ == "__main__":

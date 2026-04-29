@@ -2311,8 +2311,9 @@ async def dwh_admin_agent_config(code: str, request: Request):
 
     # URL publique : priorité à SERVER_PUBLIC_URL, sinon Host header, sinon base_url
     settings = get_central_settings()
-    if settings.SERVER_PUBLIC_URL:
-        server_url = settings.SERVER_PUBLIC_URL.rstrip("/")
+    public_url = getattr(settings, 'SERVER_PUBLIC_URL', None)
+    if public_url:
+        server_url = public_url.rstrip("/")
     else:
         host = request.headers.get("X-Forwarded-Host") or request.headers.get("Host", "")
         proto = request.headers.get("X-Forwarded-Proto", "http")

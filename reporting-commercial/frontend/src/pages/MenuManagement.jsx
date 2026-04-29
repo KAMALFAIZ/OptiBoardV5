@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react'
 import {
   Plus, Save, Trash2, Edit2, X, ChevronRight, ChevronDown,
   Folder, Table, Table2, LayoutDashboard, FileSpreadsheet, Link,
@@ -129,6 +129,111 @@ const IconComponent = ({ name, className }) => {
   }
 
   return <Folder className={className} />
+}
+
+const ICON_CATEGORIES = [
+  { label: 'Génériques', values: ['Folder','FolderOpen','Table2','LayoutDashboard','FileSpreadsheet','Database'] },
+  { label: 'Documents',  values: ['FileText','Receipt','ClipboardList','FileQuestion','Truck','PackageCheck','RotateCcw'] },
+  { label: 'Ventes',     values: ['ShoppingCart','ShoppingBag','Target','Crosshair'] },
+  { label: 'Analyse',    values: ['BarChart3','BarChart2','LineChart','PieChart','TrendingUp','TrendingDown','Activity','GitCompare'] },
+  { label: 'Finance',    values: ['Wallet','DollarSign','CircleDollarSign','CreditCard','BadgePercent','Percent','Scale'] },
+  { label: 'Logistique', values: ['Package','Boxes'] },
+  { label: 'Géographie', values: ['MapPin','Layers'] },
+  { label: 'Clients',    values: ['Users','UserCheck','UserX','Star','Award'] },
+  { label: 'Alertes',    values: ['AlertTriangle','Clock','Zap','Gauge'] },
+  { label: 'Divers',     values: ['Repeat','ArrowUpDown','Settings'] },
+]
+
+function IconCombobox({ value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef(null)
+  const searchRef = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (open && searchRef.current) searchRef.current.focus()
+  }, [open])
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return ICONS.filter(i => !q || i.label.toLowerCase().includes(q) || i.value.toLowerCase().includes(q))
+  }, [search])
+
+  const selectedIcon = ICONS.find(i => i.value === value)
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="input flex items-center gap-2 w-full text-left">
+        {selectedIcon ? (
+          <>
+            <selectedIcon.icon className="w-4 h-4 text-primary-600 shrink-0" />
+            <span className="flex-1 text-sm">{selectedIcon.label}</span>
+          </>
+        ) : (
+          <span className="flex-1 text-sm text-gray-400">Choisir une icône…</span>
+        )}
+        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-2 px-2 py-1 bg-gray-50 dark:bg-gray-700 rounded">
+              <Search className="w-3.5 h-3.5 text-gray-400" />
+              <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Rechercher…"
+                className="flex-1 text-sm bg-transparent outline-none text-gray-700 dark:text-gray-200 placeholder-gray-400" />
+              {search && <button onClick={() => setSearch('')}><X className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" /></button>}
+            </div>
+          </div>
+
+          <div className="max-h-60 overflow-y-auto p-2 space-y-2">
+            {search ? (
+              <div className="flex flex-wrap gap-1">
+                {filtered.map(i => (
+                  <button key={i.value} type="button" title={i.label}
+                    onClick={() => { onChange(i.value); setOpen(false); setSearch('') }}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-lg w-14 text-xs transition-colors
+                      ${value === i.value ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-400' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
+                    <i.icon className="w-5 h-5" />
+                    <span className="truncate w-full text-center leading-tight">{i.label}</span>
+                  </button>
+                ))}
+                {filtered.length === 0 && <p className="text-xs text-gray-400 py-2 px-1">Aucun résultat</p>}
+              </div>
+            ) : (
+              ICON_CATEGORIES.map(cat => {
+                const icons = ICONS.filter(i => cat.values.includes(i.value))
+                return (
+                  <div key={cat.label}>
+                    <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1 px-1">{cat.label}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {icons.map(i => (
+                        <button key={i.value} type="button" title={i.label}
+                          onClick={() => { onChange(i.value); setOpen(false) }}
+                          className={`flex flex-col items-center gap-1 p-2 rounded-lg w-14 text-xs transition-colors
+                            ${value === i.value ? 'bg-primary-100 text-primary-700 ring-1 ring-primary-400' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
+                          <i.icon className="w-5 h-5" />
+                          <span className="truncate w-full text-center leading-tight">{i.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function MenuManagement() {
@@ -1111,15 +1216,7 @@ export default function MenuManagement() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Icone
                   </label>
-                  <select
-                    value={formData.icon}
-                    onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                    className="input"
-                  >
-                    {ICONS.map(i => (
-                      <option key={i.value} value={i.value}>{i.label}</option>
-                    ))}
-                  </select>
+                  <IconCombobox value={formData.icon} onChange={(v) => setFormData({ ...formData, icon: v })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

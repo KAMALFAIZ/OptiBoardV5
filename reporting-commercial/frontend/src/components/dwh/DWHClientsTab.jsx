@@ -214,6 +214,31 @@ export default function DWHClientsTab({
                     <Link2 size={18} />
                   </button>
                   <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/dwh-admin/${dwh.code}/agent-config`, {
+                          headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}` }
+                        })
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                        const blob = await res.blob()
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `agent_config_${dwh.code}.json`
+                        document.body.appendChild(a)
+                        a.click()
+                        a.remove()
+                        URL.revokeObjectURL(url)
+                      } catch (e) {
+                        alert(`Erreur telechargement config agent: ${e.message}`)
+                      }
+                    }}
+                    className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg"
+                    title="Telecharger config Agent ETL (agent_config_*.json)"
+                  >
+                    <Download size={18} />
+                  </button>
+                  <button
                     onClick={() => openSMTPModal(dwh)}
                     className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
                     title="Configuration SMTP"
