@@ -7,7 +7,7 @@ import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   getPivotV2, executePivotV2, drilldownPivotV2, exportPivotV2,
   getPivotV2Fields, getPivotV2UserPrefs, savePivotV2UserPrefs, resetPivotV2UserPrefs,
-  getUnifiedDataSourceFields
+  getUnifiedDataSourceFields, updatePivotV2
 } from '../services/api'
 import api from '../services/api'
 import { PivotTable, PivotChart, DrillDownModal } from '../components/PivotV2'
@@ -656,10 +656,21 @@ export default function PivotViewerV2() {
     handleRefresh()
   }
 
-  // Appliquer la config du field chooser
-  const handleApplyFieldChooser = (newConfig) => {
+  // Appliquer la config du field chooser et sauvegarder en base
+  const handleApplyFieldChooser = async (newConfig) => {
     setLiveConfig(newConfig)
     saveUserPrefs(newConfig)
+    // Sauvegarder en base (APP_Pivots_V2) — même logique que le builder
+    try {
+      await updatePivotV2(id, {
+        rows_config: newConfig.rows || [],
+        columns_config: newConfig.columns || [],
+        values_config: newConfig.values || [],
+        filters_config: newConfig.filters || [],
+      })
+    } catch (e) {
+      console.error('Erreur sauvegarde config pivot:', e)
+    }
     // Passer newConfig directement — setLiveConfig est async, handleRefresh lirait l'ancienne valeur
     executePivot(pivotConfig, newConfig)
   }
