@@ -157,6 +157,7 @@ class PivotUpdateRequest(BaseModel):
 class PivotExecuteRequest(BaseModel):
     context: Optional[Dict[str, Any]] = {}
     raw: Optional[bool] = False
+    custom_config: Optional[Dict[str, Any]] = None  # liveConfig utilisateur (rows/columns/values/filters)
 
 class PivotDrilldownRequest(BaseModel):
     rowValues: Dict[str, Any]
@@ -1441,6 +1442,19 @@ async def execute_pivot(
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
         config = results[0]
+
+        # Appliquer la config live utilisateur si fournie (surcharge la config DB)
+        if request.custom_config:
+            cc = request.custom_config
+            if cc.get("rows") is not None:
+                config["rows_config"] = _to_json(cc["rows"])
+            if cc.get("columns") is not None:
+                config["columns_config"] = _to_json(cc["columns"])
+            if cc.get("values") is not None:
+                config["values_config"] = _to_json(cc["values"])
+            if cc.get("filters") is not None:
+                config["filters_config"] = _to_json(cc["filters"])
+
         rows_config = _parse_json(config.get("rows_config"), [])
         columns_config = _parse_json(config.get("columns_config"), [])
         values_config = _parse_json(config.get("values_config"), [])

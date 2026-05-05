@@ -405,9 +405,11 @@ export const getPivotV2 = (id) => api.get(`/v2/pivots/${id}`)
 export const createPivotV2 = (data) => api.post('/v2/pivots', data)
 export const updatePivotV2 = (id, data) => api.put(`/v2/pivots/${id}`, data)
 export const deletePivotV2 = (id) => api.delete(`/v2/pivots/${id}`)
-export const executePivotV2 = (id, context = {}, raw = false, dwhCode = null) => {
+export const executePivotV2 = (id, context = {}, raw = false, dwhCode = null, customConfig = null) => {
   const headers = dwhCode ? { 'X-DWH-Code': dwhCode } : getDWHHeaders()
-  return api.post(`/v2/pivots/${id}/execute`, { context, raw }, { headers })
+  const body = { context, raw }
+  if (customConfig) body.custom_config = customConfig
+  return api.post(`/v2/pivots/${id}/execute`, body, { headers })
 }
 export const previewPivotV2 = (id, context = {}) => {
   return api.post(`/v2/pivots/${id}/preview`, { context }, { headers: getDWHHeaders() })

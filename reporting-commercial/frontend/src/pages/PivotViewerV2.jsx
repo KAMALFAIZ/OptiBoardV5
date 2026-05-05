@@ -486,7 +486,7 @@ export default function PivotViewerV2() {
   }
 
   // Executer le pivot
-  const executePivot = async (configOverride) => {
+  const executePivot = async (configOverride, customLiveConfig) => {
     setExecuting(true)
     setError(null)
     try {
@@ -497,7 +497,10 @@ export default function PivotViewerV2() {
         commercial: globalFilters?.commercial,
         gamme: globalFilters?.gamme,
       }
-      const res = await executePivotV2(id, ctx, false, selectedDwhCode)
+      // Utiliser customLiveConfig si fourni (evite le probleme d'async setState),
+      // sinon utiliser liveConfig courant
+      const effectiveLiveConfig = customLiveConfig || liveConfig
+      const res = await executePivotV2(id, ctx, false, selectedDwhCode, effectiveLiveConfig)
       if (res.data?.success) {
         setPivotResult(res.data)
       } else {
@@ -657,8 +660,8 @@ export default function PivotViewerV2() {
   const handleApplyFieldChooser = (newConfig) => {
     setLiveConfig(newConfig)
     saveUserPrefs(newConfig)
-    // Re-executer
-    handleRefresh()
+    // Passer newConfig directement — setLiveConfig est async, handleRefresh lirait l'ancienne valeur
+    executePivot(pivotConfig, newConfig)
   }
 
   // Loading screen
