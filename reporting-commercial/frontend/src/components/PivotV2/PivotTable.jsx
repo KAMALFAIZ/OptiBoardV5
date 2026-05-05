@@ -35,16 +35,18 @@ function ColumnFilterDropdown({ values, selected, onChange, onClose }) {
   const allShown = activeSet.size === 0
 
   const toggle = (val) => {
-    const next = new Set(activeSet)
     if (allShown) {
-      // Passer de "tous" a "tous sauf celui-ci"
-      values.forEach(v => { if (v !== val) next.add(v) })
-    } else if (next.has(val)) {
+      // Depuis "tout sélectionné" : sélectionner uniquement cette valeur
+      onChange(new Set([val]))
+      return
+    }
+    const next = new Set(activeSet)
+    if (next.has(val)) {
       next.delete(val)
     } else {
       next.add(val)
     }
-    // Si tout est selectionne, revenir a vide (= pas de filtre)
+    // Si tout est sélectionné, revenir à vide (= pas de filtre)
     if (next.size === values.length) {
       onChange(new Set())
     } else {
@@ -335,9 +337,13 @@ export default function PivotTable({
     const activeFilters = Object.entries(columnFilters).filter(([, s]) => s.size > 0)
     if (activeFilters.length === 0) return data
     return data.filter(row => {
-      if (row.__isGrandTotal__ || row.__isSubtotal__ || row.__isSummary__) return true
+      if (row.__isGrandTotal__ || row.__isSummary__) return true
       for (const [field, allowed] of activeFilters) {
-        if (!allowed.has(String(row[field] || ''))) return false
+        const val = row[field]
+        // Si la ligne (detail ou subtotal) a une valeur pour ce champ, elle doit matcher
+        if (val !== undefined && val !== null && val !== '') {
+          if (!allowed.has(String(val))) return false
+        }
       }
       return true
     })
