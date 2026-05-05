@@ -1212,7 +1212,8 @@ async def list_pivots(
             {where}
             ORDER BY updated_at DESC
         """
-        results = _pv_read(query, tuple(params_list) if params_list else (), dwh_code=dwh_code)
+        # Config pivot toujours depuis la centrale (source de verite du builder)
+        results = _pv_read(query, tuple(params_list) if params_list else ())
         return {"success": True, "data": results}
     except Exception as e:
         logger.error(f"Erreur liste pivots V2: {e}")
@@ -1229,7 +1230,8 @@ async def get_pivot(
         init_pivot_v2_tables()
 
         query = "SELECT * FROM APP_Pivots_V2 WHERE id = ?"
-        results = _pv_read(query, (pivot_id,), dwh_code=dwh_code)
+        # Config pivot toujours depuis la centrale (source de verite du builder)
+        results = _pv_read(query, (pivot_id,))
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
