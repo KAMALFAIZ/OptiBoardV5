@@ -143,6 +143,7 @@ export default function GridViewBuilder() {
   const [previewData, setPreviewData] = useState([])
   const [allPreviewData, setAllPreviewData] = useState([])
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [reloadingColumns, setReloadingColumns] = useState(false)
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 0 })
   const [totals, setTotals] = useState({})
   const [previewError, setPreviewError] = useState(null) // Erreur lors de l'aperçu
@@ -179,18 +180,21 @@ export default function GridViewBuilder() {
 
   const loadData = async () => {
     setLoading(true)
-    try {
-      const [gridsRes, sourcesRes] = await Promise.all([
-        getGridViews(),
-        getDataSources()
-      ])
-      setGrids(gridsRes.data.data || [])
-      setDataSources(sourcesRes.data.data || [])
-    } catch (error) {
-      console.error('Erreur chargement:', error)
-    } finally {
-      setLoading(false)
+    const [gridsResult, sourcesResult] = await Promise.allSettled([
+      getGridViews(),
+      getDataSources()
+    ])
+    if (gridsResult.status === 'fulfilled') {
+      setGrids(gridsResult.value.data.data || [])
+    } else {
+      console.error('Erreur chargement grilles:', gridsResult.reason)
     }
+    if (sourcesResult.status === 'fulfilled') {
+      setDataSources(sourcesResult.value.data.data || [])
+    } else {
+      console.error('Erreur chargement datasources:', sourcesResult.reason)
+    }
+    setLoading(false)
   }
 
   // Handler pour la selection d'une DataSource via le nouveau composant
@@ -266,6 +270,62 @@ export default function GridViewBuilder() {
       console.error('Erreur chargement champs:', error)
       setFields([])
       setSourceParams([])
+    }
+  }
+
+  // Resynchroniser les colonnes depuis le DataSource (après modif SQL)
+  const resyncColumnsFromDataSource = async () => {
+    const identifier = config.data_source_code || config.data_source_id
+    if (!identifier) return
+    setReloadingColumns(true)
+    try {
+      const fieldsResponse = await getUnifiedDataSourceFields(identifier)
+      const resp = fieldsResponse.data
+      const sourceFields = resp.fields || []
+
+      if (!resp.success && resp.error) {
+        alert(`Erreur lors de la lecture des colonnes :\n${resp.error}`)
+        return
+      }
+      if (sourceFields.length === 0) {
+        alert('Aucune colonne retournée par le DataSource. Vérifiez la requête SQL et la connexion DWH.')
+        return
+      }
+
+      setFields(sourceFields)
+
+      // Fusion intelligente : garder la config existante, ajouter les nouvelles, supprimer les disparues
+      const existingByField = {}
+      config.columns.forEach(col => { existingByField[col.field] = col })
+
+      const merged = sourceFields.map(f => existingByField[f.name] || {
+        field: f.name,
+        header: f.name,
+        width: null,
+        sortable: true,
+        filterable: true,
+        format: f.type === 'number' ? 'number' : '',
+        align: f.type === 'number' ? 'right' : 'left',
+        visible: true,
+        pinned: null,
+        groupBy: false
+      })
+
+      const added = merged.filter(c => !existingByField[c.field]).map(c => c.field)
+      const removed = config.columns.filter(c => !sourceFields.find(f => f.name === c.field)).map(c => c.field)
+
+      setConfig(prev => ({ ...prev, columns: merged }))
+
+      const msgs = []
+      if (added.length) msgs.push(`+ Ajoutées : ${added.join(', ')}`)
+      if (removed.length) msgs.push(`- Supprimées : ${removed.join(', ')}`)
+      if (!msgs.length) msgs.push('Aucune modification — les colonnes correspondent déjà à la requête.')
+      alert(msgs.join('\n'))
+    } catch (error) {
+      console.error('Erreur resync colonnes:', error)
+      alert(`Erreur réseau : ${error.message}`)
+    } finally {
+      setReloadingColumns(false)
     }
   }
 
@@ -990,7 +1050,7 @@ export default function GridViewBuilder() {
                     placeholder="Sélectionner un template ou une source..."
                   />
                   {selectedDataSource && (
-                    <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                    <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 flex-wrap">
                       {selectedDataSource.origin === 'template' ? (
                         <span className="flex items-center gap-1 text-primary-600">
                           <Settings2 className="w-3 h-3" />
@@ -1021,6 +1081,15 @@ export default function GridViewBuilder() {
                           </button>
                         </>
                       )}
+                      <button
+                        onClick={resyncColumnsFromDataSource}
+                        disabled={reloadingColumns}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700 disabled:opacity-50"
+                        title="Resynchroniser les colonnes depuis la requête SQL (ajoute les nouvelles colonnes, supprime les disparues, conserve la config existante)"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${reloadingColumns ? 'animate-spin' : ''}`} />
+                        Régénérer les colonnes
+                      </button>
                     </div>
                   )}
                 </div>

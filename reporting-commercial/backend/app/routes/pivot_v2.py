@@ -2225,37 +2225,47 @@ def _generate_excel(pivot_data, row_fields, pivot_columns, value_fields, col_fie
 
 
 def _generate_pdf(pivot_data, row_fields, pivot_columns, value_fields, col_field, title="Pivot"):
-    """Genere un fichier PDF avec reportlab."""
+    """Genere un fichier PDF avec reportlab — tableau + graphique en barres."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
+    from reportlab.graphics.shapes import Drawing, String, Rect, Line, Group
+    from reportlab.graphics import renderPDF
+
+    PAGE_W, PAGE_H = landscape(A4)
+    MARGIN = 1 * cm
+    AVAIL_W = PAGE_W - 2 * MARGIN
 
     output = io.BytesIO()
-    doc = SimpleDocTemplate(output, pagesize=landscape(A4), topMargin=1 * cm, bottomMargin=1 * cm, leftMargin=1 * cm, rightMargin=1 * cm)
+    doc = SimpleDocTemplate(
+        output, pagesize=landscape(A4),
+        topMargin=MARGIN, bottomMargin=MARGIN,
+        leftMargin=MARGIN, rightMargin=MARGIN
+    )
     elements = []
     styles = getSampleStyleSheet()
 
-    # Titre
     title_style = ParagraphStyle("PivotTitle", parent=styles["Heading1"], fontSize=16, textColor=colors.HexColor("#1E3A5F"))
-    elements.append(Paragraph(title, title_style))
-    elements.append(Spacer(1, 0.3 * cm))
-    date_style = ParagraphStyle("PivotDate", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
-    elements.append(Paragraph(f"Genere le {datetime.now().strftime('%d/%m/%Y %H:%M')}", date_style))
-    elements.append(Spacer(1, 0.5 * cm))
+    date_style  = ParagraphStyle("PivotDate",  parent=styles["Normal"],   fontSize=8,  textColor=colors.grey)
+    cell_style  = ParagraphStyle("Cell",   parent=styles["Normal"], fontSize=7, leading=9)
+    header_style= ParagraphStyle("Header", parent=styles["Normal"], fontSize=7, leading=9, textColor=colors.white, fontName="Helvetica-Bold")
+    sub_style   = ParagraphStyle("Sub",    parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#374151"))
 
-    # En-tetes
+    def _add_title_block(extra=""):
+        elements.append(Paragraph(title + (f" — {extra}" if extra else ""), title_style))
+        elements.append(Spacer(1, 0.3 * cm))
+        elements.append(Paragraph(f"Genere le {datetime.now().strftime('%d/%m/%Y %H:%M')}", date_style))
+        elements.append(Spacer(1, 0.5 * cm))
+
+    # ── PAGE 1 : Tableau ──────────────────────────────────────────────────────
+    _add_title_block("Tableau")
+
     headers = _build_export_headers(row_fields, pivot_columns, value_fields, col_field)
     num_row_fields = len(row_fields)
 
-    # Style cellules pour texte long
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=7, leading=9)
-    header_style = ParagraphStyle("Header", parent=styles["Normal"], fontSize=7, leading=9, textColor=colors.white, fontName="Helvetica-Bold")
-
-    # Construire les donnees du tableau
     table_data = [[Paragraph(str(h), header_style) for h in headers]]
-
     for row in pivot_data:
         values = _build_export_row(row, row_fields, pivot_columns, value_fields, col_field)
         row_cells = []
@@ -2266,41 +2276,181 @@ def _generate_pdf(pivot_data, row_fields, pivot_columns, value_fields, col_field
                 row_cells.append(Paragraph(str(val or ""), cell_style))
         table_data.append(row_cells)
 
-    # Calculer les largeurs
-    available = landscape(A4)[0] - 2 * cm
-    num_cols = len(headers)
-    col_widths = [available / num_cols] * num_cols
-
+    num_cols   = len(headers)
+    col_widths = [AVAIL_W / num_cols] * num_cols
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
 
-    # Styles du tableau
     style_commands = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2563EB")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 7),
-        ("FONTSIZE", (0, 1), (-1, -1), 7),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+        ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",   (0, 0), (-1, 0), 7),
+        ("FONTSIZE",   (0, 1), (-1, -1), 7),
+        ("GRID",       (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]
-
-    # Alternance couleurs et styles sous-totaux/grand total
     for data_idx, row in enumerate(pivot_data):
-        excel_row = data_idx + 1  # +1 pour header
+        ri = data_idx + 1
         if row.get("__isGrandTotal__"):
-            style_commands.append(("BACKGROUND", (0, excel_row), (-1, excel_row), colors.HexColor("#1E40AF")))
-            style_commands.append(("TEXTCOLOR", (0, excel_row), (-1, excel_row), colors.white))
-            style_commands.append(("FONTNAME", (0, excel_row), (-1, excel_row), "Helvetica-Bold"))
+            style_commands += [
+                ("BACKGROUND", (0, ri), (-1, ri), colors.HexColor("#1E40AF")),
+                ("TEXTCOLOR",  (0, ri), (-1, ri), colors.white),
+                ("FONTNAME",   (0, ri), (-1, ri), "Helvetica-Bold"),
+            ]
         elif row.get("__isSubtotal__"):
-            style_commands.append(("BACKGROUND", (0, excel_row), (-1, excel_row), colors.HexColor("#E5E7EB")))
-            style_commands.append(("FONTNAME", (0, excel_row), (-1, excel_row), "Helvetica-Bold"))
+            style_commands += [
+                ("BACKGROUND", (0, ri), (-1, ri), colors.HexColor("#E5E7EB")),
+                ("FONTNAME",   (0, ri), (-1, ri), "Helvetica-Bold"),
+            ]
         elif data_idx % 2 == 0:
-            style_commands.append(("BACKGROUND", (0, excel_row), (-1, excel_row), colors.HexColor("#F9FAFB")))
+            style_commands.append(("BACKGROUND", (0, ri), (-1, ri), colors.HexColor("#F9FAFB")))
 
     table.setStyle(TableStyle(style_commands))
     elements.append(table)
+
+    # ── PAGE 2 : Graphique en barres ──────────────────────────────────────────
+    # Prendre la 1ère mesure non-nulle pour l'axe Y
+    if value_fields:
+        vf = value_fields[0]
+        vf_alias  = vf.get("alias", vf.get("field", ""))
+        vf_label  = vf.get("label", vf_alias)
+
+        # Lignes de données (pas sous-totaux, pas grand-total)
+        data_rows = [
+            r for r in pivot_data
+            if not r.get("__isGrandTotal__") and not r.get("__isSubtotal__")
+        ]
+
+        if data_rows:
+            elements.append(PageBreak())
+            _add_title_block(f"Graphique — {vf_label}")
+
+            # Résoudre le champ label (1er champ dimension)
+            label_field = row_fields[0].get("field", "") if row_fields else ""
+            # Si 2ème champ existe (ex: Client), l'utiliser comme label plus lisible
+            label_field2 = row_fields[1].get("field", "") if len(row_fields) > 1 else ""
+
+            # Limiter à 40 barres max
+            MAX_BARS = 40
+            chart_rows = data_rows[:MAX_BARS]
+
+            # Résoudre les valeurs pour le graphique
+            if col_field and pivot_columns:
+                # Mode croisé : une série par colonne pivot
+                series_data = {}
+                for col_val in pivot_columns[:5]:  # max 5 séries
+                    key = f"{col_val}__{vf_alias}"
+                    series_data[str(col_val)] = [
+                        float(r.get(key) or 0) for r in chart_rows
+                    ]
+            else:
+                series_data = {
+                    vf_label: [float(r.get(vf_alias) or 0) for r in chart_rows]
+                }
+
+            labels = []
+            for r in chart_rows:
+                lbl = str(r.get(label_field2) or r.get(label_field) or "")
+                labels.append(lbl[:20])  # tronquer à 20 chars
+
+            n_bars   = len(chart_rows)
+            n_series = len(series_data)
+
+            # Dimensions du graphique
+            CHART_H    = PAGE_H - 6 * cm   # hauteur dispo (hors titre + légende)
+            CHART_W    = AVAIL_W
+            BAR_AREA_H = CHART_H - 2 * cm  # zone barres
+            BAR_AREA_W = CHART_W - 2 * cm  # zone barres (marge axe Y)
+
+            PALETTE = [
+                "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
+                "#06B6D4", "#F97316", "#84CC16", "#EC4899", "#6B7280",
+            ]
+
+            all_vals = [v for series in series_data.values() for v in series]
+            max_val  = max(all_vals) if all_vals else 1
+            if max_val == 0:
+                max_val = 1
+
+            # Calcul largeur de barre
+            group_w  = BAR_AREA_W / max(n_bars, 1)
+            bar_w    = max(2, min(group_w * 0.8 / n_series, 30))
+            bar_gap  = max(0, (group_w - bar_w * n_series) / 2)
+
+            AXIS_X = MARGIN + 1.8 * cm   # origine X (axe Y)
+            AXIS_Y = MARGIN + 1.5 * cm   # origine Y (axe X)
+
+            drw = Drawing(PAGE_W, CHART_H + 3 * cm)
+
+            # Axe Y — lignes de grille + labels
+            N_TICKS = 5
+            for ti in range(N_TICKS + 1):
+                y_val  = max_val * ti / N_TICKS
+                y_pix  = AXIS_Y + BAR_AREA_H * ti / N_TICKS
+                # grille
+                drw.add(Line(AXIS_X, y_pix, AXIS_X + BAR_AREA_W, y_pix,
+                             strokeColor=colors.HexColor("#E5E7EB"), strokeWidth=0.5))
+                # label
+                if y_val >= 1_000_000:
+                    lbl_txt = f"{y_val/1_000_000:.1f}M"
+                elif y_val >= 1_000:
+                    lbl_txt = f"{y_val/1_000:.0f}K"
+                else:
+                    lbl_txt = f"{y_val:.0f}"
+                drw.add(String(AXIS_X - 3, y_pix - 3, lbl_txt,
+                               fontSize=6, fillColor=colors.HexColor("#6B7280"),
+                               textAnchor="end"))
+
+            # Axe X et Y (lignes)
+            drw.add(Line(AXIS_X, AXIS_Y, AXIS_X + BAR_AREA_W, AXIS_Y,
+                         strokeColor=colors.HexColor("#9CA3AF"), strokeWidth=1))
+            drw.add(Line(AXIS_X, AXIS_Y, AXIS_X, AXIS_Y + BAR_AREA_H,
+                         strokeColor=colors.HexColor("#9CA3AF"), strokeWidth=1))
+
+            # Barres
+            for bar_i, (serie_name, serie_vals) in enumerate(series_data.items()):
+                bar_color = colors.HexColor(PALETTE[bar_i % len(PALETTE)])
+                for xi, val in enumerate(serie_vals):
+                    bar_h = BAR_AREA_H * (val / max_val) if max_val else 0
+                    bx = AXIS_X + bar_gap + xi * group_w + bar_i * bar_w
+                    by = AXIS_Y
+                    drw.add(Rect(bx, by, bar_w - 1, bar_h,
+                                 fillColor=bar_color, strokeColor=None))
+
+            # Labels axe X (inclinés via petite taille)
+            label_step = max(1, n_bars // 30)
+            for xi, lbl in enumerate(labels):
+                if xi % label_step != 0:
+                    continue
+                bx = AXIS_X + bar_gap + xi * group_w + (bar_w * n_series) / 2
+                drw.add(String(bx, AXIS_Y - 8, lbl,
+                               fontSize=5.5, fillColor=colors.HexColor("#374151"),
+                               textAnchor="middle"))
+
+            elements.append(drw)
+
+            # Légende (si plusieurs séries)
+            if n_series > 1:
+                elements.append(Spacer(1, 0.3 * cm))
+                legend_items = []
+                for si, sname in enumerate(series_data.keys()):
+                    hex_c = PALETTE[si % len(PALETTE)]
+                    legend_items.append(
+                        Paragraph(
+                            f'<font color="{hex_c}">■</font> {sname}',
+                            ParagraphStyle("leg", parent=styles["Normal"], fontSize=8, spaceAfter=2)
+                        )
+                    )
+                elements.extend(legend_items)
+
+            if len(data_rows) > MAX_BARS:
+                elements.append(Spacer(1, 0.2 * cm))
+                elements.append(Paragraph(
+                    f"Graphique limité aux {MAX_BARS} premières entrées sur {len(data_rows)} ({vf_label}).",
+                    sub_style
+                ))
 
     doc.build(elements)
     output.seek(0)

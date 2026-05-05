@@ -7,7 +7,7 @@ CRUD pour les templates de datasources (centraux et overrides par DWH)
 from fastapi import APIRouter, HTTPException, Header, Query
 from typing import Optional
 from pydantic import BaseModel
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager
+from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, dwh_cursor
 
 router = APIRouter(prefix="/api/datasources", tags=["DataSource Templates"])
 
@@ -627,12 +627,13 @@ async def get_unified_datasource_fields(
     x_dwh_code: str = Header(None, alias="X-DWH-Code")
 ):
     """
-    Recupere les champs (colonnes) d'une DataSource en executant la requete avec LIMIT 1.
+    Recupere les champs (colonnes) d'une DataSource via cursor.description (fonctionne
+    meme si la table est vide — SELECT TOP 0 retourne les meta-colonnes sans donnees).
     """
     from ..services.parameter_resolver import inject_params
+    import re
 
     try:
-        # Recuperer la datasource
         ds_response = await get_unified_datasource(identifier, x_dwh_code)
         datasource = ds_response['data']
 
@@ -645,33 +646,43 @@ async def get_unified_datasource_fields(
         default_ctx = get_default_context()
         query = inject_params(query, default_ctx)
 
-        # Envelopper dans SELECT TOP 1 pour forcer la limite
-        import re
+        # SELECT TOP 0 — retourne 0 lignes mais cursor.description contient les colonnes
         query = re.sub(r'\s+ORDER\s+BY\s+[\s\S]+$', '', query, flags=re.IGNORECASE)
-        query = f"SELECT TOP 1 * FROM ({query}) AS __fields__"
+        query = f"SELECT TOP 0 * FROM ({query}) AS __fields__"
 
-        # Executer sur le bon DWH (meme pattern que preview_unified_datasource)
-        if x_dwh_code:
-            results = DWHConnectionManager.execute_dwh_query(x_dwh_code, query, use_cache=False)
-        else:
-            results = execute_query(query, use_cache=False)
+        # Type codes pyodbc → type lisible
+        import pyodbc
+        from decimal import Decimal
+        from datetime import datetime, date
 
-        if results:
-            from decimal import Decimal
-            from datetime import datetime, date
+        NUMBER_TYPES = {int, float, Decimal}
+
+        def _run_and_extract(cursor):
+            cursor.execute(query)
+            if cursor.description is None:
+                return []
             fields = []
-            for key, value in results[0].items():
-                field_type = "text"
-                if isinstance(value, bool):
-                    field_type = "boolean"
-                elif isinstance(value, (int, float, Decimal)):
-                    field_type = "number"
-                elif isinstance(value, (datetime, date)):
+            for col in cursor.description:
+                col_name = col[0]
+                # Heuristique sur le nom pour deviner le type quand impossible via valeurs
+                name_lower = col_name.lower()
+                if any(k in name_lower for k in ('date', 'echeance', 'livraison', 'facture', 'reglement')):
                     field_type = "date"
-                fields.append({"name": key, "type": field_type})
-            return {"success": True, "fields": fields}
+                elif any(k in name_lower for k in ('montant', 'ht', 'ttc', 'qte', 'quantit', 'prix', 'puht', 'puttc', 'taux', 'total', 'solde', 'credit', 'debit', 'poids', 'nb')):
+                    field_type = "number"
+                else:
+                    field_type = "text"
+                fields.append({"name": col_name, "type": field_type})
+            return fields
 
-        return {"success": True, "fields": []}
+        if x_dwh_code:
+            with dwh_cursor(x_dwh_code) as cursor:
+                fields = _run_and_extract(cursor)
+        else:
+            with get_db_cursor() as cursor:
+                fields = _run_and_extract(cursor)
+
+        return {"success": True, "fields": fields}
     except Exception as e:
         print(f"[ERROR] get_unified_datasource_fields: {e}")
         return {"success": False, "error": str(e), "fields": []}

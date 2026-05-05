@@ -689,12 +689,23 @@ export default function GridViewDisplay() {
   const groupedDataRef = useRef(groupedData)
   useEffect(() => { groupedDataRef.current = groupedData }, [groupedData])
 
-  // Totals row (pinned bottom)
+  // Données filtrées pour les totaux (mis à jour après chaque filtre AG Grid)
+  const [filteredDataForTotals, setFilteredDataForTotals] = useState([])
+  useEffect(() => { setFilteredDataForTotals(allData) }, [allData])
+
+  const handleFilterChanged = useCallback((params) => {
+    const rows = []
+    params.api.forEachNodeAfterFilter(node => { if (node.data) rows.push(node.data) })
+    setFilteredDataForTotals(rows)
+  }, [])
+
+  // Totals row (pinned bottom) — basé sur les lignes visibles après filtrage
   const totalsRowData = useMemo(() => {
     const totalColumns = grid?.total_columns || []
-    if (!totalColumns.length || !allData.length || !grid?.show_totals) return undefined
-    return buildTotalsRow(totalColumns, allData, columns)
-  }, [allData, grid?.total_columns, grid?.show_totals, columns])
+    const dataForTotals = filteredDataForTotals.length > 0 ? filteredDataForTotals : allData
+    if (!totalColumns.length || !dataForTotals.length || !grid?.show_totals) return undefined
+    return buildTotalsRow(totalColumns, dataForTotals, columns)
+  }, [filteredDataForTotals, allData, grid?.total_columns, grid?.show_totals, columns])
 
   // Default column def
   const defaultColDef = useMemo(() => ({
@@ -1617,14 +1628,12 @@ export default function GridViewDisplay() {
           // postSortRows uniquement sans groupement (avec groupement, le comparator neutre
           // empêche AG Grid de réordonner — groupedData est déjà pré-trié)
           postSortRows={undefined}
+          onFilterChanged={handleFilterChanged}
           onSortChanged={(params) => {
             const sorted = params.api.getColumnState().find(c => c.sort)
             const newSort = sorted ? { field: sorted.colId, direction: sorted.sort } : { field: null, direction: null }
-            setSortState(prev => {
-              // Forcer une mise à jour du ref immédiatement
-              // pour que postSortRows ait la bonne version
-              return newSort
-            })
+            setSortState(newSort)
+            saveColumnPrefs(params)
           }}
           // Pagination
           pagination={features.show_pagination}
@@ -1666,7 +1675,6 @@ export default function GridViewDisplay() {
           onColumnMoved={saveColumnPrefs}
           onColumnVisible={saveColumnPrefs}
           onColumnPinned={saveColumnPrefs}
-          onSortChanged={saveColumnPrefs}
           // Quand la page change, remonter en haut du viewport pour éviter la page blanche
           // (ex: last page avec moins de lignes que la taille de page)
           onPaginationChanged={(params) => {

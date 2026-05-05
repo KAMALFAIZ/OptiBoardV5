@@ -74,8 +74,9 @@ templates.append(("DS_VTE_FACTURES", "Factures de Ventes", f"""SELECT
     en.[Nom repr\u00e9sentant] AS [Commercial],
     li.[Code article] AS [Code Article],
     li.[D\u00e9signation ligne] AS [Designation],
+    li.[N\u00b0 S\u00e9rie/Lot] AS [Lot Serie],
     li.[Quantit\u00e9] AS [Quantite],
-    li.[Prix unitaire] AS [Prix Unitaire],
+    li.[Prix unitaire] AS [PU HT],
     li.[Montant HT Net] AS [Montant HT],
     li.[Montant TTC Net] AS [Montant TTC],
     li.[Catalogue 1] AS [Famille],
@@ -85,7 +86,8 @@ templates.append(("DS_VTE_FACTURES", "Factures de Ventes", f"""SELECT
     en.Souche
 {BASE_JOIN}
 WHERE li.[Type Document] IN ('Facture', 'Facture comptabilis\u00e9e')
-  AND {date_filter("Date document")} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND TRY_CAST(li.[Date document] AS DATE) BETWEEN CAST(@dateDebut AS DATE) AND CAST(@dateFin AS DATE)
+  AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date document] DESC, li.[N\u00b0 Pi\u00e8ce]"""))
 
 # --- 2. Bons de Livraison ---
@@ -926,21 +928,24 @@ print(f"\n{len(template_ids)} templates crees.")
 gridviews = [
     # === DOCUMENTS VENTES ===
     ("Factures de Ventes", "DS_VTE_FACTURES", [
-        {"field": "Societe", "header": "Societe", "width": 90},
+        {"field": "Societe",       "header": "Societe",       "width": 90},
         {"field": "Type Document", "header": "Type Document", "width": 150},
-        {"field": "Num Piece", "header": "N. Piece", "width": 120},
+        {"field": "Num Piece",     "header": "N° Piece",       "width": 120},
         {"field": "Date Document", "header": "Date Document", "width": 110, "type": "date"},
-        {"field": "Code Client", "header": "Code Client", "width": 100},
-        {"field": "Client", "header": "Client", "width": 200},
-        {"field": "Commercial", "header": "Commercial", "width": 140},
-        {"field": "Code Article", "header": "Code Article", "width": 110},
-        {"field": "Designation", "header": "Designation", "width": 200},
-        {"field": "Quantite", "header": "Quantite", "width": 90, "type": "number"},
-        {"field": "Prix Unitaire", "header": "Prix Unitaire", "width": 110, "type": "number", "format": "#,##0.00"},
-        {"field": "Montant HT", "header": "Montant HT", "width": 120, "type": "number", "format": "#,##0.00"},
-        {"field": "Montant TTC", "header": "Montant TTC", "width": 120, "type": "number", "format": "#,##0.00"},
-        {"field": "Famille", "header": "Famille", "width": 120},
-        {"field": "Depot", "header": "Depot", "width": 140},
+        {"field": "Code Client",   "header": "Code Client",   "width": 100},
+        {"field": "Client",        "header": "Client",        "width": 200},
+        {"field": "Commercial",    "header": "Commercial",    "width": 140},
+        {"field": "Code Article",  "header": "Code Article",  "width": 110},
+        {"field": "Designation",   "header": "Designation",   "width": 200},
+        {"field": "Lot Serie",     "header": "N° Lot/Serie",   "width": 120},
+        {"field": "Quantite",      "header": "Quantite",      "width": 90,  "type": "number"},
+        {"field": "PU HT",         "header": "PU HT",         "width": 110, "type": "number", "format": "#,##0.00"},
+        {"field": "Montant HT",    "header": "Montant HT",    "width": 120, "type": "number", "format": "#,##0.00"},
+        {"field": "Montant TTC",   "header": "Montant TTC",   "width": 120, "type": "number", "format": "#,##0.00"},
+        {"field": "Famille",       "header": "Famille",       "width": 120},
+        {"field": "Depot",         "header": "Depot",         "width": 140},
+        {"field": "Statut",        "header": "Statut",        "width": 100},
+        {"field": "Souche",        "header": "Souche",        "width": 80},
     ]),
     ("Bons de Livraison", "DS_VTE_BL", [
         {"field": "Societe", "header": "Societe", "width": 90},

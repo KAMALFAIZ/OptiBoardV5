@@ -54,8 +54,9 @@ updates.append(("DS_VTE_FACTURES", f"""SELECT
     en.[Nom représentant] AS [Commercial],
     li.[Code article] AS [Code Article],
     li.[Désignation ligne] AS [Designation],
+    li.[N° Série/Lot] AS [Lot Serie],
     li.[Quantité] AS [Quantite],
-    li.[Prix unitaire] AS [Prix Unitaire],
+    li.[Prix unitaire] AS [PU HT],
     li.[Montant HT Net] AS [Montant HT],
     li.[Montant TTC Net] AS [Montant TTC],
     li.[Catalogue 1] AS [Famille],
@@ -65,7 +66,8 @@ updates.append(("DS_VTE_FACTURES", f"""SELECT
     en.Souche
 {BASE_JOIN}
 WHERE li.[Type Document] IN ('Facture', 'Facture comptabilisée')
-  AND {DATE_FILTER} AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
+  AND TRY_CAST(li.[Date document] AS DATE) BETWEEN CAST(@dateDebut AS DATE) AND CAST(@dateFin AS DATE)
+  AND {SOCIETE_FILTER} AND {COMMERCIAL_FILTER}
 ORDER BY li.[Date document] DESC, li.[N° Pièce]"""))
 
 # 2. Bons de Livraison

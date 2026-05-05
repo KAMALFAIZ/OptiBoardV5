@@ -651,7 +651,12 @@
       "Bash(cmd //c \"taskkill /F /PID 31088\")",
       "Bash(cmd //c \"taskkill /F /PID 32728 2>&1\")",
       "Bash(xcopy /E /I /Y \"D:\\\\kasoft-platform\\\\OptiBoard\\\\reporting-commercial\\\\backend\\\\etl\" \"C:\\\\OptiBoard\\\\backend\\\\etl\")",
-      "Bash(C:/OptiBoard/nssm.exe get *)"
+      "Bash(C:/OptiBoard/nssm.exe get *)",
+      "PowerShell(Start-Process -FilePath \"C:\\\\OptiBoard\\\\nssm.exe\" -ArgumentList \"restart OptiBoard-Backend\" -Verb RunAs -Wait 2>&1; Start-Sleep 4; sc.exe query OptiBoard-Backend | Select-String \"STATE\")",
+      "PowerShell($items = Get-ChildItem \"D:\\\\kasoft-platform\\\\OptiBoard\\\\reporting-commercial\\\\backend\\\\dist_client\" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 20; foreach\\($i in $items\\){Write-Host $i.FullName})",
+      "PowerShell(Get-WmiObject Win32_Process -Filter \"ProcessId=3328\")",
+      "PowerShell($f = Get-Item \"C:\\\\OptiBoard\\\\backend\\\\app\\\\routes\\\\pivot_v2.py\"; Write-Host \"Size: $\\($f.Length\\) bytes, Modified: $\\($f.LastWriteTime\\)\")",
+      "mcp__Claude_in_Chrome__tabs_context_mcp"
     ]
   }
 }
