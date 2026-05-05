@@ -1431,7 +1431,7 @@ async def execute_pivot(
 
         # Mode raw : retourner les donnees brutes
         if request.raw:
-            source_data, debug_info = _resolve_and_execute(config, context, dwh_code, limit=10000, return_debug=True)
+            source_data, debug_info = _resolve_and_execute(config, context, dwh_code, limit=None, return_debug=True)
             return {
                 "success": True,
                 "data": source_data,
@@ -1443,8 +1443,8 @@ async def execute_pivot(
                 "debug": debug_info
             }
 
-        # Executer la requete source
-        source_data, debug_info = _resolve_and_execute(config, context, dwh_code, limit=10000, return_debug=True)
+        # Executer la requete source (pas de limite : les totaux doivent etre exacts)
+        source_data, debug_info = _resolve_and_execute(config, context, dwh_code, limit=None, return_debug=True)
 
         if not source_data:
             return {
