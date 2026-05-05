@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_client, client_manager
+from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_client, client_manager, dwh_cursor
 from ..services.datasource_resolver import resolve_datasource
 from ..services.parameter_resolver import inject_params, extract_parameters_from_query
 
@@ -1308,8 +1308,12 @@ async def create_pivot(data: PivotCreateRequest):
 
 
 @router.put("/{pivot_id}")
-async def update_pivot(pivot_id: int, data: PivotUpdateRequest):
-    """Met a jour un pivot existant"""
+async def update_pivot(
+    pivot_id: int,
+    data: PivotUpdateRequest,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Met a jour un pivot existant (central + client DWH si present)"""
     try:
         # Construire la requete UPDATE dynamiquement
         updates = []
@@ -1364,8 +1368,29 @@ async def update_pivot(pivot_id: int, data: PivotUpdateRequest):
 
         query = f"UPDATE APP_Pivots_V2 SET {', '.join(updates)} WHERE id = ?"
 
+        # Ecriture centrale (toujours)
         with get_db_cursor() as cursor:
             cursor.execute(query, tuple(params_list))
+
+        # Ecriture client DWH si present — sinon _pv_read retourne l'ancienne version
+        if dwh_code:
+            try:
+                if client_manager.has_client_db(dwh_code):
+                    central_row = execute_query(
+                        "SELECT code FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False
+                    )
+                    if central_row and central_row[0].get("code"):
+                        code = central_row[0]["code"]
+                        # Reconstruire sans le dernier element (pivot_id) et remplacer par code
+                        client_updates = list(updates[:-1])
+                        client_params = list(params_list[:-1])
+                        client_updates.append("updated_at = GETDATE()")
+                        client_params.append(code)
+                        client_query = f"UPDATE APP_Pivots_V2 SET {', '.join(client_updates)} WHERE code = ?"
+                        with dwh_cursor(dwh_code) as c:
+                            c.execute(client_query, tuple(client_params))
+            except Exception as e:
+                logger.warning(f"Update client DWH {dwh_code} pivot {pivot_id}: {e}")
 
         return {"success": True, "message": "Pivot mis a jour avec succes"}
     except Exception as e:
