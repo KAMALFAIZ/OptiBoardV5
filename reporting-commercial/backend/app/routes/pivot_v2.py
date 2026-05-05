@@ -1436,7 +1436,7 @@ async def execute_pivot(
 
     try:
         # Charger la config du pivot (depuis DB client si disponible)
-        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,))
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1591,7 +1591,7 @@ async def preview_pivot(
 ):
     """Apercu du pivot (limite a 100 lignes source)"""
     try:
-        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,))
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1682,7 +1682,7 @@ async def drilldown_pivot(
             raise
 
     try:
-        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,))
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -1845,7 +1845,7 @@ async def drilldown_pivot_export(
     try:
         import pandas as pd
 
-        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
+        results = _pv_read("SELECT * FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,))
         if not results:
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
@@ -2678,7 +2678,7 @@ async def export_pivot(
         # Recuperer le nom du pivot
         pivot_name = "Pivot"
         try:
-            result = _pv_read("SELECT nom FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), dwh_code=dwh_code)
+            result = _pv_read("SELECT nom FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,))
             if result:
                 pivot_name = result[0].get("nom", "Pivot")
         except Exception:
