@@ -441,18 +441,23 @@ export default function PivotViewerV2() {
           filters: data.filters_config || [],
         })
 
-        // Charger les preferences utilisateur
+        // Charger les preferences utilisateur — uniquement si plus récentes que la config builder
         if (user?.id) {
           try {
             const prefsRes = await getPivotV2UserPrefs(id, user.id)
             if (prefsRes.data?.has_prefs && prefsRes.data?.data?.custom_config) {
-              const cc = prefsRes.data.data.custom_config
-              setLiveConfig(prev => ({
-                rows: cc.rows || prev.rows,
-                columns: cc.columns || prev.columns,
-                values: cc.values || prev.values,
-                filters: cc.filters || prev.filters,
-              }))
+              const prefsUpdatedAt = new Date(prefsRes.data.data.updated_at || 0)
+              const configUpdatedAt = new Date(data.updated_at || 0)
+              // Ignorer les prefs si le builder a sauvegardé plus récemment
+              if (prefsUpdatedAt >= configUpdatedAt) {
+                const cc = prefsRes.data.data.custom_config
+                setLiveConfig(prev => ({
+                  rows: cc.rows || prev.rows,
+                  columns: cc.columns || prev.columns,
+                  values: cc.values || prev.values,
+                  filters: cc.filters || prev.filters,
+                }))
+              }
             }
           } catch (e) {
             // Ignorer les erreurs de prefs

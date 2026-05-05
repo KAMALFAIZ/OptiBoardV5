@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   getPivotsV2, getPivotV2, createPivotV2, updatePivotV2, deletePivotV2,
-  previewPivotV2, getPivotV2Fields, getUnifiedDataSourceFields
+  previewPivotV2, getPivotV2Fields, getUnifiedDataSourceFields, resetPivotV2UserPrefs
 } from '../services/api'
 import DataSourceSelector from '../components/DataSourceSelector'
 import { FieldList, DropZone, FormatRuleEditor, PivotTable } from '../components/PivotV2'
@@ -364,13 +364,19 @@ export default function PivotBuilderV2() {
         created_by: user?.id,
       }
 
+      let savedId = selectedPivotId
       if (selectedPivotId) {
         await updatePivotV2(selectedPivotId, payload)
       } else {
         const res = await createPivotV2(payload)
         if (res.data?.id) {
-          setSelectedPivotId(res.data.id)
+          savedId = res.data.id
+          setSelectedPivotId(savedId)
         }
+      }
+      // Effacer les user prefs pour que la nouvelle config DB soit la source de vérité
+      if (savedId && user?.id) {
+        try { await resetPivotV2UserPrefs(savedId, user.id) } catch (_) {}
       }
       setDirty(false)
       await loadPivots()
