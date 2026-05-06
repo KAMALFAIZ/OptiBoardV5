@@ -59,6 +59,8 @@ import SageConfigAdmin from './pages/SageConfigAdmin'
 import DigestAdmin from './pages/DigestAdmin'
 import AIPresentationBuilder from './pages/AIPresentationBuilder'
 import AIDeckBuilder from './pages/AIDeckBuilder'
+import SpreadsheetBuilder from './pages/SpreadsheetBuilder'
+import SpreadsheetViewer from './pages/SpreadsheetViewer'
 import Setup2FAPage from './pages/Setup2FAPage'
 import DemoRegisterPage from './pages/DemoRegisterPage'
 import DemoStatusPage from './pages/DemoStatusPage'
@@ -303,6 +305,8 @@ function AppContent() {
       <Route path="/comptabilite/:section" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       <Route path="/admin/sage-config" element={<ProtectedRoute pageCode="admin"><SageConfigAdmin /></ProtectedRoute>} />
       <Route path="/admin/digest" element={<ProtectedRoute pageCode="admin"><DigestAdmin /></ProtectedRoute>} />
+      <Route path="/spreadsheet-builder" element={<ProtectedRoute pageCode="admin"><SpreadsheetBuilder /></ProtectedRoute>} />
+      <Route path="/spreadsheet/:id" element={<ProtectedRoute pageCode="dashboard"><SpreadsheetViewer /></ProtectedRoute>} />
       <Route path="/setup-2fa" element={<ProtectedRoute><Setup2FAPage /></ProtectedRoute>} />
       </Routes>
     </Layout>

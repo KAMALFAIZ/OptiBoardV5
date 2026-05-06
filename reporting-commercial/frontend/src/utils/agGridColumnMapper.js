@@ -1,6 +1,12 @@
 /**
  * Mapping columns_config (OptiBoard DB) → AG Grid ColDef[]
  */
+import DateTreeFilter from '../components/filters/DateTreeFilter'
+import SetValueFilter from '../components/filters/SetValueFilter'
+import NumberFilter from '../components/filters/NumberFilter'
+import TextFloatingFilter from '../components/filters/TextFloatingFilter'
+import NumberFloatingFilter from '../components/filters/NumberFloatingFilter'
+import DateFloatingFilter from '../components/filters/DateFloatingFilter'
 
 const frNumber = (value, minFrac, maxFrac) => {
   if (value == null) return ''
@@ -114,12 +120,32 @@ function mapOneColumn(col, features) {
     colDef.valueFormatter = autoValueFormatter
   }
 
+  // Auto-détection du type de filtre selon format explicite OU nom de colonne
+  const fieldLower = col.field.toLowerCase()
+  const isDateByName = !fmt && (
+    fieldLower.includes('date') ||
+    fieldLower.startsWith('dt_') ||
+    fieldLower.endsWith('_dt')
+  )
+  // Nombres sans format explicite : champ contient des mots-clés numériques courants
+  const isNumberByName = !fmt && /\b(montant|ca_|_ca|prix|quantit|taux|total|solde|marge|poids|cout|ecart|stock|nb_|_nb|nombre|valeur|budget|chiffre|ratio|score|duree|age)\b/i.test(col.field)
+
   if (isNumericFormat) {
-    colDef.filter = 'agNumberColumnFilter'
-  } else if (fmt === 'date') {
-    colDef.filter = 'agDateColumnFilter'
+    colDef.filter = NumberFilter
+    colDef.filterParams = { buttons: [], closeOnApply: false }
+    colDef.floatingFilterComponent = NumberFloatingFilter
+  } else if (fmt === 'date' || isDateByName) {
+    colDef.filter = DateTreeFilter
+    colDef.filterParams = { buttons: [], closeOnApply: false }
+    colDef.floatingFilterComponent = DateFloatingFilter
+  } else if (isNumberByName) {
+    colDef.filter = NumberFilter
+    colDef.filterParams = { buttons: [], closeOnApply: false }
+    colDef.floatingFilterComponent = NumberFloatingFilter
   } else {
-    colDef.filter = 'agTextColumnFilter'
+    colDef.filter = SetValueFilter
+    colDef.filterParams = { buttons: [], closeOnApply: false }
+    colDef.floatingFilterComponent = TextFloatingFilter
   }
 
   // Alignment — les nombres toujours à droite

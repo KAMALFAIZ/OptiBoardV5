@@ -436,6 +436,31 @@ export const exportPivotV2 = (id, context = {}, format = 'excel', asBlob = false
   return api.post(`/v2/pivots/${id}/export?format=${format}`, { context }, config)
 }
 
+// ── Spreadsheet Builder ────────────────────────────────────────────────────────
+export const getSpreadsheets = (userId) => api.get('/spreadsheet/sheets', { params: { user_id: userId } })
+export const getSpreadsheet = (id) => api.get(`/spreadsheet/sheets/${id}`)
+export const createSpreadsheet = (data) => api.post('/spreadsheet/sheets', data)
+export const updateSpreadsheet = (id, data) => api.put(`/spreadsheet/sheets/${id}`, data)
+export const deleteSpreadsheet = (id) => api.delete(`/spreadsheet/sheets/${id}`)
+export const getSpreadsheetData = (id, context = {}, sheetIndex = null) =>
+  api.post(`/spreadsheet/sheets/${id}/data`, { context, sheet_index: sheetIndex })
+export const getSpreadsheetUserState = (sheetId, userId) =>
+  api.get(`/spreadsheet/sheets/${sheetId}/state/${userId}`)
+export const saveSpreadsheetUserState = (sheetId, userId, data) =>
+  api.put(`/spreadsheet/sheets/${sheetId}/state/${userId}`, data)
+export const resetSpreadsheetUserState = (sheetId, userId) =>
+  api.delete(`/spreadsheet/sheets/${sheetId}/state/${userId}`)
+export const exportSpreadsheet = (id, context = {}) =>
+  api.post(`/spreadsheet/sheets/${id}/export`, { context }, { responseType: 'blob' })
+export const importSpreadsheetExcel = (file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/spreadsheet/import-excel', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+  })
+}
+
 // Helper to extract error message from API responses (handles FastAPI validation errors)
 export const extractErrorMessage = (err, fallback = 'Erreur inconnue') => {
   const detail = err.response?.data?.detail

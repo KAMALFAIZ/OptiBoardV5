@@ -62,6 +62,7 @@ from app.routes.two_factor import router as two_factor_router                   
 from app.routes.ai_presentation import router as ai_presentation_router                         # Générateur IA de documents
 from app.routes.ai_deck import router as ai_deck_router, init_deck_tables                        # Deck IA interactif
 from app.routes.sage_config_admin import router as sage_config_admin_router                       # Admin Sage Direct config
+from app.routes.spreadsheet_builder import router as spreadsheet_builder_router, init_spreadsheet_tables  # Spreadsheet Builder (FortuneSheet)
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -169,6 +170,7 @@ app.include_router(two_factor_router)          # 2FA TOTP (admins)
 app.include_router(ai_presentation_router)    # Générateur IA de documents (PPTX/Excel)
 app.include_router(ai_deck_router)            # Deck IA interactif (plan + données DWH + narration)
 app.include_router(sage_config_admin_router)   # Admin Sage Direct mappings
+app.include_router(spreadsheet_builder_router) # Spreadsheet Builder (FortuneSheet)
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -282,6 +284,12 @@ async def startup_event():
         print("[STARTUP] Pivot V2 tables initialized successfully")
     except Exception as e:
         print(f"[STARTUP] Error initializing Pivot V2 tables: {e}")
+
+    try:
+        init_spreadsheet_tables()
+        print("[STARTUP] Spreadsheet tables initialized successfully")
+    except Exception as e:
+        print(f"[STARTUP] Error initializing Spreadsheet tables: {e}")
 
     try:
         init_scheduler_tables()
@@ -554,6 +562,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "run:app",
         host="127.0.0.1",
-        port=8084,
+        port=int(os.environ.get("BACKEND_PORT", 8085)),
         reload=settings.DEBUG
     )
