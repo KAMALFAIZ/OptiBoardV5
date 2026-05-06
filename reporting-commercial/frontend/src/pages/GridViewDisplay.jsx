@@ -94,11 +94,8 @@ export default function GridViewDisplay() {
   const [refreshing, setRefreshing] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
   const effectiveRole = user?.role_global || user?.role_dwh || user?.role
-  const isSuperAdmin = isAdmin()
+  const isSuperAdmin = user?.role_global === 'superadmin' || user?.role === 'superadmin'
   const isDebugAllowed = isSuperAdmin
-    || user?.role_dwh === 'admin_client'
-    || user?.role === 'admin_client'
-    || user?.role_global === 'admin_client'
   const [showDebug, setShowDebug] = useState(false)
 
   // Recherche globale
