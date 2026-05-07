@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDWH } from '../context/DWHContext'
+import { useAuth } from '../context/AuthContext'
 import {
   Shield, Plus, Trash2, ChevronRight, Users, Key, Database,
   Eye, EyeOff, Check, X, Save, Settings, RefreshCw, AlertCircle,
@@ -31,20 +32,6 @@ const REPORT_TYPES = [
 
 // ─── Catalogue complet des fonctionnalités OptiBoard ──────────────────────────
 const FEATURE_CATEGORIES = [
-  {
-    id: 'reporting',
-    label: 'Rapports & Analyses',
-    icon: TrendingUp,
-    color: '#3B82F6',
-    features: [
-      { code: 'ventes',       label: 'Analyse des Ventes',    desc: 'Ventes, évolution, top clients et produits' },
-      { code: 'stocks',       label: 'Gestion des Stocks',    desc: 'Niveaux de stock, rotations, alertes' },
-      { code: 'recouvrement', label: 'Recouvrement & DSO',    desc: 'Créances, encours clients, jours de retard' },
-      { code: 'analyse_ca',   label: 'Analyse CA & Créances', desc: 'Comparatif chiffre d\'affaires et créances' },
-      { code: 'liste_ventes', label: 'Liste Ventes Détail',   desc: 'Détail ligne par ligne des transactions' },
-      { code: 'pic',          label: 'Plan Industriel & Commercial', desc: 'PIC annuel et suivi objectifs' },
-    ],
-  },
   {
     id: 'ai',
     label: 'Intelligence Artificielle',
@@ -122,8 +109,10 @@ function extractError(e, fallback = 'Erreur') {
 
 export default function RolesAdmin() {
   const { currentDWH } = useDWH()
+  const { user } = useAuth()
   const dwhCode = currentDWH?.code || null
   const headers = dwhCode ? { 'X-DWH-Code': dwhCode } : {}
+  const isSuperAdmin = user?.role_global === 'superadmin'
 
   // Onglets
   const [activeTab, setActiveTab] = useState('roles')
@@ -156,13 +145,12 @@ export default function RolesAdmin() {
   const [savingReport, setSavingReport] = useState(false)
   const [reportSearch, setReportSearch] = useState('')
 
-  // Permissions — Colonnes masquées
-  const [maskReportId, setMaskReportId] = useState('')
-  const [maskColumns, setMaskColumns] = useState('')   // gardé pour fallback
-  const [savingMasks, setSavingMasks] = useState(false)
-  const [reportColumns, setReportColumns] = useState([])     // colonnes du rapport sélectionné
-  const [loadingColumns, setLoadingColumns] = useState(false)
-  const [checkedColumns, setCheckedColumns] = useState({})
+  // Colonnes masquées — par item de navigation
+  const [expandedItemCols, setExpandedItemCols]   = useState({})  // itemId → bool
+  const [itemColDefs, setItemColDefs]             = useState({})  // 'type:id' → [{field,label}]
+  const [itemColChecked, setItemColChecked]       = useState({})  // 'type:id' → {field:bool}
+  const [loadingItemCols, setLoadingItemCols]     = useState({})  // 'type:id' → bool
+  const [savingItemCols, setSavingItemCols]       = useState({})  // 'type:id' → bool
 
   // Utilisateurs
   const [users, setUsers] = useState([])
@@ -173,6 +161,11 @@ export default function RolesAdmin() {
   const [featureCodes, setFeatureCodes]           = useState([])       // codes activés pour le rôle sélectionné
   const [savingFeatures, setSavingFeatures]       = useState(false)
   const [expandedCats, setExpandedCats]           = useState({})       // catégories ouvertes/fermées
+
+  // Navigation menus dynamiques
+  const [navMenus, setNavMenus]                   = useState([])
+  const [loadingNavMenus, setLoadingNavMenus]     = useState(false)
+  const [expandedMenuDetails, setExpandedMenuDetails] = useState({})   // sous-menus ouverts
 
   // Seed standard
   const [seedingStandard, setSeedingStandard] = useState(false)
@@ -207,10 +200,11 @@ export default function RolesAdmin() {
   // Charger DWH + rapports disponibles
   useEffect(() => {
     const loadResources = async () => {
-      // DWH
+      // DWH — filtrés selon le rôle : superadmin voit tout, admin_client voit uniquement son DWH
       try {
         const res = await api.get('/dwh-admin/list', { headers })
-        setAvailableDwh(res.data?.data || [])
+        const all = res.data?.data || []
+        setAvailableDwh(isSuperAdmin ? all : all.filter(d => d.code === dwhCode))
       } catch { /* silencieux */ }
 
       // Rapports (dashboards, gridviews, pivots)
@@ -228,7 +222,7 @@ export default function RolesAdmin() {
       } catch { /* silencieux */ }
     }
     loadResources()
-  }, [dwhCode])
+  }, [dwhCode, isSuperAdmin])
 
   // ── Chargement permissions du rôle sélectionné ───────────────────────────────
   const loadRolePermissions = useCallback(async (role) => {
@@ -265,9 +259,23 @@ export default function RolesAdmin() {
     }
   }, [dwhCode])
 
+  // ── Chargement des menus de navigation (pour section dynamique) ─────────────
+  const loadNavMenus = useCallback(async () => {
+    setLoadingNavMenus(true)
+    try {
+      const res = await api.get('/menus/', { headers })
+      const menus = (res.data?.data || []).filter(m => m.actif !== false && m.is_active !== false)
+      setNavMenus(menus)
+    } catch { setNavMenus([]) }
+    finally { setLoadingNavMenus(false) }
+  }, [dwhCode])
+
   useEffect(() => {
-    if (selectedRole) loadRolePermissions(selectedRole)
-  }, [selectedRole, loadRolePermissions])
+    if (selectedRole) {
+      loadRolePermissions(selectedRole)
+      loadNavMenus()
+    }
+  }, [selectedRole, loadRolePermissions, loadNavMenus])
 
   // ── Chargement utilisateurs ──────────────────────────────────────────────────
   const loadUsers = useCallback(async () => {
@@ -283,8 +291,11 @@ export default function RolesAdmin() {
   }, [dwhCode])
 
   useEffect(() => {
-    if (activeTab === 'users') loadUsers()
-  }, [activeTab, loadUsers])
+    if (activeTab === 'users') {
+      loadUsers()
+      loadRoles() // Rafraîchir les rôles pour que le dropdown d'assignation soit à jour
+    }
+  }, [activeTab, loadUsers, loadRoles])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ONGLET 1 — RÔLES
@@ -335,8 +346,9 @@ export default function RolesAdmin() {
 
   const handleSelectRole = (role) => {
     setSelectedRole(role)
-    setMaskReportId('')
-    setMaskColumns('')
+    setExpandedItemCols({})
+    setItemColDefs({})
+    setItemColChecked({})
     setShowAddReport(false)
     setActiveTab('permissions')
   }
@@ -442,101 +454,98 @@ export default function RolesAdmin() {
     return found?.nom || found?.name || `${reportType} #${reportId}`
   }
 
-  // Tous les rapports toutes sections confondues (pour le sélecteur de masques)
-  const allReports = [
-    ...(reportsByType.dashboards || []).map(r => ({ ...r, type: 'dashboards' })),
-    ...(reportsByType.gridviews || []).map(r => ({ ...r, type: 'gridviews' })),
-    ...(reportsByType.pivots || []).map(r => ({ ...r, type: 'pivots' })),
-  ]
+  // Section C — Colonnes masquées inline par item de navigation
 
-  // Section C — Colonnes masquées
+  const loadItemColumns = useCallback(async (item, existingCols) => {
+    if (!item.target_id) return
+    const sType = item.type === 'pivot-v2' ? 'pivot' : item.type
+    const ik = `${sType}:${item.target_id}`
 
-  // Charger les colonnes du rapport sélectionné + pré-cocher celles déjà masquées
-  const loadReportColumns = useCallback(async (reportKey) => {
-    if (!reportKey) { setReportColumns([]); setCheckedColumns({}); return }
-    const [rType, rId] = reportKey.split(':')
-    const singularType = { dashboards: 'dashboard', gridviews: 'gridview', pivots: 'pivot' }[rType] || rType
-    setLoadingColumns(true)
-    setReportColumns([])
+    setLoadingItemCols(prev => ({ ...prev, [ik]: true }))
     try {
-      // ── 1. Charger la liste des colonnes disponibles ──────────────────────
-      let cols = []
-      if (rType === 'gridviews') {
-        const res = await api.get(`/gridview/grids/${rId}`, { headers })
-        const grid = res.data?.data || res.data || {}
-        cols = (grid.columns || []).map(c => ({ field: c.field, label: c.header || c.field }))
-      } else if (rType === 'pivots') {
-        const res = await api.get(`/v2/pivots/${rId}`, { headers })
-        const piv = res.data?.data || res.data || {}
-        const rows    = Array.isArray(piv.rows_config)    ? piv.rows_config    : JSON.parse(piv.rows_config    || '[]')
-        const colsCfg = Array.isArray(piv.columns_config) ? piv.columns_config : JSON.parse(piv.columns_config || '[]')
-        cols = [...rows, ...colsCfg].map(c => ({ field: c.field || c, label: c.label || c.field || c }))
-      } else if (rType === 'dashboards') {
-        const res = await api.get(`/builder/dashboards/${rId}`, { headers })
-        const dash = res.data?.data || res.data || {}
-        const widgets = Array.isArray(dash.widgets) ? dash.widgets : JSON.parse(dash.widgets || '[]')
-        const fieldsSet = new Set()
-        widgets.forEach(w => {
-          const cfg = typeof w.config === 'string' ? JSON.parse(w.config || '{}') : (w.config || {})
-          ;(cfg.columns || cfg.fields || []).forEach(f => fieldsSet.add(typeof f === 'string' ? f : f.field))
-        })
-        cols = [...fieldsSet].map(f => ({ field: f, label: f }))
+      // ── 1. Colonnes du rapport (utilise le cache si déjà chargé) ────────────
+      let cols = existingCols || []
+      if (!cols.length) {
+        if (item.type === 'gridview') {
+          const res = await api.get(`/gridview/grids/${item.target_id}`, { headers })
+          const grid = res.data?.data || res.data || {}
+          cols = (grid.columns || []).map(c => ({ field: c.field, label: c.header || c.field }))
+        } else if (item.type === 'pivot-v2' || item.type === 'pivot') {
+          const res = await api.get(`/v2/pivots/${item.target_id}`, { headers })
+          const piv = res.data?.data || res.data || {}
+          const rowsCfg = Array.isArray(piv.rows_config)    ? piv.rows_config    : JSON.parse(piv.rows_config    || '[]')
+          const colsCfg = Array.isArray(piv.columns_config) ? piv.columns_config : JSON.parse(piv.columns_config || '[]')
+          cols = [...rowsCfg, ...colsCfg].map(c => ({ field: c.field || c, label: c.label || c.field || c }))
+        } else if (item.type === 'dashboard') {
+          const res = await api.get(`/builder/dashboards/${item.target_id}`, { headers })
+          const dash = res.data?.data || res.data || {}
+          const widgets = Array.isArray(dash.widgets) ? dash.widgets : JSON.parse(dash.widgets || '[]')
+          const fieldsSet = new Set()
+          widgets.forEach(w => {
+            const cfg = typeof w.config === 'string' ? JSON.parse(w.config || '{}') : (w.config || {})
+            ;(cfg.columns || cfg.fields || []).forEach(f => fieldsSet.add(typeof f === 'string' ? f : f.field))
+          })
+          cols = [...fieldsSet].map(f => ({ field: f, label: f }))
+        }
+        setItemColDefs(prev => ({ ...prev, [ik]: cols }))
       }
-      setReportColumns(cols)
 
-      // ── 2. Charger les colonnes DÉJÀ masquées depuis l'API ────────────────
-      const init = {}
-      cols.forEach(c => { init[c.field] = false })
-
+      // ── 2. Masques sauvegardés — TOUJOURS rechargés depuis le serveur ───────
+      // Convention : true = visible (coché), false = masqué (décoché)
+      const init = Object.fromEntries(cols.map(c => [c.field, true]))
       if (selectedRole) {
         try {
           const maskRes = await api.get(`/roles/${selectedRole.id}/columns`, { headers })
-          const saved   = maskRes.data?.data || []
+          const saved = maskRes.data?.data || []
+          const colFieldsLower = Object.fromEntries(cols.map(c => [c.field.toLowerCase(), c.field]))
           saved
             .filter(m =>
-              m.report_type === singularType &&
-              String(m.report_id) === String(rId) &&
-              m.is_hidden
+              m.report_type === sType &&
+              String(m.report_id) === String(item.target_id) &&
+              (m.is_hidden === true || m.is_hidden === 1)
             )
             .forEach(m => {
-              if (m.column_name in init) init[m.column_name] = true
+              // Matching exact puis insensible à la casse
+              if (m.column_name in init) {
+                init[m.column_name] = false  // décoché = masqué
+              } else {
+                const matched = colFieldsLower[m.column_name.toLowerCase()]
+                if (matched) init[matched] = false
+              }
             })
-        } catch { /* silencieux — aucune colonne masquée enregistrée */ }
+        } catch { /* silencieux */ }
       }
-
-      setCheckedColumns(init)
-    } catch { setReportColumns([]) }
-    finally { setLoadingColumns(false) }
+      setItemColChecked(prev => ({ ...prev, [ik]: init }))
+    } catch {
+      setItemColDefs(prev => ({ ...prev, [ik]: [] }))
+    } finally {
+      setLoadingItemCols(prev => ({ ...prev, [ik]: false }))
+    }
   }, [dwhCode, selectedRole])
 
-  const handleMaskReportChange = (val) => {
-    setMaskReportId(val)
-    loadReportColumns(val)
+  const toggleItemColPanel = (item) => {
+    const isOpen = expandedItemCols[item.id]
+    setExpandedItemCols(prev => ({ ...prev, [item.id]: !isOpen }))
+    if (!isOpen && item.target_id) loadItemColumns(item)
   }
 
-  const toggleColumn = (field) => {
-    setCheckedColumns(prev => ({ ...prev, [field]: !prev[field] }))
-  }
-
-  const handleSaveMasks = async () => {
-    if (!maskReportId) return
-    setSavingMasks(true)
-    const [rType, rId] = maskReportId.split(':')
-    // Si colonnes chargées → utiliser les cases cochées, sinon fallback textarea
-    const cols = reportColumns.length > 0
-      ? Object.entries(checkedColumns).filter(([, v]) => v).map(([k]) => k)
-      : maskColumns.split('\n').map(c => c.trim()).filter(Boolean)
+  const saveItemColumns = async (item) => {
+    if (!selectedRole || !item.target_id) return
+    const sType = item.type === 'pivot-v2' ? 'pivot' : item.type
+    const ik = `${sType}:${item.target_id}`
+    const hiddenCols = Object.entries(itemColChecked[ik] || {}).filter(([, v]) => !v).map(([k]) => k)
+    setSavingItemCols(prev => ({ ...prev, [ik]: true }))
     try {
       await api.post(
         `/roles/${selectedRole.id}/columns`,
-        { report_type: typeMap[rType] || rType, report_id: parseInt(rId), hidden_columns: cols },
+        { report_type: sType, report_id: parseInt(item.target_id), hidden_columns: hiddenCols },
         { headers }
       )
-      showToast(`${cols.length} colonne(s) masquée(s) enregistrée(s)`)
+      showToast(`${hiddenCols.length} colonne(s) masquée(s) enregistrée(s)`)
     } catch (e) {
       setGlobalError(extractError(e, 'Erreur enregistrement masques'))
     } finally {
-      setSavingMasks(false)
+      setSavingItemCols(prev => ({ ...prev, [ik]: false }))
     }
   }
 
@@ -563,8 +572,10 @@ export default function RolesAdmin() {
     if (!selectedRole) return
     setSavingFeatures(true)
     try {
-      await api.post(`/roles/${selectedRole.id}/features`, { feature_codes: featureCodes }, { headers })
-      showToast(`${featureCodes.length} fonctionnalité(s) enregistrée(s)`)
+      const res = await api.post(`/roles/${selectedRole.id}/features`, { feature_codes: featureCodes }, { headers })
+      // Recharger les permissions pour synchroniser la section Colonnes masquées
+      await loadRolePermissions(selectedRole)
+      showToast(res.data?.message || `${featureCodes.length} fonctionnalité(s) enregistrée(s)`)
     } catch (e) {
       setGlobalError(extractError(e, 'Erreur enregistrement fonctionnalités'))
     } finally {
@@ -573,6 +584,71 @@ export default function RolesAdmin() {
   }
 
   const toggleExpandCat = (id) => setExpandedCats(prev => ({ ...prev, [id]: !prev[id] }))
+
+  // ── Helpers menus de navigation dynamiques ───────────────────────────────────
+  const navMenuCode = (id) => `nav_menu_${id}`
+  const navItemCode = (id) => `nav_item_${id}`
+  const isNavMenuOn = (id) => featureCodes.includes(navMenuCode(id))
+  const isNavItemOn = (id) => featureCodes.includes(navItemCode(id))
+
+  // Collecte récursivement tous les IDs des nœuds feuilles (type !== folder ou sans enfants)
+  const collectLeafIds = (nodes) => {
+    const ids = []
+    for (const node of (nodes || [])) {
+      const children = node.children || []
+      if (node.type !== 'folder' || children.length === 0) {
+        ids.push(node.id)
+      } else {
+        ids.push(...collectLeafIds(children))
+      }
+    }
+    return ids
+  }
+
+  // Toggle menu parent : active/désactive le parent + TOUS les rapports feuilles récursivement
+  const toggleNavMenu = (menu) => {
+    const mCode    = navMenuCode(menu.id)
+    const leafIds  = collectLeafIds(menu.children || [])
+    const allCodes = [mCode, ...leafIds.map(navItemCode)]
+    if (isNavMenuOn(menu.id)) {
+      setFeatureCodes(prev => prev.filter(c => !allCodes.includes(c)))
+    } else {
+      setFeatureCodes(prev => [...new Set([...prev, ...allCodes])])
+    }
+  }
+
+  // Toggle rapport individuel : active le menu parent si besoin, le retire si dernier rapport désactivé
+  const toggleNavItem = (menu, item) => {
+    const iCode   = navItemCode(item.id)
+    const mCode   = navMenuCode(menu.id)
+    const leafIds = collectLeafIds(menu.children || [])
+    if (featureCodes.includes(iCode)) {
+      const othersOn = leafIds.filter(id => id !== item.id && featureCodes.includes(navItemCode(id)))
+      setFeatureCodes(prev => {
+        const next = prev.filter(c => c !== iCode)
+        return othersOn.length === 0 ? next.filter(c => c !== mCode) : next
+      })
+    } else {
+      setFeatureCodes(prev => [...new Set([...prev, iCode, mCode])])
+    }
+  }
+
+  // Tout activer / désactiver toute la section navigation (rapports feuilles uniquement)
+  const toggleAllNavMenus = () => {
+    const allNavCodes = navMenus.flatMap(m => [
+      navMenuCode(m.id),
+      ...collectLeafIds(m.children || []).map(navItemCode),
+    ])
+    const allOn = navMenus.length > 0 && navMenus.every(m => isNavMenuOn(m.id))
+    if (allOn) {
+      setFeatureCodes(prev => prev.filter(c => !allNavCodes.includes(c)))
+    } else {
+      setFeatureCodes(prev => [...new Set([...prev, ...allNavCodes])])
+    }
+  }
+
+  const toggleMenuDetails = (menuId) =>
+    setExpandedMenuDetails(prev => ({ ...prev, [menuId]: !prev[menuId] }))
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ONGLET 3 — UTILISATEURS
@@ -905,382 +981,298 @@ export default function RolesAdmin() {
             </div>
           </div>
 
-          {/* ── Section B — Rapports autorisés ───────────────────────────────── */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <LayoutDashboard className="w-5 h-5 text-purple-500" />
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">Rapports autorisés</h3>
-            </div>
-
-            {/* Sous-onglets type de rapport */}
-            <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-fit">
-              {REPORT_TYPES.map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => { setReportTab(key); setShowAddReport(false) }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all
-                    ${reportTab === key
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                  <span className="ml-0.5 px-1.5 py-0.5 bg-gray-200 dark:bg-gray-500 rounded-full text-xs leading-none">
-                    {(reportsByType[key] || []).length}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Liste des rapports */}
-            {(reportsByType[reportTab] || []).length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-2">
-                <LayoutDashboard className="w-8 h-8 opacity-30" />
-                <p className="text-sm">Aucun rapport assigné pour ce type</p>
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-700/40 border-b border-gray-200 dark:border-gray-700">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">ID</th>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Nom</th>
-                    <th className="px-3 py-2 text-center font-medium text-gray-600 dark:text-gray-300">
-                      <span className="flex items-center justify-center gap-1"><Eye className="w-3.5 h-3.5" /> Voir</span>
-                    </th>
-                    <th className="px-3 py-2 text-center font-medium text-gray-600 dark:text-gray-300">Exporter</th>
-                    <th className="px-3 py-2 text-center font-medium text-gray-600 dark:text-gray-300">Planifier</th>
-                    <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {(reportsByType[reportTab] || []).map(report => (
-                    <tr key={report.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="px-3 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">#{report.id}</td>
-                      <td className="px-3 py-2 text-gray-800 dark:text-gray-200 font-medium">
-                        {getReportName(report.report_type, report.id)}
-                      </td>
-                      {['can_view', 'can_export', 'can_schedule'].map(perm => (
-                        <td key={perm} className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => handleToggleReportPerm(reportTab, report.id, perm)}
-                            className={`w-5 h-5 rounded flex items-center justify-center mx-auto transition-colors
-                              ${report[perm]
-                                ? 'bg-green-500 text-white'
-                                : 'bg-gray-200 dark:bg-gray-600 text-gray-400'
-                              }`}
-                          >
-                            {report[perm] && <Check className="w-3 h-3" />}
-                          </button>
-                        </td>
-                      ))}
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={() => handleRemoveReport(reportTab, report.id)}
-                          className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {/* Formulaire ajout rapport */}
-            {showAddReport ? (
-              <form onSubmit={handleAddReport} className="border border-dashed border-blue-300 dark:border-blue-700 rounded-lg p-4 space-y-3 bg-blue-50/50 dark:bg-blue-900/10">
-                <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Ajouter un rapport ({REPORT_TYPES.find(r => r.key === reportTab)?.label})</p>
+          {/* Section B supprimée — rapports synchronisés automatiquement depuis Navigation & Menus */}
+          {false && <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                  <LayoutDashboard className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Rapport *
-                  </label>
-                  {availableReports[reportTab]?.length > 0 ? (
-                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                      {/* Barre de recherche */}
-                      <div className="flex items-center gap-2 px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                        <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                        </svg>
-                        <input
-                          type="text"
-                          value={reportSearch}
-                          onChange={e => setReportSearch(e.target.value)}
-                          placeholder="Rechercher un rapport..."
-                          className="flex-1 text-xs bg-transparent outline-none text-gray-700 dark:text-gray-300 placeholder-gray-400"
-                        />
-                        {reportSearch && (
-                          <button type="button" onClick={() => setReportSearch('')} className="text-gray-400 hover:text-gray-600">
-                            <X className="w-3 h-3" />
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">Rapports autorisés</h3>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                    {Object.values(reportsByType).reduce((s, a) => s + (a?.length || 0), 0)} rapport{Object.values(reportsByType).reduce((s, a) => s + (a?.length || 0), 0) !== 1 ? 's' : ''} assigné{Object.values(reportsByType).reduce((s, a) => s + (a?.length || 0), 0) !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+              {!showAddReport && (
+                <button
+                  onClick={() => setShowAddReport(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter
+                </button>
+              )}
+            </div>
+
+            {/* Type tabs */}
+            <div className="flex border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/70 dark:bg-gray-800/50">
+              {REPORT_TYPES.map(({ key, label, icon: Icon }) => {
+                const count = (reportsByType[key] || []).length
+                return (
+                  <button
+                    key={key}
+                    onClick={() => { setReportTab(key); setShowAddReport(false); setReportSearch(''); setNewReportForm({ id: '', name: '', can_view: true, can_export: false, can_schedule: false }) }}
+                    className={`relative flex items-center gap-2 px-5 py-3 text-xs font-medium transition-all
+                      ${reportTab === key
+                        ? 'text-purple-700 dark:text-purple-300 bg-white dark:bg-gray-800'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-white/50 dark:hover:bg-gray-800/30'
+                      }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {label}
+                    <span className={`px-1.5 py-0.5 rounded-full text-xs leading-none font-semibold
+                      ${reportTab === key
+                        ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                        : 'bg-gray-200 dark:bg-gray-600/60 text-gray-500 dark:text-gray-400'
+                      }`}>
+                      {count}
+                    </span>
+                    {reportTab === key && (
+                      <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-600 dark:bg-purple-400 rounded-t-full" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-3">
+
+              {/* Assigned reports list */}
+              {(reportsByType[reportTab] || []).length === 0 && !showAddReport ? (
+                <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                  <div className="p-3 bg-gray-100 dark:bg-gray-700/40 rounded-xl mb-3">
+                    <LayoutDashboard className="w-6 h-6 opacity-40" />
+                  </div>
+                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Aucun rapport assigné</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Cliquez sur "Ajouter" pour assigner des rapports</p>
+                </div>
+              ) : (reportsByType[reportTab] || []).length > 0 && (
+                <div className="space-y-1.5">
+                  {(reportsByType[reportTab] || []).map(report => (
+                    <div
+                      key={report.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/20 hover:bg-gray-100/80 dark:hover:bg-gray-700/40 group transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-600/50"
+                    >
+                      {/* ID badge */}
+                      <span className="text-xs font-mono font-semibold text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-1.5 py-0.5 rounded shrink-0">
+                        #{report.id}
+                      </span>
+                      {/* Name */}
+                      <span className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200 truncate min-w-0">
+                        {getReportName(report.report_type, report.id)}
+                      </span>
+                      {/* Permission pills */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {[
+                          { key: 'can_view',     label: 'Voir',    on: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-700/60',    off: 'bg-gray-100 text-gray-400 dark:bg-gray-700/50 dark:text-gray-500 border-gray-200 dark:border-gray-600' },
+                          { key: 'can_export',   label: 'Export',  on: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700/60', off: 'bg-gray-100 text-gray-400 dark:bg-gray-700/50 dark:text-gray-500 border-gray-200 dark:border-gray-600' },
+                          { key: 'can_schedule', label: 'Planif.', on: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 border-orange-200 dark:border-orange-700/60',   off: 'bg-gray-100 text-gray-400 dark:bg-gray-700/50 dark:text-gray-500 border-gray-200 dark:border-gray-600' },
+                        ].map(({ key, label, on, off }) => (
+                          <button
+                            key={key}
+                            onClick={() => handleToggleReportPerm(reportTab, report.id, key)}
+                            title={key === 'can_view' ? 'Voir' : key === 'can_export' ? 'Exporter' : 'Planifier'}
+                            className={`px-2 py-0.5 rounded-full text-xs font-semibold border transition-all cursor-pointer
+                              ${report[key] ? on : off}`}
+                          >
+                            {label}
                           </button>
-                        )}
+                        ))}
                       </div>
-                      {/* Grille des rapports */}
-                      <div className="max-h-52 overflow-y-auto">
-                        <table className="w-full text-xs">
-                          <thead className="bg-gray-50 dark:bg-gray-700/60 sticky top-0 z-10">
-                            <tr>
-                              <th className="px-2 py-1.5 text-left font-medium text-gray-500 dark:text-gray-400 w-14">ID</th>
-                              <th className="px-2 py-1.5 text-left font-medium text-gray-500 dark:text-gray-400">Nom</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                            {availableReports[reportTab]
+                      {/* Remove */}
+                      <button
+                        onClick={() => handleRemoveReport(reportTab, report.id)}
+                        className="p-1 rounded-md text-transparent group-hover:text-gray-300 dark:group-hover:text-gray-500 hover:!text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add form */}
+              {showAddReport && (
+                <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                  {/* Form header */}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-700/40 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <Plus className="w-3.5 h-3.5 text-purple-500" />
+                      <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                        Ajouter — {REPORT_TYPES.find(r => r.key === reportTab)?.label}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { setShowAddReport(false); setReportSearch(''); setNewReportForm({ id: '', name: '', can_view: true, can_export: false, can_schedule: false }) }}
+                      className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddReport} className="p-4 space-y-3">
+                    {availableReports[reportTab]?.length > 0 ? (
+                      <>
+                        {/* Search */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus-within:border-purple-400 focus-within:ring-2 focus-within:ring-purple-100 dark:focus-within:ring-purple-900/30 transition-all">
+                          <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                          </svg>
+                          <input
+                            type="text"
+                            value={reportSearch}
+                            onChange={e => setReportSearch(e.target.value)}
+                            placeholder="Rechercher un rapport..."
+                            className="flex-1 text-xs bg-transparent outline-none text-gray-700 dark:text-gray-300 placeholder-gray-400"
+                            autoFocus
+                          />
+                          {reportSearch && (
+                            <button type="button" onClick={() => setReportSearch('')} className="text-gray-400 hover:text-gray-600">
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Report list */}
+                        <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700/40">
+                          {(() => {
+                            const filtered = availableReports[reportTab]
                               .filter(r => !(reportsByType[reportTab] || []).some(x => String(x.id) === String(r.id)))
                               .filter(r =>
                                 !reportSearch ||
                                 r.nom.toLowerCase().includes(reportSearch.toLowerCase()) ||
                                 String(r.id).includes(reportSearch)
                               )
-                              .map(r => (
-                                <tr
-                                  key={r.id}
-                                  onClick={() => {
-                                    setNewReportForm(f => ({ ...f, id: String(r.id), name: r.nom }))
-                                    setReportSearch('')
-                                  }}
-                                  className={`cursor-pointer transition-colors
-                                    ${String(newReportForm.id) === String(r.id)
-                                      ? 'bg-blue-50 dark:bg-blue-900/30'
-                                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                                    }`}
-                                >
-                                  <td className="px-2 py-1.5 font-mono text-gray-400 dark:text-gray-500">#{r.id}</td>
-                                  <td className={`px-2 py-1.5 font-medium
-                                    ${String(newReportForm.id) === String(r.id)
-                                      ? 'text-blue-700 dark:text-blue-300'
-                                      : 'text-gray-700 dark:text-gray-300'
-                                    }`}>
-                                    {r.nom}
-                                    {String(newReportForm.id) === String(r.id) && (
-                                      <Check className="w-3 h-3 inline ml-1.5 text-blue-500" />
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {/* Rapport sélectionné */}
-                      {newReportForm.id && (
-                        <div className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border-t border-blue-100 dark:border-blue-800 flex items-center justify-between">
-                          <span className="text-xs text-blue-700 dark:text-blue-300 font-medium">
-                            Sélectionné : #{newReportForm.id} — {newReportForm.name}
-                          </span>
-                          <button type="button" onClick={() => setNewReportForm(f => ({ ...f, id: '', name: '' }))}
-                            className="text-blue-400 hover:text-blue-600">
-                            <X className="w-3 h-3" />
-                          </button>
+                            if (filtered.length === 0) return (
+                              <div className="flex flex-col items-center justify-center py-6 text-gray-400">
+                                <p className="text-xs">Aucun rapport disponible</p>
+                              </div>
+                            )
+                            return filtered.map(r => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => { setNewReportForm(f => ({ ...f, id: String(r.id), name: r.nom })); setReportSearch('') }}
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors
+                                  ${String(newReportForm.id) === String(r.id)
+                                    ? 'bg-purple-50 dark:bg-purple-900/20'
+                                    : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                                  }`}
+                              >
+                                <span className="text-xs font-mono font-semibold text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded shrink-0">
+                                  #{r.id}
+                                </span>
+                                <span className={`flex-1 text-xs font-medium truncate
+                                  ${String(newReportForm.id) === String(r.id)
+                                    ? 'text-purple-700 dark:text-purple-300'
+                                    : 'text-gray-700 dark:text-gray-300'
+                                  }`}>
+                                  {r.nom}
+                                </span>
+                                {String(newReportForm.id) === String(r.id) && (
+                                  <Check className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                )}
+                              </button>
+                            ))
+                          })()}
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <input
-                      value={newReportForm.id}
-                      onChange={e => setNewReportForm(f => ({ ...f, id: e.target.value }))}
-                      placeholder="ID du rapport (ex: 42)"
-                      required
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
-                  )}
-                </div>
-                <div className="flex items-center gap-5">
-                  {[
-                    { key: 'can_view', label: 'Voir' },
-                    { key: 'can_export', label: 'Exporter' },
-                    { key: 'can_schedule', label: 'Planifier' },
-                  ].map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                      </>
+                    ) : (
                       <input
-                        type="checkbox"
-                        checked={newReportForm[key]}
-                        onChange={e => setNewReportForm(f => ({ ...f, [key]: e.target.checked }))}
-                        className="rounded border-gray-300 text-blue-600"
+                        value={newReportForm.id}
+                        onChange={e => setNewReportForm(f => ({ ...f, id: e.target.value }))}
+                        placeholder="ID du rapport (ex: 42)"
+                        required
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="submit"
-                    disabled={savingReport}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg disabled:opacity-60"
-                  >
-                    {savingReport ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    Ajouter
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddReport(false)}
-                    className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
-                  >
-                    Annuler
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <button
-                onClick={() => setShowAddReport(true)}
-                className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors w-full justify-center"
-              >
-                <Plus className="w-4 h-4" />
-                Ajouter un rapport
-              </button>
-            )}
-          </div>
+                    )}
 
-          {/* ── Section C — Colonnes masquées ────────────────────────────────── */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <EyeOff className="w-5 h-5 text-orange-500" />
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">Colonnes masquées</h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Pour quel rapport ?
-                </label>
-                <select
-                  value={maskReportId}
-                  onChange={e => handleMaskReportChange(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                >
-                  <option value="">— Choisir un rapport —</option>
-                  {allReports.map(r => (
-                    <option key={`${r.type}:${r.id}`} value={`${r.type}:${r.id}`}>
-                      [{REPORT_TYPES.find(t => t.key === r.type)?.label}] {getReportName(r.type, r.id)}
-                    </option>
-                  ))}
-                </select>
-                {allReports.length === 0 && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                    Ajoutez d'abord des rapports dans la section ci-dessus.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Colonnes à masquer
-                </label>
-
-                {/* Spinner chargement */}
-                {loadingColumns && (
-                  <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Chargement des colonnes…
-                  </div>
-                )}
-
-                {/* Grille de cases à cocher */}
-                {!loadingColumns && reportColumns.length > 0 && (
-                  <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
-                    <div className="bg-gray-50 dark:bg-gray-700/50 px-3 py-1.5 flex items-center justify-between border-b border-gray-200 dark:border-gray-600">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {reportColumns.length} colonne(s) — {Object.values(checkedColumns).filter(Boolean).length} masquée(s)
-                      </span>
-                      <div className="flex gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const all = {}
-                            reportColumns.forEach(c => { all[c.field] = true })
-                            setCheckedColumns(all)
-                          }}
-                          className="text-xs text-orange-600 hover:underline"
-                        >
-                          Tout masquer
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const none = {}
-                            reportColumns.forEach(c => { none[c.field] = false })
-                            setCheckedColumns(none)
-                          }}
-                          className="text-xs text-blue-600 hover:underline"
-                        >
-                          Tout afficher
+                    {/* Selected report chip */}
+                    {newReportForm.id && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700/50 rounded-lg">
+                        <Check className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                        <span className="text-xs font-semibold text-purple-700 dark:text-purple-300 truncate flex-1">
+                          #{newReportForm.id} — {newReportForm.name}
+                        </span>
+                        <button type="button" onClick={() => setNewReportForm(f => ({ ...f, id: '', name: '' }))} className="text-purple-400 hover:text-purple-600 shrink-0">
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-0 max-h-56 overflow-y-auto">
-                      {reportColumns.map(col => (
-                        <label
-                          key={col.field}
-                          className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-sm border-b border-r border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors ${
-                            checkedColumns[col.field]
-                              ? 'bg-orange-50 dark:bg-orange-900/10 text-orange-700 dark:text-orange-300'
-                              : 'text-gray-700 dark:text-gray-300'
-                          }`}
+                    )}
+
+                    {/* Permission toggles */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">Permissions :</span>
+                      {[
+                        { key: 'can_view',     label: 'Voir',     on: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300 dark:border-blue-600',       off: 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600' },
+                        { key: 'can_export',   label: 'Exporter', on: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-600', off: 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600' },
+                        { key: 'can_schedule', label: 'Planifier', on: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 border-orange-300 dark:border-orange-600',  off: 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600' },
+                      ].map(({ key, label, on, off }) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setNewReportForm(f => ({ ...f, [key]: !f[key] }))}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+                            ${newReportForm[key] ? on : off}`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={!!checkedColumns[col.field]}
-                            onChange={() => toggleColumn(col.field)}
-                            className="rounded border-gray-300 text-orange-500 focus:ring-orange-400"
-                          />
-                          <span className="truncate" title={col.field}>
-                            {col.label !== col.field ? (
-                              <><span className="font-medium">{col.label}</span><span className="ml-1 text-xs text-gray-400">({col.field})</span></>
-                            ) : col.field}
-                          </span>
-                          {checkedColumns[col.field] && <EyeOff className="w-3.5 h-3.5 ml-auto flex-shrink-0" />}
-                        </label>
+                          {newReportForm[key] && <Check className="w-3 h-3 shrink-0" />}
+                          {label}
+                        </button>
                       ))}
                     </div>
-                  </div>
-                )}
 
-                {/* Fallback textarea si pas de colonnes détectées */}
-                {!loadingColumns && reportColumns.length === 0 && (
-                  <textarea
-                    value={maskColumns}
-                    onChange={e => setMaskColumns(e.target.value)}
-                    disabled={!maskReportId}
-                    placeholder={"colonne_montant\ncolonne_marge\ncolonne_client"}
-                    rows={4}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono resize-y disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                )}
-              </div>
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
+                      <button
+                        type="submit"
+                        disabled={savingReport || !newReportForm.id}
+                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                      >
+                        {savingReport ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                        Ajouter le rapport
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowAddReport(false); setReportSearch(''); setNewReportForm({ id: '', name: '', can_view: true, can_export: false, can_schedule: false }) }}
+                        className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Bottom "add" shortcut when list is not empty and form is hidden */}
+              {!showAddReport && (reportsByType[reportTab] || []).length > 0 && (
+                <button
+                  onClick={() => setShowAddReport(true)}
+                  className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-400 dark:text-gray-500 hover:border-purple-400 hover:text-purple-500 dark:hover:text-purple-400 dark:hover:border-purple-600 transition-colors w-full justify-center"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter un rapport
+                </button>
+              )}
             </div>
-
-            {/* Aperçu colonnes masquées (fallback textarea) */}
-            {!loadingColumns && reportColumns.length === 0 && maskColumns && maskReportId && (
-              <div className="flex flex-wrap gap-1">
-                {maskColumns.split('\n').filter(c => c.trim()).map(col => (
-                  <span key={col} className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 text-xs rounded border border-orange-200 dark:border-orange-700">
-                    <EyeOff className="w-3 h-3" />
-                    {col.trim()}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-end">
-              <button
-                onClick={handleSaveMasks}
-                disabled={savingMasks || !maskReportId}
-                className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm rounded-lg disabled:opacity-50"
-              >
-                {savingMasks ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Enregistrer les masques
-              </button>
-            </div>
-          </div>
+          </div>}
 
           {/* ── Section D — Fonctionnalités OptiBoard ────────────────────────── */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+            {(() => {
+              const allNavCodes = navMenus.flatMap(m => [navMenuCode(m.id), ...(m.children || []).map(c => navItemCode(c.id))])
+              const totalAvailable = ALL_FEATURE_CODES.length + allNavCodes.length
+              const totalActive = featureCodes.filter(c => ALL_FEATURE_CODES.includes(c) || allNavCodes.includes(c)).length
+              return (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-violet-500" />
                 <h3 className="font-semibold text-gray-800 dark:text-gray-100">Fonctionnalités OptiBoard</h3>
                 <span className="px-2 py-0.5 text-xs rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 font-medium">
-                  {featureCodes.length} / {ALL_FEATURE_CODES.length} activées
+                  {totalActive} / {totalAvailable} activées
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -1291,7 +1283,7 @@ export default function RolesAdmin() {
                   </span>
                 )}
                 <button
-                  onClick={() => setFeatureCodes(ALL_FEATURE_CODES)}
+                  onClick={() => { setFeatureCodes([...ALL_FEATURE_CODES, ...allNavCodes]) }}
                   className="text-xs text-violet-600 hover:underline"
                 >
                   Tout activer
@@ -1305,12 +1297,393 @@ export default function RolesAdmin() {
                 </button>
               </div>
             </div>
+              )
+            })()}
 
             {/* Catégories */}
             <div className="space-y-3">
+
+              {/* ── Section Navigation & Menus (dynamique) ── */}
+              {(() => {
+                const isExpanded = expandedCats['nav_menus'] === true
+                const activeCount = navMenus.filter(m => isNavMenuOn(m.id)).length
+                const allNavOn = navMenus.length > 0 && navMenus.every(m => isNavMenuOn(m.id))
+                const someNavOn = activeCount > 0 && !allNavOn
+                return (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                    {/* En-tête catégorie */}
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-gray-700/40"
+                      onClick={() => toggleExpandCat('nav_menus')}
+                      style={{ borderLeft: '4px solid #3B82F6' }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Layers className="w-4 h-4 text-blue-500" />
+                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">Navigation & Menus</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ backgroundColor: '#3B82F620', color: '#3B82F6' }}>
+                          {activeCount}/{navMenus.length}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); toggleAllNavMenus() }}
+                          className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                            allNavOn
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200'
+                              : someNavOn
+                                ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-200'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200'
+                          }`}
+                        >
+                          {allNavOn ? 'Tout désactiver' : 'Tout activer'}
+                        </button>
+                        {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                      </div>
+                    </div>
+
+                    {/* Corps */}
+                    {isExpanded && (
+                      <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                        {loadingNavMenus ? (
+                          <div className="flex items-center justify-center py-6 text-gray-400 text-sm gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin" /> Chargement des menus…
+                          </div>
+                        ) : navMenus.length === 0 ? (
+                          <div className="flex items-center justify-center py-6 text-gray-400 text-sm">
+                            Aucun menu configuré
+                          </div>
+                        ) : (
+                          navMenus.map(menu => {
+                            const hasChildren       = (menu.children || []).length > 0
+                            const menuOn            = isNavMenuOn(menu.id)
+                            const isDetailed        = !!expandedMenuDetails[menu.id]
+                            const menuLeafIds       = collectLeafIds(menu.children || [])
+                            const enabledChildCount = menuLeafIds.filter(id => isNavItemOn(id)).length
+                            const totalLeafCount    = menuLeafIds.length
+
+                            return (
+                              <div key={menu.id} className={menuOn ? 'bg-blue-50/40 dark:bg-blue-900/10' : ''}>
+                                {/* Ligne menu principal */}
+                                <div className="flex items-center gap-3 px-4 py-3">
+                                  {/* Toggle switch */}
+                                  <div
+                                    className="relative shrink-0 cursor-pointer"
+                                    onClick={() => toggleNavMenu(menu)}
+                                  >
+                                    <div className={`w-10 h-5 rounded-full transition-colors ${menuOn ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${menuOn ? 'translate-x-5' : 'translate-x-0'}`} />
+                                  </div>
+
+                                  {/* Nom + sous-titre */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-sm font-medium leading-tight ${menuOn ? 'text-blue-800 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
+                                      {menu.nom}
+                                    </p>
+                                    {hasChildren && (
+                                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                        {menuOn
+                                          ? `${enabledChildCount}/${totalLeafCount} rapports actifs`
+                                          : `${totalLeafCount} rapport${totalLeafCount > 1 ? 's' : ''}`
+                                        }
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* Bouton détail sous-menus */}
+                                  {hasChildren && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleMenuDetails(menu.id)}
+                                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                        isDetailed
+                                          ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300'
+                                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-blue-300 hover:text-blue-600'
+                                      }`}
+                                    >
+                                      {isDetailed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                      Sous-menus
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Détail sous-menus (dépliable) — affiche les rapports feuilles groupés par dossier */}
+                                {hasChildren && isDetailed && (() => {
+                                  const TYPE_META = {
+                                    gridview:   { label: 'GridView',  cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',       Icon: Table2 },
+                                    dashboard:  { label: 'Dashboard', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',  Icon: LayoutDashboard },
+                                    pivot:      { label: 'Pivot',     cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300', Icon: BarChart3 },
+                                    'pivot-v2': { label: 'Pivot V2',  cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300', Icon: BarChart3 },
+                                    page:       { label: 'Page',      cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',            Icon: Activity },
+                                    url:        { label: 'Lien',      cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',  Icon: Zap },
+                                    folder:     { label: 'Dossier',   cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',  Icon: Layers },
+                                  }
+
+                                  // Aplatir récursivement : collecter tous les nœuds feuilles groupés par section
+                                  const collectItems = (nodes, sectionLabel = null) => {
+                                    const groups = []
+                                    for (const node of nodes) {
+                                      const children = node.children || []
+                                      const isLeaf = node.type !== 'folder' || children.length === 0
+                                      if (isLeaf) {
+                                        // Nœud feuille direct — rattacher à la section courante
+                                        if (groups.length === 0) groups.push({ label: sectionLabel, items: [] })
+                                        groups[groups.length - 1].items.push(node)
+                                      } else {
+                                        // Dossier intermédiaire → créer une section
+                                        const subItems = []
+                                        for (const child of children) {
+                                          const subChildren = child.children || []
+                                          if (child.type !== 'folder' || subChildren.length === 0) {
+                                            subItems.push(child)
+                                          } else {
+                                            // Niveau encore plus profond : aplatir
+                                            subChildren.forEach(sc => subItems.push(sc))
+                                          }
+                                        }
+                                        groups.push({ label: node.nom, nodeId: node.id, items: subItems })
+                                      }
+                                    }
+                                    return groups
+                                  }
+
+                                  const groups = collectItems(menu.children || [])
+                                  const allLeafIds = groups.flatMap(g => g.items.map(i => i.id))
+                                  const allLeafCodes = allLeafIds.map(id => navItemCode(id))
+                                  const allLeafOn = allLeafIds.every(id => isNavItemOn(id))
+
+                                  return (
+                                    <div className="border-t border-blue-100 dark:border-blue-900/30 bg-white/50 dark:bg-gray-800/50">
+                                      {/* En-tête */}
+                                      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700/40 sticky top-0 z-10">
+                                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                                          {allLeafIds.length} rapport{allLeafIds.length > 1 ? 's' : ''}
+                                          <span className="ml-2 text-blue-600 dark:text-blue-400 font-normal">
+                                            ({allLeafIds.filter(id => isNavItemOn(id)).length} actifs)
+                                          </span>
+                                        </span>
+                                        <div className="flex items-center gap-3">
+                                          <button type="button"
+                                            onClick={() => setFeatureCodes(prev => [...new Set([...prev, navMenuCode(menu.id), ...allLeafCodes])])}
+                                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                          >Tout activer</button>
+                                          <button type="button"
+                                            onClick={() => setFeatureCodes(prev => prev.filter(c => !allLeafCodes.includes(c) && c !== navMenuCode(menu.id)))}
+                                            className="text-xs text-gray-400 hover:underline"
+                                          >Tout désactiver</button>
+                                          <span className="w-px h-3 bg-gray-300 dark:bg-gray-600" />
+                                          <button type="button"
+                                            onClick={() => toggleMenuDetails(menu.id)}
+                                            className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                                            title="Fermer le détail"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                            Fermer
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Groupes de rapports */}
+                                      {groups.map((group, gi) => (
+                                        <div key={gi}>
+                                          {/* En-tête dossier */}
+                                          {group.label && (
+                                            <div className="flex items-center gap-2 px-4 py-1.5 bg-gray-50/70 dark:bg-gray-700/20 border-b border-gray-100 dark:border-gray-700/30">
+                                              <Layers className="w-3 h-3 text-gray-400" />
+                                              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">{group.label}</span>
+                                              <span className="text-xs text-gray-400 ml-1">
+                                                ({group.items.filter(i => isNavItemOn(i.id)).length}/{group.items.length})
+                                              </span>
+                                            </div>
+                                          )}
+
+                                          {/* Rapports du groupe */}
+                                          {group.items.length === 0 ? (
+                                            <div className="px-4 py-2 text-xs text-gray-400 italic">Aucun rapport dans cette section</div>
+                                          ) : (
+                                            <div className="divide-y divide-gray-100 dark:divide-gray-700/30">
+                                              {group.items.map(item => {
+                                                const itemOn = isNavItemOn(item.id)
+                                                const meta = TYPE_META[item.type] || { label: item.type || '—', cls: 'bg-gray-100 text-gray-500', Icon: Layers }
+                                                const TypeIcon = meta.Icon
+                                                const hasColSupport = item.target_id && ['gridview','pivot','pivot-v2','dashboard'].includes(item.type)
+                                                const sType = item.type === 'pivot-v2' ? 'pivot' : item.type
+                                                const ik = `${sType}:${item.target_id}`
+                                                const hCount = Object.values(itemColChecked[ik] || {}).filter(v => !v).length
+                                                const colPanelOpen = !!expandedItemCols[item.id]
+                                                return (
+                                                  <div key={item.id}>
+                                                    {/* Ligne item */}
+                                                    <div
+                                                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                                                        itemOn
+                                                          ? 'bg-blue-50/50 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                                                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/20'
+                                                      }`}
+                                                      onClick={() => toggleNavItem(menu, item)}
+                                                    >
+                                                      {/* Toggle mini */}
+                                                      <div className="relative shrink-0">
+                                                        <div className={`rounded-full transition-colors ${itemOn ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                                          style={{ width: '2rem', height: '1rem' }} />
+                                                        <div className="absolute rounded-full bg-white shadow transition-transform"
+                                                          style={{ width: '0.75rem', height: '0.75rem', top: '0.125rem', left: itemOn ? '1.125rem' : '0.125rem' }} />
+                                                      </div>
+
+                                                      {/* Badge type */}
+                                                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold shrink-0 ${meta.cls}`}>
+                                                        <TypeIcon className="w-2.5 h-2.5" />
+                                                        {meta.label}
+                                                      </span>
+
+                                                      {/* Nom rapport */}
+                                                      <div className="flex-1 min-w-0">
+                                                        <span className={`text-sm font-medium truncate block ${itemOn ? 'text-blue-800 dark:text-blue-200' : 'text-gray-700 dark:text-gray-300'}`}>
+                                                          {item.nom}
+                                                        </span>
+                                                        {item.target_name && (
+                                                          <span className="text-xs text-gray-400 dark:text-gray-500 truncate block" title={item.target_name}>
+                                                            #{item.target_id} — {item.target_name}
+                                                          </span>
+                                                        )}
+                                                        {item.type === 'url' && item.url && (
+                                                          <span className="text-xs text-gray-400 truncate block">{item.url}</span>
+                                                        )}
+                                                      </div>
+
+                                                      {/* ID badge */}
+                                                      {item.target_id && (
+                                                        <span className="text-xs font-mono text-gray-300 dark:text-gray-600 shrink-0">#{item.target_id}</span>
+                                                      )}
+
+                                                      {/* Bouton Colonnes masquées */}
+                                                      {hasColSupport && (
+                                                        <button
+                                                          onClick={e => { e.stopPropagation(); toggleItemColPanel(item) }}
+                                                          title="Colonnes masquées"
+                                                          className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border transition-colors shrink-0 ${
+                                                            colPanelOpen
+                                                              ? 'bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400'
+                                                              : hCount > 0
+                                                                ? 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800 text-orange-500'
+                                                                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-400 hover:border-orange-300 hover:text-orange-500'
+                                                          }`}
+                                                        >
+                                                          <EyeOff className="w-3 h-3" />
+                                                          {hCount > 0 && <span>{hCount}</span>}
+                                                        </button>
+                                                      )}
+
+                                                      {!itemOn && !hasColSupport && <Lock className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />}
+                                                    </div>
+
+                                                    {/* Panneau colonnes masquées */}
+                                                    {colPanelOpen && hasColSupport && (() => {
+                                                      const cols = itemColDefs[ik] || []
+                                                      const checked = itemColChecked[ik] || {}
+                                                      const isLoading = loadingItemCols[ik]
+                                                      const isSaving = savingItemCols[ik]
+                                                      const hidden = Object.values(checked).filter(v => !v).length
+                                                      return (
+                                                        <div className="border-t border-orange-100 dark:border-orange-900/30 bg-orange-50/20 dark:bg-orange-900/5 px-4 py-3 space-y-2">
+                                                          {isLoading ? (
+                                                            <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
+                                                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                              Chargement des colonnes…
+                                                            </div>
+                                                          ) : cols.length === 0 ? (
+                                                            <p className="text-xs text-gray-400 italic">Aucune colonne disponible pour ce rapport</p>
+                                                          ) : (
+                                                            <>
+                                                              {/* Barre d'actions */}
+                                                              <div className="flex items-center justify-between">
+                                                                <span className="text-xs font-medium text-orange-700 dark:text-orange-400">
+                                                                  {cols.length} col. — <span className="font-semibold">{hidden} masquée{hidden !== 1 ? 's' : ''}</span>
+                                                                </span>
+                                                                <div className="flex items-center gap-3">
+                                                                  <button type="button"
+                                                                    onClick={() => setItemColChecked(prev => ({ ...prev, [ik]: Object.fromEntries(cols.map(c => [c.field, false])) }))}
+                                                                    className="text-xs text-orange-600 dark:text-orange-400 hover:underline"
+                                                                  >Tout masquer</button>
+                                                                  <button type="button"
+                                                                    onClick={() => setItemColChecked(prev => ({ ...prev, [ik]: Object.fromEntries(cols.map(c => [c.field, true])) }))}
+                                                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                                                  >Tout afficher</button>
+                                                                </div>
+                                                              </div>
+
+                                                              {/* Grille cases à cocher */}
+                                                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden max-h-44 overflow-y-auto">
+                                                                {cols.map(col => (
+                                                                  <label
+                                                                    key={col.field}
+                                                                    className={`flex items-center gap-2 px-2.5 py-1.5 cursor-pointer text-xs border-b border-r border-gray-100 dark:border-gray-700 transition-colors ${
+                                                                      !checked[col.field]
+                                                                        ? 'bg-orange-50 dark:bg-orange-900/10 text-orange-700 dark:text-orange-300'
+                                                                        : 'hover:bg-gray-50 dark:hover:bg-gray-700/30 text-gray-700 dark:text-gray-300'
+                                                                    }`}
+                                                                  >
+                                                                    <input
+                                                                      type="checkbox"
+                                                                      checked={!!checked[col.field]}
+                                                                      onChange={() => setItemColChecked(prev => ({
+                                                                        ...prev,
+                                                                        [ik]: { ...(prev[ik] || {}), [col.field]: !prev[ik]?.[col.field] }
+                                                                      }))}
+                                                                      className="rounded border-gray-300 text-blue-500 focus:ring-blue-400 w-3 h-3 shrink-0"
+                                                                    />
+                                                                    <span className="truncate" title={col.field}>
+                                                                      {col.label !== col.field
+                                                                        ? <><span className="font-medium">{col.label}</span><span className="ml-1 text-gray-400">({col.field})</span></>
+                                                                        : col.field
+                                                                      }
+                                                                    </span>
+                                                                    {!checked[col.field] && <EyeOff className="w-2.5 h-2.5 ml-auto shrink-0 text-orange-500" />}
+                                                                  </label>
+                                                                ))}
+                                                              </div>
+
+                                                              {/* Bouton enregistrer */}
+                                                              <div className="flex justify-end">
+                                                                <button
+                                                                  onClick={() => saveItemColumns(item)}
+                                                                  disabled={isSaving}
+                                                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium rounded-lg disabled:opacity-60"
+                                                                >
+                                                                  {isSaving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                                                  Enregistrer
+                                                                </button>
+                                                              </div>
+                                                            </>
+                                                          )}
+                                                        </div>
+                                                      )
+                                                    })()}
+                                                  </div>
+                                                )
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                })()}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* ── Catégories statiques (IA, Builders, Alertes, Admin) ── */}
               {FEATURE_CATEGORIES.map(cat => {
                 const Icon = cat.icon
-                const isExpanded = expandedCats[cat.id] !== false  // ouvert par défaut
+                const isExpanded = expandedCats[cat.id] === true
                 const catCodes = cat.features.map(f => f.code)
                 const enabledCount = catCodes.filter(c => featureCodes.includes(c)).length
                 const allEnabled = enabledCount === catCodes.length
@@ -1393,8 +1766,8 @@ export default function RolesAdmin() {
             <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
               <p className="text-xs text-gray-400">
                 {featureCodes.length === 0
-                  ? 'Aucune fonctionnalité activée — les utilisateurs n\'auront accès à rien'
-                  : `${featureCodes.length} fonctionnalité(s) activée(s) pour ce rôle`
+                  ? "Aucune fonctionnalité activée — les utilisateurs n'auront accès à rien"
+                  : `${featureCodes.length} entrée(s) activée(s) pour ce rôle (menus + fonctionnalités)`
                 }
               </p>
               <button
@@ -1427,18 +1800,18 @@ export default function RolesAdmin() {
             </button>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
             {loadingUsers ? (
-              <div className="flex items-center justify-center h-40 text-gray-400">
+              <div className="flex items-center justify-center h-40 text-gray-400 rounded-xl overflow-hidden">
                 <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Chargement...
               </div>
             ) : users.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-40 text-gray-400 gap-2">
+              <div className="flex flex-col items-center justify-center h-40 text-gray-400 gap-2 rounded-xl overflow-hidden">
                 <Users className="w-10 h-10 opacity-30" />
                 <p className="text-sm">Aucun utilisateur trouvé</p>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm overflow-visible">
                 <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300">Utilisateur</th>

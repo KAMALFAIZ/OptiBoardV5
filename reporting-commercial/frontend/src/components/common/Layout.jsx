@@ -540,6 +540,11 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
   const hasAccess = (pageCode) => {
     if (!user) return false
     if (isSuperAdmin || isAdminClient || user.role === 'admin') return true
+    // Utilisateurs client sans pages explicites : "dashboard" accessible par défaut
+    if (user.from_client_db) {
+      const pages = user.pages_autorisees
+      if (!pages || pages.length === 0) return pageCode === 'dashboard'
+    }
     return user.pages_autorisees?.includes(pageCode)
   }
 

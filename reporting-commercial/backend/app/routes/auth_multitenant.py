@@ -87,25 +87,54 @@ def _verify_password(password: str, password_hash: str) -> bool:
     return _hash_password(password) == password_hash
 
 
+_APP_USERS_MIGRATION_SQL = [
+    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='must_change_password') ALTER TABLE APP_Users ADD must_change_password BIT NOT NULL DEFAULT 0",
+    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='onboarding_done') ALTER TABLE APP_Users ADD onboarding_done BIT NOT NULL DEFAULT 0",
+    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_secret') ALTER TABLE APP_Users ADD totp_secret VARCHAR(200) NULL",
+    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_enabled') ALTER TABLE APP_Users ADD totp_enabled BIT NOT NULL DEFAULT 0",
+]
+
+_APP_USERS_SELECT = (
+    "SELECT id, username, password_hash, nom, prenom, email, role_dwh, actif, "
+    "ISNULL(must_change_password,0) AS must_change_password, "
+    "ISNULL(onboarding_done,0) AS onboarding_done, "
+    "totp_secret, ISNULL(totp_enabled,0) AS totp_enabled "
+    "FROM APP_Users WHERE username = ?"
+)
+
+
+def _migrate_app_users(dwh_code: str) -> None:
+    """Ajoute les colonnes manquantes dans APP_Users (migration douce)."""
+    from ..database_unified import write_client
+    for sql in _APP_USERS_MIGRATION_SQL:
+        try:
+            write_client(sql, dwh_code=dwh_code)
+        except Exception:
+            pass
+
+
 def _query_client_user(dwh_code: str, username: str) -> Optional[Dict[str, Any]]:
     """
     Cherche un utilisateur dans la base client OptiBoard_{dwh_code}.APP_Users.
     Retourne None si la base n'existe pas ou si l'utilisateur est absent.
+    Effectue une migration douce des colonnes si nécessaire.
     """
     if not client_manager.has_client_db(dwh_code):
         return None
     try:
         from ..database_unified import execute_client
-        rows = execute_client(
-            "SELECT id, username, password_hash, nom, prenom, email, role_dwh, actif, ISNULL(must_change_password,0) AS must_change_password, ISNULL(onboarding_done,0) AS onboarding_done, totp_secret, ISNULL(totp_enabled,0) AS totp_enabled FROM APP_Users WHERE username = ?",
-            (username,),
-            dwh_code=dwh_code,
-            use_cache=False,
-        )
+        rows = execute_client(_APP_USERS_SELECT, (username,), dwh_code=dwh_code, use_cache=False)
         return rows[0] if rows else None
     except Exception as e:
-        logger.debug(f"_query_client_user({dwh_code}, {username}): {e}")
-        return None
+        logger.warning(f"_query_client_user({dwh_code}, {username}) — tentative migration: {e}")
+        try:
+            _migrate_app_users(dwh_code)
+            from ..database_unified import execute_client
+            rows = execute_client(_APP_USERS_SELECT, (username,), dwh_code=dwh_code, use_cache=False)
+            return rows[0] if rows else None
+        except Exception as e2:
+            logger.error(f"_query_client_user({dwh_code}, {username}) — échec après migration: {e2}")
+            return None
 
 
 def _update_last_login_client(dwh_code: str, user_id: int) -> None:
@@ -296,6 +325,16 @@ async def login(request: LoginRequest, http_request: Request):
         has_client_db   = True
         effective_dwh   = {"code": request.dwh_code, "nom": request.dwh_code}
         effective_role  = user.get("role_dwh", "user")
+        # Lire les pages depuis la base CLIENT (create_user_context interroge la centrale)
+        try:
+            from ..database_unified import execute_client as _exec_client
+            _pages = _exec_client(
+                "SELECT page_code FROM APP_UserPages WHERE user_id = ?",
+                (user["id"],), dwh_code=request.dwh_code, use_cache=False,
+            )
+            effective_pages = [p["page_code"] for p in _pages]
+        except Exception:
+            effective_pages = context.pages_accessibles
     else:
         has_client_db  = client_manager.has_client_db(context.current_dwh_code) if context.current_dwh_code else False
         effective_dwh  = {"code": context.current_dwh_code, "nom": context.current_dwh_nom} if context.current_dwh_code else None
@@ -323,7 +362,7 @@ async def login(request: LoginRequest, http_request: Request):
                 "role_dwh":    user.get("role_dwh", "user") if from_client_db else context.role_dwh,
                 "dwh_accessibles":      context.dwh_accessibles,
                 "societes_accessibles": context.societes_accessibles,
-                "pages_accessibles":    context.pages_accessibles,
+                "pages_accessibles":    effective_pages if (from_client_db and request.dwh_code) else context.pages_accessibles,
                 "has_client_db": True if from_client_db else (client_manager.has_client_db(context.current_dwh_code) if context.current_dwh_code else False),
             },
             "totp_secret": user["totp_secret"],   # stocké côté serveur uniquement
@@ -353,7 +392,7 @@ async def login(request: LoginRequest, http_request: Request):
             "role_dwh":    effective_role,
             "dwh_accessibles":    context.dwh_accessibles,
             "societes_accessibles": context.societes_accessibles,
-            "pages_accessibles":  context.pages_accessibles,
+            "pages_accessibles":  effective_pages if (from_client_db and request.dwh_code) else context.pages_accessibles,
             "has_client_db": has_client_db,
         },
     )
@@ -727,6 +766,24 @@ async def get_client_users(dwh_code: Optional[str] = Header(None, alias="X-DWH-C
             dwh_code=dwh_code,
             use_cache=False,
         )
+        # Enrichir avec les rôles custom (APP_User_Roles)
+        try:
+            all_ur = execute_client(
+                """SELECT ur.user_id, r.id, r.nom, r.couleur
+                   FROM APP_User_Roles ur
+                   JOIN APP_Roles r ON r.id = ur.role_id AND r.actif = 1""",
+                dwh_code=dwh_code, use_cache=False,
+            )
+            roles_by_user: dict = {}
+            for ur in (all_ur or []):
+                roles_by_user.setdefault(ur["user_id"], []).append(
+                    {"id": ur["id"], "nom": ur["nom"], "couleur": ur["couleur"]}
+                )
+            for u in users:
+                u["roles"] = roles_by_user.get(u["id"], [])
+        except Exception:
+            for u in users:
+                u["roles"] = []
         return {"success": True, "data": users}
     except Exception as e:
         logger.warning(f"[client-users] {dwh_code}: {e}")
@@ -757,7 +814,12 @@ async def create_client_user(data: ClientUserCreate, dwh_code: Optional[str] = H
              data.heure_debut, data.heure_fin, data.jours_autorises or None),
             dwh_code=dwh_code,
         )
-        return {"success": True}
+        new_row = execute_client(
+            "SELECT TOP 1 id FROM APP_Users WHERE username=? ORDER BY id DESC",
+            (data.username,), dwh_code=dwh_code, use_cache=False,
+        )
+        new_id = new_row[0]["id"] if new_row else None
+        return {"success": True, "id": new_id}
     except HTTPException:
         raise
     except Exception as e:

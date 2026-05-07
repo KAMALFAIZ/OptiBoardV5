@@ -103,6 +103,12 @@ export function AuthProvider({ children }) {
   const hasAccess = (pageCode) => {
     if (!user) return false
     if (_userIsAdmin(user)) return true
+    // Utilisateurs client (from_client_db) : si aucune page explicitement assignée,
+    // "dashboard" est accessible par défaut (accès fin géré au niveau des rapports)
+    if (user.from_client_db) {
+      const pages = user.pages_autorisees
+      if (!pages || pages.length === 0) return pageCode === 'dashboard'
+    }
     return user.pages_autorisees?.includes(pageCode)
   }
 

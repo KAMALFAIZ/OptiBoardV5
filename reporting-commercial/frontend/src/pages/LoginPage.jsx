@@ -123,9 +123,14 @@ function TwoFactorForm({ tempToken, clientInfo, rememberMe, onLogin, onCancel })
           if (rememberMe) { localStorage.setItem(key, value); sessionStorage.removeItem(key) }
           else { sessionStorage.setItem(key, value); localStorage.removeItem(key) }
         }
-        store('user', JSON.stringify(res.data.user))
+        const twoFaUserToStore = {
+          ...res.data.user,
+          pages_autorisees: res.data.context?.pages_accessibles || [],
+          role_dwh: res.data.context?.role_dwh,
+        }
+        store('user', JSON.stringify(twoFaUserToStore))
         if (res.data.token) store('token', res.data.token)
-        onLogin(res.data.user)
+        onLogin(twoFaUserToStore)
       }
     } catch (err) {
       const msg = err.response?.data?.detail || 'Code invalide'
@@ -234,10 +239,15 @@ export default function LoginPage({ onLogin, appName }) {
     setLoading(true)
     login(credentials).then(response => {
       if (response.data.success) {
-        store('user', JSON.stringify(response.data.user))
+        const autoUserToStore = {
+          ...response.data.user,
+          pages_autorisees: response.data.context?.pages_accessibles || [],
+          role_dwh: response.data.context?.role_dwh,
+        }
+        store('user', JSON.stringify(autoUserToStore))
         store('token', response.data.token)
         if (clientCode) store('currentDWH', JSON.stringify({ code: clientCode, nom: clientInfo?.nom || clientCode }))
-        onLogin(response.data.user)
+        onLogin(autoUserToStore)
       }
     }).catch(() => setError('Erreur lors de la connexion automatique')).finally(() => setLoading(false))
   }, [firstLoginDone]) // eslint-disable-line
@@ -390,7 +400,7 @@ export default function LoginPage({ onLogin, appName }) {
           }
         }
 
-        onLogin(response.data.user)
+        onLogin(userToStore)
       } else {
         setError('Identifiants incorrects')
       }
