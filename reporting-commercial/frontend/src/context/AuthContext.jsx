@@ -30,14 +30,26 @@ export function AuthProvider({ children }) {
 
   // ── Déconnexion ───────────────────────────────────────────────────────────
   const logout = useCallback((reason = 'manual') => {
+    // Lire le code client AVANT d'effacer le storage
+    let clientCode = null
+    try {
+      const saved = localStorage.getItem('currentDWH') || sessionStorage.getItem('currentDWH')
+      if (saved) clientCode = JSON.parse(saved)?.code || null
+    } catch {}
+
     setUser(null)
     setSessionWarning(false)
-    localStorage.removeItem('user');  localStorage.removeItem('token')
+    localStorage.removeItem('user');    localStorage.removeItem('token')
+    localStorage.removeItem('currentDWH')
     sessionStorage.removeItem('user'); sessionStorage.removeItem('token')
+    sessionStorage.removeItem('currentDWH')
+
     if (reason === 'idle') {
-      // Petite notification dans le titre de page
       document.title = 'Session expirée - OptiBoard'
     }
+
+    // Rediriger vers la page de login du client (ou la page d'accueil)
+    window.location.replace(clientCode ? `/?client=${clientCode}` : '/')
   }, [])
 
   // ── Réinitialisation du timer d'inactivité ────────────────────────────────

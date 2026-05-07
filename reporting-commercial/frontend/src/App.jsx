@@ -186,20 +186,6 @@ function AppContent() {
   }
 
   if (!isAuthenticated) {
-    // Si on a un DWH sauvegardé et que l'URL n'a pas encore ?client=CODE, rediriger
-    try {
-      const params = new URLSearchParams(window.location.search)
-      if (!params.get('client')) {
-        const saved = localStorage.getItem('currentDWH') || sessionStorage.getItem('currentDWH')
-        if (saved) {
-          const code = JSON.parse(saved)?.code
-          if (code) {
-            window.location.replace(`/?client=${code}`)
-            return null
-          }
-        }
-      }
-    } catch {}
     return <LoginPage onLogin={login} appName={setupStatus.appName} />
   }
 
