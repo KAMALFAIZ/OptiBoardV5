@@ -275,9 +275,9 @@ export default function SpreadsheetBuilder() {
       setError('Sauvegardez le classeur avant de generer un apercu')
       return
     }
-    const hasSource = config.sheets.some(s => s.data_source_code || s.data_source_id)
-    if (!hasSource) {
-      setError('Configurez au moins une source de donnees')
+    const hasContent = config.sheets.some(s => s.data_source_code || s.data_source_id || (s.imported_celldata && s.imported_celldata.length > 0))
+    if (!hasContent) {
+      setError('Configurez au moins une source de donnees ou importez un fichier Excel')
       return
     }
     setPreviewLoading(true)
@@ -294,9 +294,9 @@ export default function SpreadsheetBuilder() {
           name: s.name || `Feuille ${i + 1}`,
           celldata: s.celldata || [],
           order: i,
-          row: Math.max((s.row_count || 0) + 5, 50),
-          column: Math.max((s.column_count || 0) + 5, 26),
-          config: {},
+          row: Math.max((s.row_count || 0) + 20, 80),
+          column: Math.max((s.column_count || 0) + 10, 26),
+          config: s.config || {},
           status: i === 0 ? 1 : 0,
         }))
         setPreviewData(fortuneSheets)
@@ -545,13 +545,35 @@ export default function SpreadsheetBuilder() {
                     className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white outline-none" />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source de donnees</label>
-                  <DataSourceSelector
-                    value={currentSheet.data_source_code || currentSheet.data_source_id}
-                    onChange={(source) => handleSourceChange(source, activeSheetIdx)}
-                  />
-                </div>
+                {currentSheet.imported_celldata?.length > 0 ? (
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                    <FileSpreadsheet size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Donnees importees depuis Excel</p>
+                      <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70">
+                        {currentSheet.imported_celldata.length} cellules — {currentSheet.imported_row_count || '?'} lignes x {currentSheet.imported_column_count || '?'} colonnes
+                      </p>
+                    </div>
+                    <button onClick={() => {
+                      updateSheet(activeSheetIdx, 'imported_celldata', null)
+                      updateSheet(activeSheetIdx, 'imported_config', null)
+                      updateSheet(activeSheetIdx, 'imported_row_count', null)
+                      updateSheet(activeSheetIdx, 'imported_column_count', null)
+                    }}
+                      className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      title="Supprimer les donnees importees et utiliser une source de donnees">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source de donnees</label>
+                    <DataSourceSelector
+                      value={currentSheet.data_source_code || currentSheet.data_source_id}
+                      onChange={(source) => handleSourceChange(source, activeSheetIdx)}
+                    />
+                  </div>
+                )}
 
                 {/* Column mapping */}
                 {currentFields.length > 0 && (

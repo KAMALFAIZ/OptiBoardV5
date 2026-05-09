@@ -157,6 +157,10 @@ class SheetDef(BaseModel):
     data_source_id: Optional[int] = None
     column_mapping: Optional[List[Dict[str, Any]]] = None
     options: Optional[Dict[str, Any]] = None
+    imported_celldata: Optional[List[Dict[str, Any]]] = None
+    imported_config: Optional[Dict[str, Any]] = None
+    imported_row_count: Optional[int] = None
+    imported_column_count: Optional[int] = None
 
 class SpreadsheetCreate(BaseModel):
     nom: str
@@ -349,13 +353,25 @@ async def get_sheet_data(
             sheet_name = sheet_def.get('name', f'Feuille {idx + 1}')
 
             if not ds_code and not ds_id:
-                result_sheets.append({
-                    "name": sheet_name,
-                    "index": idx,
-                    "celldata": [],
-                    "headers": [],
-                    "row_count": 0,
-                })
+                imported = sheet_def.get('imported_celldata')
+                if imported:
+                    result_sheets.append({
+                        "name": sheet_name,
+                        "index": idx,
+                        "celldata": imported,
+                        "headers": [],
+                        "row_count": sheet_def.get('imported_row_count', 0),
+                        "column_count": sheet_def.get('imported_column_count', 0),
+                        "config": sheet_def.get('imported_config', {}),
+                    })
+                else:
+                    result_sheets.append({
+                        "name": sheet_name,
+                        "index": idx,
+                        "celldata": [],
+                        "headers": [],
+                        "row_count": 0,
+                    })
                 continue
 
             base_query = None
@@ -456,6 +472,50 @@ async def get_sheet_data(
                     cell = {"r": r_idx + 1, "c": c_idx, "v": _format_cell_value(val)}
                     celldata.append(cell)
 
+            numeric_cols = []
+            for h in mapped_fields:
+                sample = next((r.get(h) for r in data_rows[:10] if r.get(h) is not None), None)
+                if isinstance(sample, (int, float)):
+                    numeric_cols.append(h)
+                else:
+                    from decimal import Decimal
+                    if isinstance(sample, Decimal):
+                        numeric_cols.append(h)
+
+            stats = {}
+            for nc in numeric_cols:
+                vals = [float(r.get(nc, 0) or 0) for r in data_rows if r.get(nc) is not None]
+                if vals:
+                    label = nc
+                    for m in (col_mapping or []):
+                        if m.get('field') == nc:
+                            label = m.get('label', nc)
+                            break
+                    stats[nc] = {
+                        "label": label,
+                        "sum": round(sum(vals), 2),
+                        "avg": round(sum(vals) / len(vals), 2),
+                        "min": round(min(vals), 2),
+                        "max": round(max(vals), 2),
+                        "count": len(vals),
+                    }
+
+            chart_data = []
+            text_col = None
+            main_num_col = None
+            for h in mapped_fields:
+                if h not in numeric_cols and text_col is None:
+                    text_col = h
+                if h in numeric_cols and main_num_col is None:
+                    main_num_col = h
+            if text_col and main_num_col:
+                for row in data_rows[:20]:
+                    label = str(row.get(text_col, ''))[:25]
+                    entry = {"name": label}
+                    for nc in numeric_cols[:4]:
+                        entry[nc] = float(row.get(nc, 0) or 0)
+                    chart_data.append(entry)
+
             result_sheets.append({
                 "name": sheet_name,
                 "index": idx,
@@ -464,6 +524,9 @@ async def get_sheet_data(
                 "fields": mapped_fields,
                 "row_count": len(data_rows),
                 "column_count": len(mapped_headers),
+                "stats": stats,
+                "chart_data": chart_data,
+                "numeric_cols": numeric_cols,
             })
 
         return {"success": True, "sheets": result_sheets}

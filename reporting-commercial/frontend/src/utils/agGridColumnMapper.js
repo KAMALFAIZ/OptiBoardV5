@@ -207,7 +207,11 @@ export function columnStateToPrefs(agColumnState, originalColumns) {
       if (agCol.colId.startsWith('ag-Grid-')) return false
       if (agCol.colId.startsWith('ag-grid-')) return false
       // Vérifier que la colonne existe dans la config originale
-      return originalColumns.some(c => c.field === agCol.colId)
+      const orig = originalColumns.find(c => c.field === agCol.colId)
+      if (!orig) return false
+      // Ne pas sauvegarder les colonnes masquées par rôle dans les prefs utilisateur
+      if (orig.role_masked) return false
+      return true
     })
     .map(agCol => {
       const orig = originalColumns.find(c => c.field === agCol.colId) || {}

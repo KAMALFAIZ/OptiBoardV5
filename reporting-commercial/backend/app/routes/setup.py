@@ -1234,6 +1234,165 @@ async def init_central_database_tables():
                 errors.append(f"Master code migration: {str(e)}")
 
             # =====================================================
+            # SECTION 4c: TABLES ETL (catalogue central + monitoring agents)
+            # =====================================================
+
+            # APP_ETL_Tables_Config — catalogue officiel des tables ETL
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Tables_Config' AND xtype='U')
+                    CREATE TABLE APP_ETL_Tables_Config (
+                        id                  INT IDENTITY(1,1) PRIMARY KEY,
+                        code                VARCHAR(100) UNIQUE NOT NULL,
+                        table_name          VARCHAR(200) NOT NULL,
+                        target_table        VARCHAR(200) NOT NULL,
+                        source_query        NVARCHAR(MAX),
+                        primary_key_columns NVARCHAR(500),
+                        sync_type           VARCHAR(50) DEFAULT 'incremental',
+                        timestamp_column    VARCHAR(100) DEFAULT 'cbModification',
+                        interval_minutes    INT DEFAULT 5,
+                        priority            VARCHAR(20) DEFAULT 'normal',
+                        delete_detection    BIT DEFAULT 0,
+                        description         NVARCHAR(500),
+                        version             INT DEFAULT 1,
+                        actif               BIT DEFAULT 1,
+                        created_by          VARCHAR(100),
+                        date_creation       DATETIME DEFAULT GETDATE(),
+                        date_modification   DATETIME DEFAULT GETDATE()
+                    )
+                """)
+                created_tables.append("APP_ETL_Tables_Config")
+            except Exception as e:
+                errors.append(f"APP_ETL_Tables_Config: {str(e)}")
+
+            # APP_ETL_Tables_Colonnes — colonnes officielles par table du catalogue
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Tables_Colonnes' AND xtype='U')
+                    CREATE TABLE APP_ETL_Tables_Colonnes (
+                        id              INT IDENTITY(1,1) PRIMARY KEY,
+                        etl_table_code  VARCHAR(100) NOT NULL,
+                        nom_colonne     VARCHAR(200) NOT NULL,
+                        type_donnee     VARCHAR(50) NOT NULL,
+                        longueur        INT,
+                        description     NVARCHAR(500),
+                        obligatoire     BIT DEFAULT 0,
+                        visible_client  BIT DEFAULT 1,
+                        valeur_defaut   NVARCHAR(200),
+                        version_ajout   INT DEFAULT 1,
+                        version_supprime INT,
+                        actif           BIT DEFAULT 1,
+                        UNIQUE(etl_table_code, nom_colonne)
+                    )
+                """)
+                created_tables.append("APP_ETL_Tables_Colonnes")
+            except Exception as e:
+                errors.append(f"APP_ETL_Tables_Colonnes: {str(e)}")
+
+            # APP_ETL_Proposals — propositions clients de nouvelles tables ETL
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Proposals' AND xtype='U')
+                    CREATE TABLE APP_ETL_Proposals (
+                        id                  INT IDENTITY(1,1) PRIMARY KEY,
+                        dwh_code            VARCHAR(50) NOT NULL,
+                        table_name          VARCHAR(200) NOT NULL,
+                        target_table        VARCHAR(200),
+                        source_query        NVARCHAR(MAX),
+                        description         NVARCHAR(1000),
+                        justification       NVARCHAR(1000),
+                        statut              VARCHAR(20) DEFAULT 'en_attente',
+                        commentaire_central NVARCHAR(500),
+                        validated_by        VARCHAR(100),
+                        date_validation     DATETIME,
+                        date_creation       DATETIME DEFAULT GETDATE()
+                    )
+                """)
+                created_tables.append("APP_ETL_Proposals")
+            except Exception as e:
+                errors.append(f"APP_ETL_Proposals: {str(e)}")
+
+            # APP_ETL_Agents_Monitoring — monitoring global des agents (sans credentials)
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Agents_Monitoring' AND xtype='U')
+                    CREATE TABLE APP_ETL_Agents_Monitoring (
+                        id                  INT IDENTITY(1,1) PRIMARY KEY,
+                        agent_id            VARCHAR(100) UNIQUE NOT NULL,
+                        dwh_code            VARCHAR(50) NOT NULL,
+                        nom                 NVARCHAR(200) NOT NULL,
+                        hostname            VARCHAR(200),
+                        ip_address          VARCHAR(50),
+                        os_info             VARCHAR(200),
+                        agent_version       VARCHAR(50),
+                        statut              VARCHAR(20) DEFAULT 'inconnu',
+                        last_heartbeat      DATETIME,
+                        last_sync           DATETIME,
+                        last_sync_statut    VARCHAR(20),
+                        consecutive_failures INT DEFAULT 0,
+                        total_syncs         INT DEFAULT 0,
+                        total_lignes_sync   BIGINT DEFAULT 0,
+                        date_enregistrement DATETIME DEFAULT GETDATE(),
+                        date_modification   DATETIME DEFAULT GETDATE()
+                    )
+                """)
+                created_tables.append("APP_ETL_Agents_Monitoring")
+            except Exception as e:
+                errors.append(f"APP_ETL_Agents_Monitoring: {str(e)}")
+
+            # APP_Publish_Log — trace des publications master vers clients
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Publish_Log' AND xtype='U')
+                    CREATE TABLE APP_Publish_Log (
+                        id              INT IDENTITY(1,1) PRIMARY KEY,
+                        entity_type     VARCHAR(50),
+                        entity_code     VARCHAR(100),
+                        dwh_code        VARCHAR(50),
+                        action          VARCHAR(20),
+                        published_by    VARCHAR(100),
+                        details         NVARCHAR(500),
+                        date_publication DATETIME DEFAULT GETDATE()
+                    )
+                """)
+                created_tables.append("APP_Publish_Log")
+            except Exception as e:
+                errors.append(f"APP_Publish_Log: {str(e)}")
+
+            # APP_ETL_Agent_Tables — config tables par agent (cote central)
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Agent_Tables' AND xtype='U')
+                    CREATE TABLE APP_ETL_Agent_Tables (
+                        id                  INT IDENTITY(1,1) PRIMARY KEY,
+                        agent_id            VARCHAR(100) NOT NULL,
+                        table_name          VARCHAR(200) NOT NULL,
+                        source_query        NVARCHAR(MAX),
+                        target_table        VARCHAR(200),
+                        societe_code        VARCHAR(50) NOT NULL DEFAULT '',
+                        primary_key_columns NVARCHAR(500),
+                        sync_type           VARCHAR(20) DEFAULT 'incremental',
+                        timestamp_column    VARCHAR(100) DEFAULT 'cbModification',
+                        interval_minutes    INT DEFAULT 5,
+                        priority            VARCHAR(20) DEFAULT 'normal',
+                        is_enabled          BIT DEFAULT 1,
+                        delete_detection    BIT DEFAULT 0,
+                        description         NVARCHAR(500),
+                        is_inherited        BIT NOT NULL DEFAULT 0,
+                        is_customized       BIT NOT NULL DEFAULT 0,
+                        last_sync           DATETIME,
+                        last_sync_status    VARCHAR(20),
+                        last_sync_rows      INT DEFAULT 0,
+                        last_error          NVARCHAR(MAX),
+                        created_at          DATETIME DEFAULT GETDATE(),
+                        updated_at          DATETIME DEFAULT GETDATE()
+                    )
+                """)
+                created_tables.append("APP_ETL_Agent_Tables")
+            except Exception as e:
+                errors.append(f"APP_ETL_Agent_Tables: {str(e)}")
+
+            # =====================================================
             # SECTION 5: INDEX
             # =====================================================
             try:
@@ -1250,6 +1409,14 @@ async def init_central_database_tables():
                         CREATE INDEX IX_APP_AuditLog_date ON APP_AuditLog(date_action);
                     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_APP_ClientDB_dwh')
                         CREATE INDEX IX_APP_ClientDB_dwh ON APP_ClientDB(dwh_code);
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_ETL_Agent_Tables_agent')
+                        CREATE INDEX IX_ETL_Agent_Tables_agent ON APP_ETL_Agent_Tables(agent_id);
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_ETL_Tables_Config_code')
+                        CREATE INDEX IX_ETL_Tables_Config_code ON APP_ETL_Tables_Config(code);
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_ETL_Proposals_dwh')
+                        CREATE INDEX IX_ETL_Proposals_dwh ON APP_ETL_Proposals(dwh_code);
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_ETL_Agents_Mon_agent')
+                        CREATE INDEX IX_ETL_Agents_Mon_agent ON APP_ETL_Agents_Monitoring(agent_id);
                 """)
                 created_tables.append("Index created")
             except Exception as e:

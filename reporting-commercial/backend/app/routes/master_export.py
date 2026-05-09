@@ -80,11 +80,12 @@ async def master_info(
     _check_api_key(x_master_api_key)
 
     counts = {
-        "menus":       len(_safe_select("SELECT 1 FROM APP_Menus WHERE actif=1",       "menus_count")),
-        "dashboards":  len(_safe_select("SELECT 1 FROM APP_Dashboards WHERE actif=1",  "dashboards_count")),
-        "gridviews":   len(_safe_select("SELECT 1 FROM APP_GridViews WHERE actif=1",   "gridviews_count")),
-        "pivots":      len(_safe_select("SELECT 1 FROM APP_Pivots_V2 WHERE actif=1",   "pivots_count")),
-        "datasources": len(_safe_select("SELECT 1 FROM APP_DataSources",               "datasources_count")),
+        "menus":       len(_safe_select("SELECT 1 FROM APP_Menus WHERE actif=1",              "menus_count")),
+        "dashboards":  len(_safe_select("SELECT 1 FROM APP_Dashboards WHERE actif=1",         "dashboards_count")),
+        "gridviews":   len(_safe_select("SELECT 1 FROM APP_GridViews WHERE actif=1",          "gridviews_count")),
+        "pivots":      len(_safe_select("SELECT 1 FROM APP_Pivots_V2 WHERE actif=1",          "pivots_count")),
+        "datasources": len(_safe_select("SELECT 1 FROM APP_DataSources",                      "datasources_count")),
+        "etl_tables":  len(_safe_select("SELECT 1 FROM APP_ETL_Tables_Config WHERE actif=1",  "etl_tables_count")),
     }
     return {
         "success": True,
@@ -187,6 +188,27 @@ async def master_datasources(
 
 
 # ============================================================
+# GET /api/master/etl-tables
+# Catalogue des tables ETL (APP_ETL_Tables_Config)
+# ============================================================
+
+@router.get("/etl-tables")
+async def master_etl_tables(
+    x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
+):
+    """Catalogue officiel des tables ETL à synchroniser depuis Sage."""
+    _check_api_key(x_master_api_key)
+    rows = _safe_select(
+        """SELECT code, table_name, target_table, source_query,
+                  primary_key_columns, sync_type, timestamp_column,
+                  interval_minutes, priority, delete_detection, description, version
+           FROM APP_ETL_Tables_Config WHERE actif=1 ORDER BY table_name""",
+        "etl_tables"
+    )
+    return {"success": True, "count": len(rows), "items": rows}
+
+
+# ============================================================
 # GET /api/master/all
 # Tout en un seul appel pour réduire le nombre de requêtes HTTP
 # ============================================================
@@ -214,6 +236,12 @@ async def master_all(
         "datasources": _safe_select(
             "SELECT code, nom, type, query_template, parameters, description "
             "FROM APP_DataSources ORDER BY nom", "datasources"),
+        "etl_tables":  _safe_select(
+            """SELECT code, table_name, target_table, source_query,
+                      primary_key_columns, sync_type, timestamp_column,
+                      interval_minutes, priority, delete_detection, description, version
+               FROM APP_ETL_Tables_Config WHERE actif=1 ORDER BY table_name""",
+            "etl_tables"),
     }
     return {
         "success": True,

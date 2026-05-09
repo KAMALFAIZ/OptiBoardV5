@@ -2,7 +2,7 @@
 """
 Creation des 25 rapports du cycle CREANCES & RECOUVREMENT CLIENT pour OptiBoard
 11 GRID + 6 PIVOT + 9 DASHBOARD
-Tables sources: Échéances_Ventes + Imputation_Factures_Ventes + Clients + Règlements_Clients + Lignes_des_ventes (DWH)
+Tables sources: Echéances_Ventes + Imputation_Factures_Ventes + Clients + Règlements_Clients + Lignes_des_ventes (DWH)
 """
 import pyodbc, json, re
 

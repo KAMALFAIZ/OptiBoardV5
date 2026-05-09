@@ -11,7 +11,9 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 # Frontend SPA dist directory (built React app)
-FRONTEND_DIST = r"C:\inetpub\optiboard"
+# run.py is at <install>\backend\run.py -> parent is <install> -> frontend/
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIST = os.path.join(os.path.dirname(_backend_dir), "frontend")
 
 # Configure logging
 logging.basicConfig(

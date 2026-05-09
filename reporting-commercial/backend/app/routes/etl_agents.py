@@ -22,6 +22,7 @@ from app.database_unified import (
     execute_central, write_central,
 )
 from app.config_multitenant import get_central_settings as _get_central_settings, reload_central_settings as _reload_central_settings
+from app.services.query_crypto import enc_query, dec_query, dec_rows, migrate_encrypt_existing
 
 # Instance du gestionnaire DWH
 dwh_manager = DWHConnectionManager()
@@ -178,7 +179,8 @@ def _ensure_agent_table_columns():
                     cursor.commit()
                 except Exception as e:
                     logger.debug(f"Migration skipped: {e}")
-        logger.info("APP_ETL_Agent_Tables: colonnes d'heritage verifiees")
+            migrate_encrypt_existing(cursor)
+        logger.info("APP_ETL_Agent_Tables: colonnes d'heritage verifiees + source_query chiffrees")
     except Exception as e:
         logger.warning(f"Migration APP_ETL_Agent_Tables partielle: {e}")
 
@@ -1138,7 +1140,7 @@ async def list_agent_tables(agent_id: str):
             use_cache=False
         )
 
-        return {"success": True, "data": tables, "count": len(tables)}
+        return {"success": True, "data": dec_rows(tables), "count": len(tables)}
 
     except Exception as e:
         logger.error(f"Erreur liste tables agent: {e}")
@@ -1165,7 +1167,7 @@ async def add_agent_table(agent_id: str, table: TableConfigCreate):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, GETDATE())
                 """,
                 (
-                    agent_id, table.table_name, table.source_query,
+                    agent_id, table.table_name, enc_query(table.source_query),
                     table.target_table, table.societe_code, pk_json,
                     table.sync_type, table.timestamp_column,
                     table.priority, 1 if table.is_enabled else 0
@@ -1189,7 +1191,7 @@ async def update_agent_table(agent_id: str, table_id: int, updates: TableConfigU
 
         if updates.source_query is not None:
             set_clauses.append("source_query = ?")
-            params.append(updates.source_query)
+            params.append(enc_query(updates.source_query))
         if updates.target_table is not None:
             set_clauses.append("target_table = ?")
             params.append(updates.target_table)
@@ -1341,7 +1343,7 @@ async def sync_agent_tables_with_config(agent_id: str):
                                 description, is_inherited, is_customized, created_at
                             ) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, 1, ?, ?, ?, 1, 0, GETDATE())
                             """,
-                            (agent_id, name, source_query, target_table,
+                            (agent_id, name, enc_query(source_query), target_table,
                              pk_str, sync_type, ts_col, priority,
                              interval, del_detect, description)
                         )
@@ -1365,7 +1367,7 @@ async def sync_agent_tables_with_config(agent_id: str):
                                 description = ?, updated_at = GETDATE()
                             WHERE id = ? AND agent_id = ?
                             """,
-                            (source_query, target_table, pk_str, sync_type,
+                            (enc_query(source_query), target_table, pk_str, sync_type,
                              ts_col, priority, interval, del_detect,
                              description, existing['id'], agent_id)
                         )
@@ -1443,6 +1445,7 @@ async def get_agent_tables_status(agent_id: str):
             (agent_id,),
             use_cache=False
         )
+        dec_rows(agent_rows)
         agent_map = {r['table_name']: r for r in agent_rows}
 
         result = []
@@ -1573,7 +1576,7 @@ async def reset_table_to_master(agent_id: str, table_id: int):
                     updated_at = GETDATE()
                 WHERE id = ? AND agent_id = ?
                 """,
-                (source_query, target_table, pk_str,
+                (enc_query(source_query), target_table, pk_str,
                  master.get('sync_type', 'incremental'),
                  master.get('timestamp_column') or '',
                  master.get('priority', 'normal'),
@@ -1627,7 +1630,7 @@ async def deploy_master_table_to_agent(agent_id: str, table_name: str = Body(...
                 ) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, 1, ?, ?, ?, 1, 0, GETDATE())
                 """,
                 (agent_id, table_name,
-                 agent_id, table_name, source_query, target_table,
+                 agent_id, table_name, enc_query(source_query), target_table,
                  pk_str, master.get('sync_type', 'incremental'),
                  master.get('timestamp_column') or '',
                  master.get('priority', 'normal'),
@@ -1672,7 +1675,7 @@ async def import_tables_from_yaml(agent_id: str, societe_code: str = Query(...))
                         (
                             agent_id,
                             table.get('name'),
-                            table.get('source', {}).get('query', ''),
+                            enc_query(table.get('source', {}).get('query', '')),
                             table.get('target', {}).get('table', ''),
                             societe_code,
                             pk_json,
@@ -2379,6 +2382,7 @@ async def agent_get_tables(
                 })
             return {"success": True, "tables": result_tables}
 
+        dec_rows(agent_tables)
         result_tables = []
         for t in agent_tables:
             result_tables.append({
@@ -3062,64 +3066,23 @@ async def get_agent_sync_status(agent_id: str):
 @router.get("/admin/dwh")
 async def list_dwh():
     """Liste les DWH disponibles"""
-    print("[DEBUG] list_dwh() APPELE - entree fonction")
     try:
-        print("[DEBUG] list_dwh() - avant execute_query")
         dwh_list = execute_query(
-            """
-            SELECT code, nom, serveur_dwh, base_dwh, actif, ISNULL(is_demo,0) AS is_demo
-            FROM APP_DWH
-            WHERE actif = 1
-            ORDER BY nom
-            """,
+            "SELECT code, nom, serveur_dwh, base_dwh, actif, ISNULL(is_demo,0) AS is_demo"
+            " FROM APP_DWH WHERE actif = 1 ORDER BY nom",
             use_cache=False
         )
-        print(f"[DEBUG] list_dwh() - apres execute_query, resultat: {dwh_list}")
         return {"success": True, "data": dwh_list}
     except Exception as e:
-        import traceback
-        print(f"[DEBUG] list_dwh() ERREUR: {e}")
-        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        logger.error(f"list_dwh: {e}")
         return {"success": True, "data": []}
 
 
 # ============================================================
-# Routes DWH Admin (Multi-tenant)
+# Routes DWH Admin (Multi-tenant) — délégué à dwh_admin.py
+# Les routes /dwh-admin/* sont définies dans dwh_admin.py (enregistré en premier).
+# Seules les routes spécifiques ci-dessous restent ici.
 # ============================================================
-
-@router.get("/dwh-admin/list")
-async def dwh_admin_list():
-    """Liste tous les DWH clients pour l'administration"""
-    try:
-        dwh_list = execute_query(
-            """
-            SELECT
-                id, code, nom, raison_sociale, adresse, ville, pays,
-                telephone, email, logo_url, serveur_dwh, base_dwh,
-                user_dwh, actif, date_creation
-            FROM APP_DWH
-            ORDER BY nom
-            """,
-            use_cache=False
-        )
-
-        # Compter les sources par DWH
-        for dwh in dwh_list:
-            try:
-                sources = execute_query(
-                    "SELECT COUNT(*) as cnt FROM APP_DWH_Sources WHERE dwh_code = ?",
-                    (dwh['code'],),
-                    use_cache=False
-                )
-                dwh['sources_count'] = sources[0]['cnt'] if sources else 0
-            except:
-                dwh['sources_count'] = 0
-
-        return {"success": True, "data": dwh_list}
-    except Exception as e:
-        logger.error(f"Erreur liste DWH admin: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/dwh-admin/client-databases")
 async def dwh_admin_list_client_databases_early():
@@ -3201,7 +3164,7 @@ async def dwh_admin_create(dwh: Dict[str, Any] = Body(...)):
                     dwh.get('telephone'), dwh.get('email'), dwh.get('logo_url'),
                     serveur, base, user_dwh, pwd_dwh,
                     dwh.get('serveur_optiboard') or serveur,
-                    dwh.get('base_optiboard') or f"OptiBoard_clt{dwh.get('code')}",
+                    dwh.get('base_optiboard') or f"OptiBoard_{dwh.get('code')}",
                     dwh.get('user_optiboard') or user_dwh,
                     dwh.get('password_optiboard') or pwd_dwh,
                     1 if dwh.get('actif', True) else 0
@@ -3280,7 +3243,7 @@ async def dwh_admin_optiboard_sql_script(code: str):
             row = cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail=f"DWH '{code}' non trouve")
-            db_name = row[0] or f"OptiBoard_clt{code}"
+            db_name = row[0] or f"OptiBoard_{code}"
             srv     = row[1] or row[2] or '.'
 
         # Construire le script SQL complet
@@ -3351,7 +3314,7 @@ async def dwh_admin_init_optiboard(code: str):
             if not row:
                 raise HTTPException(status_code=404, detail=f"DWH '{code}' non trouve")
             srv   = row[0] or row[4]   # serveur_optiboard ou fallback serveur_dwh
-            db    = row[1] or f"OptiBoard_clt{code}"
+            db    = row[1] or f"OptiBoard_{code}"
             user  = row[2] or row[5]   # user_optiboard ou fallback user_dwh
             pwd   = row[3] or row[6]   # password_optiboard ou fallback password_dwh
 
@@ -3429,7 +3392,7 @@ async def dwh_admin_delete(code: str, force: bool = Query(False), drop_databases
                 dwh_user = row[2] or ''
                 dwh_pwd  = row[3] or ''
                 ob_srv   = row[4] or dwh_srv
-                ob_base  = row[5] or f"OptiBoard_clt{code}"
+                ob_base  = row[5] or f"OptiBoard_{code}"
                 ob_user  = row[6] or dwh_user
                 ob_pwd   = row[7] or dwh_pwd
 
@@ -3884,7 +3847,7 @@ def _create_client_optiboard_db(dwh_code: str, serveur: str, user: str, password
     Utilise Windows Auth automatiquement si le serveur est local (., localhost, 127.0.0.1).
     """
     import pyodbc
-    db_name = db_name or f"OptiBoard_clt{dwh_code}"
+    db_name = db_name or f"OptiBoard_{dwh_code}"
 
     logger.info(f"[CLIENT-DB] Creation de {db_name} sur {serveur} (local={_is_local_server(serveur)})...")
 
@@ -4284,7 +4247,7 @@ def _run_migrate_all_clients() -> Dict[str, Any]:
         serveur  = dwh.get('serveur_optiboard') or dwh.get('serveur_dwh')
         user_dwh = dwh.get('user_optiboard')    or dwh.get('user_dwh')
         pwd_dwh  = dwh.get('password_optiboard') or dwh.get('password_dwh')
-        opti_db  = dwh.get('base_optiboard')     or f"OptiBoard_clt{code}"
+        opti_db  = dwh.get('base_optiboard')     or f"OptiBoard_{code}"
 
         if not all([serveur, user_dwh, pwd_dwh]):
             results.append({

@@ -3,7 +3,7 @@ import {
   Users, Plus, RefreshCw, Edit2, Trash2, Key, X, AlertCircle, CheckCircle,
   Smartphone, Shield, MapPin, Monitor, Clock, ChevronDown, ChevronUp, Calendar,
 } from 'lucide-react'
-import {
+import api, {
   getClientUsers, createClientUser, updateClientUser,
   deleteClientUser, resetClientUserPassword, extractErrorMessage
 } from '../services/api'
@@ -48,6 +48,9 @@ export default function ClientUserManagement() {
   const [formData, setFormData]             = useState(EMPTY_FORM)
   const [saving, setSaving]                 = useState(false)
   const [formError, setFormError]           = useState(null)
+  const [availableRoles, setAvailableRoles]   = useState([])
+  const [userRoleIds, setUserRoleIds]         = useState([])
+  const [originalRoleIds, setOriginalRoleIds] = useState([])
   const [showRestrictions, setShowRestrictions] = useState(false)
 
   const currentDWH = (() => {
@@ -68,6 +71,11 @@ export default function ClientUserManagement() {
 
   useEffect(() => { load() }, [])
 
+  // Charger les rôles custom disponibles
+  useEffect(() => {
+    api.get('/roles').then(r => setAvailableRoles(r.data?.data || [])).catch(() => {})
+  }, [])
+
   const showSuccess = (msg) => {
     setSuccess(msg)
     setTimeout(() => setSuccess(null), 3000)
@@ -78,10 +86,12 @@ export default function ClientUserManagement() {
     setFormData(EMPTY_FORM)
     setFormError(null)
     setShowRestrictions(false)
+    setUserRoleIds([])
+    setOriginalRoleIds([])
     setShowModal(true)
   }
 
-  const openEdit = (u) => {
+  const openEdit = async (u) => {
     setEditUser(u)
     setFormData({
       username: u.username, password: '',
@@ -96,7 +106,22 @@ export default function ClientUserManagement() {
     })
     setFormError(null)
     setShowRestrictions(hasRestrictions(u))
+    setUserRoleIds([])
+    setOriginalRoleIds([])
     setShowModal(true)
+    // Charger les rôles custom actuels de l'utilisateur
+    try {
+      const r = await api.get(`/users/${u.id}/roles`)
+      const ids = (r.data?.data || []).map(x => x.id ?? x.role_id)
+      setUserRoleIds(ids)
+      setOriginalRoleIds(ids)
+    } catch {}
+  }
+
+  const toggleCustomRole = (roleId) => {
+    setUserRoleIds(prev =>
+      prev.includes(roleId) ? prev.filter(id => id !== roleId) : [...prev, roleId]
+    )
   }
 
   const closeModal = () => { setShowModal(false); setEditUser(null) }
@@ -129,19 +154,33 @@ export default function ClientUserManagement() {
     jours_autorises:  formData.jours_autorises         || null,
   })
 
+  const syncCustomRoles = async (userId, previousRoleIds) => {
+    const toAdd    = userRoleIds.filter(id => !previousRoleIds.includes(id))
+    const toRemove = previousRoleIds.filter(id => !userRoleIds.includes(id))
+    await Promise.all([
+      ...toAdd.map(rid => api.post(`/users/${userId}/roles`, { role_id: rid })),
+      ...toRemove.map(rid => api.delete(`/users/${userId}/roles/${rid}`)),
+    ])
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true); setFormError(null)
     try {
       if (editUser) {
         await updateClientUser(editUser.id, buildPayload())
+        await syncCustomRoles(editUser.id, originalRoleIds).catch(() => {})
         showSuccess('Utilisateur modifié')
       } else {
         if (!formData.username || !formData.password) {
           setFormError('Identifiant et mot de passe obligatoires')
           return
         }
-        await createClientUser({ ...buildPayload(), username: formData.username, password: formData.password })
+        const res = await createClientUser({ ...buildPayload(), username: formData.username, password: formData.password })
+        const newId = res.data?.id
+        if (newId && userRoleIds.length > 0) {
+          await syncCustomRoles(newId, []).catch(() => {})
+        }
         showSuccess('Utilisateur créé')
       }
       closeModal()
@@ -434,6 +473,35 @@ export default function ClientUserManagement() {
                   <option value="readonly">Lecture seule</option>
                 </select>
               </div>
+
+              {/* Rôles personnalisés */}
+              {availableRoles.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Rôles personnalisés
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableRoles.map(role => {
+                      const active = userRoleIds.includes(role.id)
+                      return (
+                        <button
+                          key={role.id}
+                          type="button"
+                          onClick={() => toggleCustomRole(role.id)}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                            active
+                              ? 'text-white border-transparent'
+                              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                          }`}
+                          style={active ? { backgroundColor: role.couleur || '#6366f1', borderColor: role.couleur || '#6366f1' } : {}}
+                        >
+                          {active ? '✓ ' : ''}{role.nom}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Accès mobile */}
               <div className={`flex items-start gap-3 p-3 rounded-lg border ${

@@ -145,7 +145,7 @@ def _get_client_connection_info() -> List[Dict[str, Any]]:
         for r in rows:
             # Nom de la base : base_optiboard > APP_ClientDB.db_name > defaut
             db_name = (r.get('base_optiboard') or r.get('db_name')
-                       or f"OptiBoard_clt{r['code']}")
+                       or f"OptiBoard_{r['code']}")
             # Serveur : serveur_optiboard > APP_ClientDB.db_server > serveur_dwh
             db_server = (r.get('serveur_optiboard') or r.get('db_server')
                          or r.get('serveur_dwh'))

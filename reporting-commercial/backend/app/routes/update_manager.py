@@ -363,17 +363,35 @@ async def check_updates(
 async def pull_etl_updates(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
-    """Applique les mises a jour des tables ETL depuis le catalogue central."""
+    """
+    Applique les mises a jour des tables ETL depuis le catalogue central.
+    Source : HTTP distant si MASTER_API_URL configure, sinon base centrale locale.
+    """
     code = _require_dwh(dwh_code)
 
     try:
-        # Tables catalogue central
-        central_tables = execute_central(
-            """SELECT code, nom, table_name, target_table, source_query,
-                      primary_key_columns, sync_type, timestamp_column,
-                      interval_minutes, priority, delete_detection, description
-               FROM APP_ETL_Tables_Config WHERE actif=1""",
-        )
+        # Source : serveur central distant ou base locale
+        if _master_remote_enabled():
+            try:
+                payload = _master_fetch("/api/master/etl-tables")
+                central_tables = payload.get("items") or []
+                logger.info(f"pull/etl: {len(central_tables)} tables depuis serveur central HTTP")
+            except Exception as e:
+                logger.warning(f"pull/etl HTTP distant echoue ({e}), fallback local")
+                central_tables = execute_central(
+                    """SELECT code, table_name, target_table, source_query,
+                              primary_key_columns, sync_type, timestamp_column,
+                              interval_minutes, priority, delete_detection, description, version
+                       FROM APP_ETL_Tables_Config WHERE actif=1""",
+                ) or []
+        else:
+            central_tables = execute_central(
+                """SELECT code, table_name, target_table, source_query,
+                          primary_key_columns, sync_type, timestamp_column,
+                          interval_minutes, priority, delete_detection, description, version
+                   FROM APP_ETL_Tables_Config WHERE actif=1""",
+            ) or []
+
         if not central_tables:
             return {"success": True, "applied": 0, "message": "Aucune table dans le catalogue central"}
 

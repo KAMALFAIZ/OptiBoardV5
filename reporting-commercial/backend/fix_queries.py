@@ -62,7 +62,7 @@ FROM F_ECHEANCES WHERE ECH_Sens = 1""",
         'pk': 'ECH_No', 'sync': 'incremental', 'ts': 'cbModification'
     },
 
-    'Échéances_Ventes': {
+    'Echéances_Ventes': {
         'sq': """SELECT ECH_No, ENT_No, CT_Num, ECH_Piece, ECH_RefPiece,
 ECH_Montant, ECH_DateEch, ECH_Libelle, ECH_Type, ECH_Sens,
 ECH_ModePaie, N_Devise, ECH_MontantDev, ECH_Etape,

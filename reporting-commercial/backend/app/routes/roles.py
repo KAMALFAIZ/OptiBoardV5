@@ -157,44 +157,36 @@ _DDL_TABLES = [
 
 
 def init_roles_tables(dwh_code: str) -> None:
-    """Cree les 5 tables de gestion des roles + roles standard si absents."""
+    """Cree les 6 tables de gestion des roles + roles standard si absents."""
     if dwh_code in _init_done:
         return
 
-    failed: list = []
     for ddl in _DDL_TABLES:
         try:
             with client_cursor(dwh_code) as cursor:
                 cursor.execute(ddl)
         except Exception as exc:
-            failed.append(str(exc))
             logger.warning("init_roles_tables DDL skipped dwh=%s : %s", dwh_code, exc)
 
-    # Marquer done seulement si au moins les tables principales ont ete creees
-    tables_ok = len(failed) < len(_DDL_TABLES)
-    if not tables_ok:
-        raise Exception("; ".join(failed))
+    # Verifier que APP_Roles existe reellement avant de marquer done
+    existing = execute_client(
+        "SELECT COUNT(*) AS n FROM APP_Roles",
+        dwh_code=dwh_code,
+        use_cache=False,
+    )
+    count = existing[0]["n"] if existing else 0
 
-    # Creer les roles standard si APP_Roles est vide
-    try:
-        existing = execute_client(
-            "SELECT COUNT(*) AS n FROM APP_Roles",
-            dwh_code=dwh_code,
-            use_cache=False,
-        )
-        if (existing[0]["n"] if existing else 0) == 0:
-            for r in _STANDARD_ROLES:
-                try:
-                    write_client(
-                        "INSERT INTO APP_Roles (nom, description, couleur, is_admin, actif, date_creation) VALUES (?,?,?,?,1,GETDATE())",
-                        (r["nom"], r["description"], r["couleur"], 1 if r["is_admin"] else 0),
-                        dwh_code=dwh_code,
-                    )
-                except Exception as exc:
-                    logger.warning("Erreur creation role standard '%s': %s", r["nom"], exc)
-            logger.info("Roles standard crees pour dwh=%s", dwh_code)
-    except Exception as exc:
-        logger.warning("Impossible de verifier/creer les roles standard: %s", exc)
+    if count == 0:
+        for r in _STANDARD_ROLES:
+            try:
+                write_client(
+                    "INSERT INTO APP_Roles (nom, description, couleur, is_admin, actif, date_creation) VALUES (?,?,?,?,1,GETDATE())",
+                    (r["nom"], r["description"], r["couleur"], 1 if r["is_admin"] else 0),
+                    dwh_code=dwh_code,
+                )
+            except Exception as exc:
+                logger.warning("Erreur creation role standard '%s': %s", r["nom"], exc)
+        logger.info("Roles standard crees pour dwh=%s", dwh_code)
 
     _init_done.add(dwh_code)
     logger.info("Tables roles initialisees pour dwh_code=%s", dwh_code)
@@ -390,20 +382,26 @@ async def list_roles(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"
         )
         return {"success": True, "data": rows or []}
     except Exception as exc:
-        # Fallback si APP_User_Roles n'existe pas encore (init partielle)
-        if "invalid object name" in str(exc).lower() or "APP_User_Roles" in str(exc):
-            try:
-                rows = execute_client(
-                    """SELECT id, nom, description, couleur, is_admin, actif,
-                              date_creation, 0 AS nb_users
-                       FROM APP_Roles WHERE actif = 1 ORDER BY nom""",
-                    dwh_code=dwh_code,
-                    use_cache=False,
-                )
-                return {"success": True, "data": rows or []}
-            except Exception as exc2:
-                raise HTTPException(status_code=500, detail=str(exc2))
-        raise HTTPException(status_code=500, detail=str(exc))
+        err_msg = str(exc).lower()
+        if "invalid object name" not in err_msg:
+            raise HTTPException(status_code=500, detail=str(exc))
+        # Table manquante : forcer re-init puis retry
+        _init_done.discard(dwh_code)
+        try:
+            init_roles_tables(dwh_code)
+        except Exception:
+            raise HTTPException(status_code=500, detail=str(exc))
+        try:
+            rows = execute_client(
+                """SELECT id, nom, description, couleur, is_admin, actif,
+                          date_creation, 0 AS nb_users
+                   FROM APP_Roles WHERE actif = 1 ORDER BY nom""",
+                dwh_code=dwh_code,
+                use_cache=False,
+            )
+            return {"success": True, "data": rows or []}
+        except Exception as exc2:
+            raise HTTPException(status_code=500, detail=str(exc2))
 
 
 @router.post("/roles/seed-standard")
@@ -881,10 +879,14 @@ async def set_role_features(
     body: FeatureSet,
     x_dwh_code: Optional[str] = Header(None),
 ):
-    """Remplace completement la liste des fonctionnalites autorisees pour ce role."""
+    """
+    Remplace les fonctionnalites du role ET synchronise APP_Role_Reports
+    a partir des codes nav_item_* (menus de navigation actives).
+    """
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
     try:
+        # ── 1. Sauvegarder les feature codes ────────────────────────────────
         with client_cursor(dwh_code) as cursor:
             cursor.execute("DELETE FROM APP_Role_Features WHERE role_id = ?", (role_id,))
             for code in body.feature_codes:
@@ -892,6 +894,54 @@ async def set_role_features(
                     "INSERT INTO APP_Role_Features (role_id, feature_code) VALUES (?, ?)",
                     (role_id, code),
                 )
-        return {"success": True, "message": f"{len(body.feature_codes)} fonctionnalite(s) enregistree(s)"}
+
+        # ── 2. Extraire les IDs des items de navigation actives ──────────────
+        nav_item_ids = []
+        for code in body.feature_codes:
+            if code.startswith("nav_item_"):
+                try:
+                    nav_item_ids.append(int(code[len("nav_item_"):]))
+                except ValueError:
+                    pass
+
+        # ── 3. Synchroniser APP_Role_Reports depuis les nav items ────────────
+        # Vider tous les rapports existants du role (ils sont desormais pilotes par la nav)
+        write_client(
+            "DELETE FROM APP_Role_Reports WHERE role_id = ?",
+            (role_id,), dwh_code=dwh_code,
+        )
+
+        synced_reports = 0
+        if nav_item_ids:
+            TYPE_MAP = {
+                "gridview":  "gridview",
+                "dashboard": "dashboard",
+                "pivot":     "pivot",
+                "pivot-v2":  "pivot",
+            }
+            placeholders = ",".join(["?" for _ in nav_item_ids])
+            menu_rows = execute_client(
+                f"SELECT id, type, target_id FROM APP_Menus WHERE id IN ({placeholders}) AND actif = 1",
+                nav_item_ids, dwh_code=dwh_code, use_cache=False,
+            )
+            for item in (menu_rows or []):
+                rtype     = TYPE_MAP.get(item.get("type") or "")
+                target_id = item.get("target_id")
+                if rtype and target_id:
+                    write_client(
+                        """INSERT INTO APP_Role_Reports
+                               (role_id, report_type, report_id, can_view, can_export, can_schedule)
+                           VALUES (?, ?, ?, 1, 1, 0)""",
+                        (role_id, rtype, int(target_id)), dwh_code=dwh_code,
+                    )
+                    synced_reports += 1
+
+        return {
+            "success": True,
+            "message": (
+                f"{len(body.feature_codes)} fonctionnalite(s) enregistree(s), "
+                f"{synced_reports} rapport(s) synchronise(s)"
+            ),
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

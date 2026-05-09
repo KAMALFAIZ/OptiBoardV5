@@ -109,7 +109,7 @@ N'Imputation_BL', NULL, N'DB', 'full', NULL, 'normal', 11, 0);
 INSERT INTO ETL_Tables_Config (table_name, source_query, target_table, join_column, filter_column, sync_type, timestamp_column, priority, sort_order, delete_orphans)
 VALUES (N'Echéances ventes',
 N'TODO: Copier depuis sync_tables.yaml - Echeances ventes avec CTE (YAML L825)',
-N'Échéances_Ventes', N'N° interne', N'DB', 'incremental', N'cbModification', 'normal', 12, 0);
+N'Echéances_Ventes', N'N° interne', N'DB', 'incremental', N'cbModification', 'normal', 12, 0);
 
 -- ─────────────────────────────────────────────────────────────────
 -- PRIORITE NORMAL - ACHATS (6 tables)

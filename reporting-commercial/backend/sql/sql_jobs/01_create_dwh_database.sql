@@ -428,10 +428,10 @@ CREATE TABLE Imputation_BL (
 GO
 
 -- =====================================================================
--- 11. Échéances_Ventes (sort_order: 12, FULL, priority: normal)
+-- 11. Echéances_Ventes (sort_order: 12, FULL, priority: normal)
 -- =====================================================================
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = N'Échéances_Ventes')
-CREATE TABLE [Échéances_Ventes] (
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = N'Echéances_Ventes')
+CREATE TABLE [Echéances_Ventes] (
     [id]                        INT IDENTITY(1,1) PRIMARY KEY,
     [DB_Id]                     INT NOT NULL,
     [DB]                        VARCHAR(100) NOT NULL,

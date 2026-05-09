@@ -232,12 +232,20 @@ export default function GridViewDisplay() {
       setGrid(gridData)
 
       // Charger les prefs utilisateur (colonnes personnalisees)
+      // Fusion : prefs conservent visible/width/ordre, colonnes absentes des prefs = ajoutées à la fin
       let finalColumns = gridData.columns || []
       if (user?.id) {
         try {
           const prefsRes = await getUserGridPrefs(gridData.id, user.id)
           if (prefsRes.data.has_prefs && prefsRes.data.data?.length > 0) {
-            finalColumns = prefsRes.data.data
+            const prefs = prefsRes.data.data
+            const defMap  = Object.fromEntries(finalColumns.map(c => [c.field, c]))
+            const prefsFields = new Set(prefs.map(c => c.field))
+            // 1. Colonnes présentes dans les prefs (dans l'ordre préféré)
+            const merged = prefs.filter(c => defMap[c.field])
+            // 2. Nouvelles colonnes de la définition absentes des prefs (ajoutées visibles)
+            const added = finalColumns.filter(c => !prefsFields.has(c.field))
+            finalColumns = [...merged, ...added]
           }
         } catch (e) {
           console.warn('Pas de prefs utilisateur, utilisation config par defaut')
@@ -254,9 +262,12 @@ export default function GridViewDisplay() {
           const hiddenCols = hiddenByType[String(gridData.id)] || hiddenByType[Number(gridData.id)] || []
           if (hiddenCols.length > 0) {
             const hiddenSet = new Set(hiddenCols.map(c => c.toLowerCase()))
-            // Supprimer complètement les colonnes masquées par rôle (grille + panneau)
-            finalColumns = finalColumns.filter(col =>
-              !hiddenSet.has((col.field || '').toLowerCase())
+            // Masquage soft : visible=false + role_masked=true (pas de suppression)
+            // → la colonne revient automatiquement si l'admin retire le masque
+            finalColumns = finalColumns.map(col =>
+              hiddenSet.has((col.field || '').toLowerCase())
+                ? { ...col, visible: false, role_masked: true }
+                : col
             )
           }
         } catch (e) {
@@ -1324,7 +1335,7 @@ export default function GridViewDisplay() {
                         )}
                       </div>
                       <div className="space-y-0.5">
-                        {columns.map(col => (
+                        {columns.filter(col => !col.role_masked).map(col => (
                           <label key={col.field} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 px-1.5 py-1 rounded">
                             <input
                               type="checkbox"

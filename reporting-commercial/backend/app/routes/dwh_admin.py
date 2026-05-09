@@ -19,6 +19,7 @@ Règles d'architecture implémentées :
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -47,15 +48,15 @@ def _ensure_app_dwh_optiboard_columns():
     """
     Migration 009 — Ajoute les colonnes serveur_optiboard / base_optiboard /
     user_optiboard / password_optiboard dans APP_DWH si elles n'existent pas.
-    Remplit base_optiboard pour les clients existants (convention OptiBoard_clt{code}).
+    Remplit base_optiboard pour les clients existants (convention OptiBoard_{code}).
     """
     migrations = [
         "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='serveur_optiboard') ALTER TABLE APP_DWH ADD serveur_optiboard NVARCHAR(200) NULL",
         "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='base_optiboard') ALTER TABLE APP_DWH ADD base_optiboard NVARCHAR(200) NULL",
         "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='user_optiboard') ALTER TABLE APP_DWH ADD user_optiboard NVARCHAR(100) NULL",
         "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='password_optiboard') ALTER TABLE APP_DWH ADD password_optiboard NVARCHAR(200) NULL",
-        # Remplir base_optiboard pour les clients existants si vide
-        "UPDATE APP_DWH SET base_optiboard = CONCAT('OptiBoard_clt', code) WHERE base_optiboard IS NULL OR base_optiboard = ''",
+        # Remplir base_optiboard uniquement si vide — ne jamais écraser une valeur existante
+        "UPDATE APP_DWH SET base_optiboard = CONCAT('OptiBoard_', code) WHERE base_optiboard IS NULL OR base_optiboard = ''",
     ]
     try:
         with get_db_cursor() as cursor:
@@ -114,9 +115,12 @@ def _migrate_all_client_dbs():
 
 try:
     _ensure_app_dwh_optiboard_columns()
-    _migrate_all_client_dbs()
 except Exception:
     pass
+
+# Migrations bases clients en arrière-plan — évite de bloquer le démarrage du serveur
+# (connexions distantes pyodbc peuvent prendre 30 s par DWH inaccessible)
+threading.Thread(target=_migrate_all_client_dbs, daemon=True, name="dwh-client-migrations").start()
 
 
 # =============================================================================
@@ -242,13 +246,16 @@ IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Users' AND xtype='U')
 CREATE TABLE APP_Users (
     id                    INT IDENTITY(1,1) PRIMARY KEY,
     username              VARCHAR(100) UNIQUE NOT NULL,
-    password_hash         VARCHAR(200) NULL,           -- NULL = premier login, mot de passe pas encore defini
+    password_hash         VARCHAR(200) NULL,
     nom                   NVARCHAR(200),
     prenom                NVARCHAR(100),
     email                 VARCHAR(200),
-    role_dwh              VARCHAR(50) DEFAULT 'user',  -- admin_client | user | viewer
+    role_dwh              VARCHAR(50) DEFAULT 'user',
     actif                 BIT DEFAULT 1,
-    must_change_password  BIT DEFAULT 0,               -- 1 = premier login, forcer creation mot de passe
+    must_change_password  BIT DEFAULT 0,
+    onboarding_done       BIT DEFAULT 0,
+    totp_secret           VARCHAR(200) NULL,
+    totp_enabled          BIT DEFAULT 0,
     derniere_connexion    DATETIME NULL,
     date_creation         DATETIME DEFAULT GETDATE()
 );
@@ -490,17 +497,31 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DataSour
 -- Règle 2 : ajouter APP_Users si absente
 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Users' AND xtype='U')
 CREATE TABLE APP_Users (
-    id                  INT IDENTITY(1,1) PRIMARY KEY,
-    username            VARCHAR(100) UNIQUE NOT NULL,
-    password_hash       VARCHAR(200) NOT NULL,
-    nom                 NVARCHAR(200),
-    prenom              NVARCHAR(100),
-    email               VARCHAR(200),
-    role_dwh            VARCHAR(50) DEFAULT 'user',
-    actif               BIT DEFAULT 1,
-    derniere_connexion  DATETIME NULL,
-    date_creation       DATETIME DEFAULT GETDATE()
+    id                    INT IDENTITY(1,1) PRIMARY KEY,
+    username              VARCHAR(100) UNIQUE NOT NULL,
+    password_hash         VARCHAR(200) NULL,
+    nom                   NVARCHAR(200),
+    prenom                NVARCHAR(100),
+    email                 VARCHAR(200),
+    role_dwh              VARCHAR(50) DEFAULT 'user',
+    actif                 BIT DEFAULT 1,
+    must_change_password  BIT DEFAULT 0,
+    onboarding_done       BIT DEFAULT 0,
+    totp_secret           VARCHAR(200) NULL,
+    totp_enabled          BIT DEFAULT 0,
+    derniere_connexion    DATETIME NULL,
+    date_creation         DATETIME DEFAULT GETDATE()
 );
+
+-- Migration APP_Users : colonnes ajoutées depuis la v1
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='must_change_password')
+    ALTER TABLE APP_Users ADD must_change_password BIT NOT NULL DEFAULT 0;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='onboarding_done')
+    ALTER TABLE APP_Users ADD onboarding_done BIT NOT NULL DEFAULT 0;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_secret')
+    ALTER TABLE APP_Users ADD totp_secret VARCHAR(200) NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_enabled')
+    ALTER TABLE APP_Users ADD totp_enabled BIT NOT NULL DEFAULT 0;
 
 -- =========================================================
 -- ETL TABLES CLIENT — tables propres (non publiees par KASOFT)
@@ -753,7 +774,7 @@ def _get_client_db_name(dwh_code: str) -> str:
     )
     if rows2 and rows2[0].get("base_optiboard"):
         return rows2[0]["base_optiboard"]
-    return f"OptiBoard_clt{dwh_code}"
+    return f"OptiBoard_{dwh_code}"
 
 
 def _get_optiboard_conn_str(dwh_code: str) -> str:
@@ -904,9 +925,9 @@ def _create_client_optiboard_db(dwh_code: str, server: str = None, user: str = N
         server   = r.get("serveur_optiboard") or r.get("serveur_dwh") or server or ""
         user     = r.get("user_optiboard")    or r.get("user_dwh")    or user or ""
         password = r.get("password_optiboard") or r.get("password_dwh") or password or ""
-        db_name  = r.get("base_optiboard") or f"OptiBoard_clt{dwh_code}"
+        db_name  = r.get("base_optiboard") or f"OptiBoard_{dwh_code}"
     else:
-        db_name = f"OptiBoard_clt{dwh_code}"
+        db_name = f"OptiBoard_{dwh_code}"
 
     # Fallback serveur central si toujours vide
     if not server or not user:
@@ -1389,7 +1410,7 @@ def _list_client_databases() -> Dict[str, Any]:
         # Nom de la base : APP_ClientDB > base_optiboard > défaut
         db_name = (dwh.get("client_db_name")
                    or dwh.get("base_optiboard")
-                   or f"OptiBoard_clt{dwh['code']}")
+                   or f"OptiBoard_{dwh['code']}")
         has_client_db = dwh.get("client_db_name") is not None
         # Credentials OptiBoard (priorité optiboard > dwh)
         ob_server   = dwh.get("serveur_optiboard") or dwh.get("serveur_dwh") or ""
@@ -1564,7 +1585,7 @@ def _patch_missing_tables(dwh_code: str) -> Dict[str, Any]:
 @router.get("/dwh-admin/list")
 async def dwh_admin_list():
     """Liste tous les DWH clients."""
-    try:
+    def _fetch():
         dwh_list = execute_query(
             "SELECT id, code, nom, raison_sociale, adresse, ville, pays, telephone, email, logo_url,"
             " serveur_dwh, base_dwh, user_dwh, actif, date_creation,"
@@ -1573,15 +1594,25 @@ async def dwh_admin_list():
             " FROM APP_DWH ORDER BY nom",
             use_cache=False,
         )
-        # Compter les sources en une seule requête (évite le N+1)
         sources_map: Dict[str, int] = {}
+        users_map: Dict[str, int] = {}
         try:
             rows = execute_query("SELECT dwh_code, COUNT(*) AS cnt FROM APP_DWH_Sources GROUP BY dwh_code", use_cache=False)
             sources_map = {r["dwh_code"]: r["cnt"] for r in rows}
         except Exception:
             pass
+        try:
+            rows = execute_query("SELECT dwh_code, COUNT(*) AS cnt FROM APP_UserDWH GROUP BY dwh_code", use_cache=False)
+            users_map = {r["dwh_code"]: r["cnt"] for r in rows}
+        except Exception:
+            pass
         for dwh in dwh_list:
             dwh["sources_count"] = sources_map.get(dwh["code"], 0)
+            dwh["users_count"] = users_map.get(dwh["code"], 0)
+        return dwh_list
+
+    try:
+        dwh_list = await asyncio.to_thread(_fetch)
         return {"success": True, "data": dwh_list}
     except Exception as e:
         logger.error(f"dwh_admin_list: {e}")
@@ -1632,7 +1663,7 @@ async def dwh_admin_get(code: str):
 
 @router.post("/dwh-admin")
 async def dwh_admin_create(dwh: DWHCreate):
-    """Crée un nouveau DWH. Auto-crée la base DWH + la base client si absentes."""
+    """Crée un nouveau DWH. Auto-crée la base DWH + la base client en arrière-plan."""
     try:
         db_init_result = None
         if all([dwh.serveur_dwh, dwh.base_dwh, dwh.user_dwh, dwh.password_dwh]):
@@ -1659,23 +1690,26 @@ async def dwh_admin_create(dwh: DWHCreate):
                  dwh.ssh_host, dwh.ssh_port, dwh.ssh_user, dwh.ssh_private_key),
             )
 
-        client_db_result = None
-        try:
-            client_db_result = await asyncio.to_thread(_create_client_optiboard_db, dwh.code)
-        except Exception as e:
-            logger.warning(f"Auto-création base client impossible pour {dwh.code}: {e}")
+        # Création base client en arrière-plan (migration données peut prendre >60s sur serveur distant)
+        dwh_code = dwh.code
+        def _bg_create_client():
+            try:
+                result = _create_client_optiboard_db(dwh_code)
+                logger.info(f"[BG] Base client créée pour {dwh_code}: {result}")
+            except Exception as e:
+                logger.error(f"[BG] Échec création base client {dwh_code}: {e}")
+        threading.Thread(target=_bg_create_client, daemon=True, name=f"create-client-{dwh_code}").start()
 
         message = "DWH créé avec succès"
         if db_init_result and db_init_result.get("created"):
             message += f". Base '{dwh.base_dwh}' créée"
-        if client_db_result and client_db_result.get("created"):
-            message += f". Base client '{client_db_result.get('db_name')}' créée"
+        message += ". Initialisation de la base client en cours..."
 
         return {
             "success": True, "message": message,
             "db_created": db_init_result.get("created", False) if db_init_result else False,
             "tables_count": db_init_result.get("tables_count", 0) if db_init_result else 0,
-            "client_db_created": client_db_result.get("created", False) if client_db_result else False,
+            "client_db_created": True,
         }
     except Exception as e:
         logger.error(f"dwh_admin_create: {e}")
@@ -1763,7 +1797,7 @@ async def dwh_admin_delete(code: str):
                 dwh_user = row[2] or ''
                 dwh_pwd  = row[3] or ''
                 ob_srv   = row[4] or dwh_srv
-                ob_base  = row[5] or f"OptiBoard_clt{code}"
+                ob_base  = row[5] or f"OptiBoard_{code}"
                 ob_user  = row[6] or dwh_user
                 ob_pwd   = row[7] or dwh_pwd
 
@@ -2110,12 +2144,12 @@ async def dwh_admin_create_client_db(code: str):
             ob_server   = r.get("serveur_optiboard") or r.get("serveur_dwh") or central._effective_server
             ob_user     = r.get("user_optiboard")    or r.get("user_dwh")    or central._effective_user
             ob_password = r.get("password_optiboard") or r.get("password_dwh") or central._effective_password
-            db_name     = r.get("base_optiboard") or f"OptiBoard_clt{code}"
+            db_name     = r.get("base_optiboard") or f"OptiBoard_{code}"
         else:
             ob_server   = central._effective_server
             ob_user     = central._effective_user
             ob_password = central._effective_password
-            db_name     = f"OptiBoard_clt{code}"
+            db_name     = f"OptiBoard_{code}"
 
         # Vérifier l'existence RÉELLE de la base (pas seulement APP_ClientDB)
         db_really_exists = _check_db_exists(ob_server, db_name, ob_user, ob_password)
@@ -2247,7 +2281,7 @@ async def dwh_admin_optiboard_sql_script(code: str):
         "SELECT base_optiboard FROM APP_DWH WHERE code = ?",
         (code,), use_cache=False
     )
-    db_name = (rows[0].get("base_optiboard") if rows else None) or f"OptiBoard_clt{code}"
+    db_name = (rows[0].get("base_optiboard") if rows else None) or f"OptiBoard_{code}"
 
     script = f"""-- =============================================================
 -- Script d'initialisation OptiBoard — Client {code}
@@ -2361,7 +2395,7 @@ async def dwh_admin_repair_client_db(code: str, req: RepairClientDBRequest):
         repairs = []
 
         # ── Calcul du nom correct si non fourni ──────────────────────────────
-        new_base = (req.base_optiboard or f"OptiBoard_clt{code}").strip()
+        new_base = (req.base_optiboard or f"OptiBoard_{code}").strip()
 
         # ── Lire l'état actuel dans APP_DWH ──────────────────────────────────
         rows = execute_query(

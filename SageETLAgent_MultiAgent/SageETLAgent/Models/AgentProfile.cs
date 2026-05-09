@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using SageETLAgent.Services;
 
 namespace SageETLAgent.Models
 {
@@ -142,8 +143,16 @@ namespace SageETLAgent.Models
         public string TableName { get; set; } = "";
 
         // L'API retourne "source_query" au lieu de "custom_query"
+        // Le setter déchiffre automatiquement si la valeur est chiffrée ($enc1$...)
         [JsonProperty("source_query")]
-        public string? CustomQuery { get; set; }
+        private string? _customQueryRaw { get; set; }
+
+        [JsonIgnore]
+        public string? CustomQuery
+        {
+            get => QueryDecryptor.Decrypt(_customQueryRaw);
+            set => _customQueryRaw = value;
+        }
 
         [JsonProperty("target_table")]
         public string? TargetTable { get; set; }

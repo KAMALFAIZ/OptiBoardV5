@@ -20,6 +20,7 @@ from ..database_unified import (
     execute_central, write_central, central_cursor,
     execute_client, write_client, client_cursor,
 )
+from ..services.query_crypto import enc_query
 
 logger = logging.getLogger(__name__)
 
@@ -652,7 +653,7 @@ async def publish_client_custom_tables(
                              updated_at = GETDATE()
                            WHERE agent_id = ? AND table_name = ?""",
                         (
-                            table["source_query"], table["target_table"],
+                            enc_query(table["source_query"]), table["target_table"],
                             pk_json, table["sync_type"],
                             table.get("timestamp_column", "cbModification"),
                             table["priority"],
@@ -672,7 +673,7 @@ async def publish_client_custom_tables(
                               is_inherited, is_customized, created_at)
                            VALUES (?,?,?,?,?,?,?,?,?,1,?,?,0,0,GETDATE())""",
                         (
-                            agent_id, table["table_name"], table["source_query"],
+                            agent_id, table["table_name"], enc_query(table["source_query"]),
                             table["target_table"], "",
                             pk_json, table["sync_type"],
                             table.get("timestamp_column", "cbModification"),
