@@ -14,7 +14,9 @@ Flux de login :
 
 import hashlib
 import logging
-from datetime import datetime
+import threading
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pyodbc
@@ -30,6 +32,9 @@ from ..database_unified import (
     get_user_dwh_list,
     get_user_societes,
     get_all_dwh_societes,
+    create_session,
+    invalidate_session,
+    invalidate_all_user_sessions,
     client_manager,
     UserContext,
 )
@@ -40,6 +45,38 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 # DWH réservés à la démonstration (superadmin uniquement, accès client interdit)
 _DEMO_DWH_CODES = {"KA"}
+
+# =============================================================================
+# RATE LIMITER LOGIN (protection brute-force, en mémoire)
+# =============================================================================
+
+_rl_lock = threading.Lock()
+_rl_attempts: Dict[str, list] = defaultdict(list)  # ip -> [datetime, ...]
+
+_RL_WINDOW_SECONDS = 300   # fenêtre glissante 5 minutes
+_RL_MAX_ATTEMPTS   = 10    # max tentatives par fenêtre
+
+
+def _check_rate_limit(ip: str) -> None:
+    """Lève HTTPException 429 si l'IP a dépassé la limite de tentatives."""
+    now = datetime.now()
+    cutoff = now - timedelta(seconds=_RL_WINDOW_SECONDS)
+    with _rl_lock:
+        attempts = _rl_attempts[ip]
+        # Purger les anciennes entrées
+        _rl_attempts[ip] = [t for t in attempts if t > cutoff]
+        if len(_rl_attempts[ip]) >= _RL_MAX_ATTEMPTS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Trop de tentatives — réessayez dans {_RL_WINDOW_SECONDS // 60} minutes",
+            )
+        _rl_attempts[ip].append(now)
+
+
+def _clear_rate_limit(ip: str) -> None:
+    """Efface le compteur de l'IP après un login réussi."""
+    with _rl_lock:
+        _rl_attempts.pop(ip, None)
 
 
 # =============================================================================
@@ -58,6 +95,7 @@ class LoginResponse(BaseModel):
     message: str
     user: Optional[Dict[str, Any]] = None
     context: Optional[Dict[str, Any]] = None
+    session_token: Optional[str] = None
     must_change_password: bool = False
     first_login_user_id: Optional[int] = None
 
@@ -229,6 +267,13 @@ async def login(request: LoginRequest, http_request: Request):
     user = None
     from_client_db = False
 
+    # ── Rate limiting ────────────────────────────────────────────────────────
+    client_ip = (
+        http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or (http_request.client.host if http_request.client else "unknown")
+    )
+    _check_rate_limit(client_ip)
+
     # ── Étape 0 : refuser accès DWH démo aux utilisateurs clients ──────────
     if request.dwh_code and request.dwh_code.upper() in _DEMO_DWH_CODES:
         raise HTTPException(status_code=403, detail="Ce client est réservé à la démonstration — accès non autorisé")
@@ -374,9 +419,18 @@ async def login(request: LoginRequest, http_request: Request):
             user={"requires_2fa": True, "temp_token": temp_token},
         )
 
+    # ── Créer une session serveur ────────────────────────────────────────────
+    _clear_rate_limit(client_ip)
+    try:
+        session_token = create_session(user["id"], request.dwh_code, ip=client_ip)
+    except Exception as e:
+        logger.warning(f"create_session failed: {e}")
+        session_token = None
+
     return LoginResponse(
         success=True,
         message="Connexion réussie",
+        session_token=session_token,
         user={
             "id": user["id"],
             "username": user["username"],
@@ -396,6 +450,54 @@ async def login(request: LoginRequest, http_request: Request):
             "has_client_db": has_client_db,
         },
     )
+
+
+# =============================================================================
+# ROUTE — LOGOUT
+# =============================================================================
+
+@router.post("/logout")
+async def logout(
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+    user_id: Optional[int] = Header(None, alias="X-User-Id"),
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+):
+    """Invalide la session courante côté serveur."""
+    if x_session_token:
+        invalidate_session(x_session_token)
+    elif user_id:
+        # Fallback : invalider toutes les sessions de l'utilisateur
+        invalidate_all_user_sessions(user_id, dwh_code)
+    return {"success": True, "message": "Déconnexion réussie"}
+
+
+@router.get("/sessions")
+async def get_active_sessions(
+    user_id: int = Header(..., alias="X-User-Id"),
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+):
+    """Liste les sessions actives de l'utilisateur courant (pour tableau de bord sécurité)."""
+    rows = execute_central(
+        """SELECT id, ip_address, created_at, last_activity, expires_at
+           FROM APP_Sessions
+           WHERE user_id=? AND is_active=1 AND expires_at > GETDATE()
+           ORDER BY last_activity DESC""",
+        (user_id,), use_cache=False,
+    )
+    return {"success": True, "sessions": rows}
+
+
+@router.delete("/sessions/{session_id}")
+async def revoke_session(
+    session_id: int,
+    user_id: int = Header(..., alias="X-User-Id"),
+):
+    """Révoque une session spécifique (déconnexion à distance)."""
+    write_central(
+        "UPDATE APP_Sessions SET is_active=0 WHERE id=? AND user_id=?",
+        (session_id, user_id),
+    )
+    return {"success": True}
 
 
 # =============================================================================
@@ -613,6 +715,7 @@ async def change_password(
                 if not _verify_password(request.current_password, rows[0]["password_hash"]):
                     raise HTTPException(status_code=401, detail="Mot de passe actuel incorrect")
                 write_client("UPDATE APP_Users SET password_hash=? WHERE id=?", (_hash_password(request.new_password), user_id), dwh_code=dwh_code)
+                invalidate_all_user_sessions(user_id, dwh_code)
                 return {"success": True, "message": "Mot de passe modifié"}
         except HTTPException:
             raise
@@ -886,6 +989,7 @@ async def reset_client_user_password(user_id: int, dwh_code: Optional[str] = Hea
         username = rows[0]["username"]
         new_hash = hashlib.sha256(username.encode()).hexdigest()
         write_client("UPDATE APP_Users SET password_hash=? WHERE id=?", (new_hash, user_id), dwh_code=dwh_code)
+        invalidate_all_user_sessions(user_id, dwh_code)
         return {"success": True, "message": f"Mot de passe réinitialisé à '{username}'"}
     except HTTPException:
         raise

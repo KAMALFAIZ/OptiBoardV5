@@ -72,6 +72,8 @@ import {
   Scale,
   FolderOpen,
   Boxes,
+  Sheet,
+  Sigma,
   Shield,
   Globe,
   Brain,
@@ -81,6 +83,7 @@ import {
   GitBranch,
   ShieldCheck,
   Sparkles,
+  MessageCircle,
 } from 'lucide-react'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getUserMenus } from '../../services/api'
@@ -138,6 +141,16 @@ const adminNavigation = [
       { name: 'Envois Planifiés', href: '/admin/report-scheduler', icon: Mail,   pageCode: 'report_scheduler', subtitle: 'Push → destinataires' },
       { name: 'Digest IA',      href: '/admin/digest',           icon: Brain,     pageCode: 'admin', subtitle: 'Résumé hebdo direction' },
       { name: 'Drill-through',  href: '/admin/drillthrough',     icon: GitBranch, pageCode: 'admin' },
+    ]
+  },
+  // ── Communications ────────────────────────────────────────────────────────
+  {
+    name: 'Communications',
+    icon: MessageCircle,
+    pageCode: 'admin',
+    isFolder: true,
+    children: [
+      { name: 'WhatsApp Business', href: '/admin/whatsapp', icon: MessageCircle, pageCode: 'admin', subtitle: 'Chatbot Meta Cloud API' },
     ]
   },
   // ── IA Learning ───────────────────────────────────────────────────────────
@@ -223,8 +236,16 @@ const iconMap = {
   GitCompare, Filter, Gauge,
 }
 
-const getIconComponent = (iconName) => {
-  return iconMap[iconName] || Folder
+const TYPE_ICONS = {
+  'gridview':   Sheet,
+  'pivot':      Sigma,
+  'pivot-v2':   Sigma,
+  'dashboard':  LayoutDashboard,
+}
+
+const getIconComponent = (iconName, type) => {
+  if (iconName && iconMap[iconName]) return iconMap[iconName]
+  return TYPE_ICONS[type] || Folder
 }
 
 // Composant pour le menu contextuel flottant (mode collapsed)
@@ -288,7 +309,7 @@ function CollapsedMenuPopover({ menu, isOpen, onClose, onNavigate, buttonRef }) 
 function CollapsedMenuPopoverItem({ menu, depth, onNavigate, onClose }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const hasChildren = menu.children && menu.children.length > 0
-  const IconComp = getIconComponent(menu.icon)
+  const IconComp = getIconComponent(menu.icon, menu.type)
   const isFolder = menu.type === 'folder' || hasChildren
 
   const handleClick = () => {
@@ -341,7 +362,7 @@ function CollapsedMenuPopoverItem({ menu, depth, onNavigate, onClose }) {
 function CollapsedMenuButton({ menu, navigateToMenu }) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false)
   const buttonRef = useRef(null)
-  const IconComp = getIconComponent(menu.icon)
+  const IconComp = getIconComponent(menu.icon, menu.type)
   const hasChildren = menu.children && menu.children.length > 0
 
   const handleClick = () => {
@@ -382,7 +403,7 @@ function CollapsedMenuButton({ menu, navigateToMenu }) {
 function DynamicMenuItem({ menu, depth, openMenuIds, toggleMenuOpen, navigateToMenu, location }) {
   const hasChildren = menu.children && menu.children.length > 0
   const isOpen = openMenuIds[menu.id]
-  const IconComp = getIconComponent(menu.icon)
+  const IconComp = getIconComponent(menu.icon, menu.type)
   const isInactive = menu.is_active === false || menu.is_active === 0
 
   // Determiner si cet element est actif (page courante)

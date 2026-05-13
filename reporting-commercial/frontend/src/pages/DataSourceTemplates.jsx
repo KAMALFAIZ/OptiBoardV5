@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Database, Plus, Save, Trash2, Play, RefreshCw, X, Search,
   Code, FileText, Tag, CheckCircle, XCircle, AlertCircle,
@@ -31,6 +32,7 @@ const TYPES = [
 export default function DataSourceTemplates() {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'superadmin'
+  const [searchParams] = useSearchParams()
 
   const [loading, setLoading] = useState(true)
   const [templates, setTemplates] = useState([])
@@ -43,9 +45,9 @@ export default function DataSourceTemplates() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
 
-  // Filtres
-  const [searchTerm, setSearchTerm] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
+  // Filtres — pré-remplis depuis l'URL (?category=recouvrement)
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '')
+  const [categoryFilter, setCategoryFilter] = useState(searchParams.get('category') || '')
   const [showSystemOnly, setShowSystemOnly] = useState(false)
 
   // Formulaire
@@ -67,6 +69,14 @@ export default function DataSourceTemplates() {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Si une catégorie est passée en URL, s'assurer qu'elle est dépliée
+  useEffect(() => {
+    const cat = searchParams.get('category')
+    if (cat) {
+      setExpandedCategories(prev => ({ ...prev, [cat]: true }))
+    }
+  }, [searchParams])
 
   const loadData = async () => {
     setLoading(true)
@@ -294,6 +304,11 @@ export default function DataSourceTemplates() {
             <Database className="w-4 h-4 text-primary-600 dark:text-primary-400" />
           </div>
           <h1 className="text-sm font-bold text-gray-900 dark:text-white">DataSources Templates</h1>
+          {categoryFilter && (
+            <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 capitalize">
+              {CATEGORIES.find(c => c.value === categoryFilter)?.label || categoryFilter}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={loadData}

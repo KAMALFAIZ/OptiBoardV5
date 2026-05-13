@@ -30,11 +30,32 @@ def get_template_by_code(code):
     return results[0] if results else None
 
 
+def _normalize_fields(items):
+    """Convertit les strings en dicts {'field': ...} pour rows/columns/filters.
+    L'API pivot_v2 attend [{"field": "NomChamp"}], pas ["NomChamp"]."""
+    result = []
+    for item in items:
+        if isinstance(item, str):
+            result.append({"field": item})
+        elif isinstance(item, dict):
+            result.append(item)
+    return result
+
+
 def create_pivot(config):
     """Cree ou met a jour un Pivot"""
-    # Verifier si le pivot existe deja
+    rows = _normalize_fields(config.get('rows', []))
+    columns = _normalize_fields(config.get('columns', []))
+    filters = _normalize_fields(config.get('filters', []))
+    values = config.get('values', [])
+
+    rows_json = json.dumps(rows, ensure_ascii=False)
+    columns_json = json.dumps(columns, ensure_ascii=False)
+    values_json = json.dumps(values, ensure_ascii=False)
+    filters_json = json.dumps(filters, ensure_ascii=False)
+
     existing = execute_query(
-        "SELECT id FROM APP_Pivots WHERE nom = ?",
+        "SELECT id FROM APP_Pivots_V2 WHERE nom = ?",
         (config['nom'],),
         use_cache=False
     )
@@ -43,7 +64,7 @@ def create_pivot(config):
         print(f"  [UPDATE] Pivot '{config['nom']}' existe deja (id={existing[0]['id']})")
         with get_db_cursor() as cursor:
             cursor.execute("""
-                UPDATE APP_Pivots
+                UPDATE APP_Pivots_V2
                 SET description = ?,
                     data_source_code = ?,
                     rows_config = ?,
@@ -56,10 +77,7 @@ def create_pivot(config):
             """, (
                 config.get('description', ''),
                 config['data_source_code'],
-                json.dumps(config.get('rows', []), ensure_ascii=False),
-                json.dumps(config.get('columns', []), ensure_ascii=False),
-                json.dumps(config.get('values', []), ensure_ascii=False),
-                json.dumps(config.get('filters', []), ensure_ascii=False),
+                rows_json, columns_json, values_json, filters_json,
                 existing[0]['id']
             ))
         return existing[0]['id']
@@ -67,7 +85,7 @@ def create_pivot(config):
         print(f"  [CREATE] Pivot '{config['nom']}'")
         with get_db_cursor() as cursor:
             cursor.execute("""
-                INSERT INTO APP_Pivots
+                INSERT INTO APP_Pivots_V2
                 (nom, description, data_source_code, rows_config, columns_config,
                  values_config, filters_config, is_public, created_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)
@@ -75,10 +93,7 @@ def create_pivot(config):
                 config['nom'],
                 config.get('description', ''),
                 config['data_source_code'],
-                json.dumps(config.get('rows', []), ensure_ascii=False),
-                json.dumps(config.get('columns', []), ensure_ascii=False),
-                json.dumps(config.get('values', []), ensure_ascii=False),
-                json.dumps(config.get('filters', []), ensure_ascii=False)
+                rows_json, columns_json, values_json, filters_json
             ))
             cursor.execute("SELECT @@IDENTITY AS id")
             result = cursor.fetchone()
@@ -114,8 +129,10 @@ PIVOT_CONFIGS = [
         "rows": ["Code Client", "Client"],
         "columns": [],
         "values": [
-            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT"},
-            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"},
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT", "format": "currency"},
+            {"field": "CA TTC", "aggregation": "SUM", "alias": "SUM_CA_TTC", "format": "currency"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge", "format": "currency", "label": "Marge Brute"},
+
             {"field": "Nb Factures", "aggregation": "SUM", "alias": "SUM_Nb_Factures"}
         ],
         "filters": []
@@ -129,9 +146,10 @@ PIVOT_CONFIGS = [
         "rows": ["Catalogue1", "Designation"],
         "columns": [],
         "values": [
-            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT"},
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT", "format": "currency"},
             {"field": "Qte Vendue", "aggregation": "SUM", "alias": "SUM_Qte"},
-            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"}
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge", "format": "currency", "label": "Marge Brute"},
+            {"field": "Nb Clients", "aggregation": "SUM", "alias": "SUM_Nb_Clients"}
         ],
         "filters": []
     },
@@ -144,8 +162,9 @@ PIVOT_CONFIGS = [
         "rows": ["Catalogue", "Sous Catalogue"],
         "columns": [],
         "values": [
-            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT"},
-            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"},
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT", "format": "currency"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge", "format": "currency", "label": "Marge Brute"},
+
             {"field": "Nb Articles", "aggregation": "SUM", "alias": "SUM_Nb_Articles"}
         ],
         "filters": []
@@ -236,7 +255,7 @@ PIVOT_CONFIGS = [
         "values": [
             {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT"},
             {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"},
-            {"field": "Taux Marge %", "aggregation": "AVG", "alias": "AVG_Taux_Marge"}
+            {"field": "Nb Clients", "aggregation": "SUM", "alias": "SUM_Nb_Clients"}
         ],
         "filters": []
     },
@@ -327,6 +346,131 @@ PIVOT_CONFIGS = [
             {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"}
         ],
         "filters": []
+    },
+
+    # ==================== NOUVEAUX PIVOTS V2 ====================
+
+    # 17. Pivot CA par Gamme
+    {
+        "nom": "Pivot CA par Gamme",
+        "description": "Analyse du CA et de la marge par gamme de produits",
+        "data_source_code": "DS_VENTES_PAR_GAMME",
+        "rows": ["Gamme", "Sous Gamme"],
+        "columns": [],
+        "values": [
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT", "format": "currency"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge", "format": "currency"},
+            {"field": "Nb Clients", "aggregation": "SUM", "alias": "SUM_Nb_Clients"},
+            {"field": "Qte Vendue", "aggregation": "SUM", "alias": "SUM_Qte"}
+        ],
+        "filters": []
+    },
+
+    # 18. Pivot CA Gamme par Mois
+    {
+        "nom": "Pivot CA Gamme par Mois",
+        "description": "Evolution mensuelle du CA par gamme - tableau croise avec mois en colonnes",
+        "data_source_code": "DS_VENTES_GAMME_MOIS",
+        "rows": ["Gamme"],
+        "columns": ["Periode"],
+        "values": [
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"}
+        ],
+        "filters": []
+    },
+
+    # 19. Pivot CA Famille par Mois
+    {
+        "nom": "Pivot CA Famille par Mois",
+        "description": "Evolution mensuelle du CA par famille d'articles",
+        "data_source_code": "DS_VENTES_FAMILLE_MOIS",
+        "rows": ["Famille"],
+        "columns": ["Periode"],
+        "values": [
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge"}
+        ],
+        "filters": []
+    },
+
+    # 20. Pivot Pipeline Commercial
+    {
+        "nom": "Pivot Pipeline Commercial",
+        "description": "Funnel commercial : volumes et montants par etape du cycle de vente",
+        "data_source_code": "DS_PIPELINE_COMMERCIAL",
+        "rows": ["Etape"],
+        "columns": [],
+        "values": [
+            {"field": "Nb Documents", "aggregation": "SUM", "alias": "SUM_Nb_Docs"},
+            {"field": "Montant HT", "aggregation": "SUM", "alias": "SUM_Montant_HT", "format": "currency"},
+            {"field": "Nb Clients", "aggregation": "SUM", "alias": "SUM_Nb_Clients"},
+            {"field": "Qte Totale", "aggregation": "SUM", "alias": "SUM_Qte"}
+        ],
+        "filters": []
+    },
+
+    # 21. Pivot Categorie Tarifaire
+    {
+        "nom": "Pivot CA par Categorie Tarifaire",
+        "description": "Analyse du CA par categorie tarifaire client",
+        "data_source_code": "DS_VENTES_PAR_CATEGORIE_TARIF",
+        "rows": ["Categorie Tarifaire"],
+        "columns": [],
+        "values": [
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT", "format": "currency"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge", "format": "currency"},
+            {"field": "Nb Clients", "aggregation": "SUM", "alias": "SUM_Nb_Clients"},
+            {"field": "CA Moyen par Client", "aggregation": "SUM", "alias": "SUM_CA_Moy", "format": "currency"}
+        ],
+        "filters": []
+    },
+
+    # 22. Pivot Marge par Gamme
+    {
+        "nom": "Pivot Marge par Gamme",
+        "description": "Analyse de la rentabilite par gamme de produits",
+        "data_source_code": "DS_MARGE_PAR_GAMME",
+        "rows": ["Gamme", "Sous Gamme"],
+        "columns": [],
+        "values": [
+            {"field": "CA HT", "aggregation": "SUM", "alias": "SUM_CA_HT", "format": "currency"},
+            {"field": "Cout Revient", "aggregation": "SUM", "alias": "SUM_Cout", "format": "currency"},
+            {"field": "Marge", "aggregation": "SUM", "alias": "SUM_Marge", "format": "currency"},
+
+        ],
+        "filters": []
+    },
+
+    # 23. Pivot Comportement Paiement
+    {
+        "nom": "Pivot Comportement Paiement",
+        "description": "Delai moyen de paiement par client avec profil payeur",
+        "data_source_code": "DS_COMPORTEMENT_PAIEMENT",
+        "rows": ["Code Client", "Client"],
+        "columns": ["Periode"],
+        "values": [
+            {"field": "Delai Moyen Jours", "aggregation": "SUM", "alias": "SUM_Delai"},
+            {"field": "Montant Total", "aggregation": "SUM", "alias": "SUM_Montant", "format": "currency"}
+        ],
+        "filters": []
+    },
+
+    # 24. Pivot Prevision Encaissements
+    {
+        "nom": "Pivot Prevision Encaissements",
+        "description": "Projection des encaissements a venir par periode",
+        "data_source_code": "DS_PREVISION_ENCAISSEMENTS",
+        "rows": ["Periode"],
+        "columns": [],
+        "values": [
+            {"field": "Reste a Encaisser", "aggregation": "SUM", "alias": "SUM_A_Encaisser", "format": "currency"},
+            {"field": "Retard", "aggregation": "SUM", "alias": "SUM_Retard", "format": "currency"},
+            {"field": "A Venir", "aggregation": "SUM", "alias": "SUM_A_Venir", "format": "currency"},
+            {"field": "Nb Echeances", "aggregation": "SUM", "alias": "SUM_Nb_Ech"},
+            {"field": "Nb Clients", "aggregation": "SUM", "alias": "SUM_Nb_Cli"}
+        ],
+        "filters": []
     }
 ]
 
@@ -334,15 +478,15 @@ PIVOT_CONFIGS = [
 def init_pivots():
     """Initialise tous les Pivots"""
     print("\n" + "=" * 70)
-    print("INITIALISATION DES RAPPORTS PIVOT - VENTES")
+    print("INITIALISATION DES RAPPORTS PIVOT - VENTES + V2 ENRICHISSEMENTS")
     print("=" * 70 + "\n")
 
     # S'assurer que la table existe
     try:
         with get_db_cursor() as cursor:
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Pivots' AND xtype='U')
-                CREATE TABLE APP_Pivots (
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Pivots_V2' AND xtype='U')
+                CREATE TABLE APP_Pivots_V2 (
                     id INT IDENTITY(1,1) PRIMARY KEY,
                     nom NVARCHAR(200) NOT NULL,
                     description NVARCHAR(500),
@@ -360,10 +504,10 @@ def init_pivots():
             """)
             # Ajouter data_source_code si elle n'existe pas
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('APP_Pivots') AND name = 'data_source_code')
-                ALTER TABLE APP_Pivots ADD data_source_code VARCHAR(100)
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('APP_Pivots_V2') AND name = 'data_source_code')
+                ALTER TABLE APP_Pivots_V2 ADD data_source_code VARCHAR(100)
             """)
-        print("Table APP_Pivots verifiee/creee\n")
+        print("Table APP_Pivots_V2 verifiee/creee\n")
     except Exception as e:
         print(f"  [WARN] Verification table: {e}\n")
 
@@ -382,7 +526,7 @@ def init_pivots():
 
             # Creer/mettre a jour le pivot
             existing = execute_query(
-                "SELECT id FROM APP_Pivots WHERE nom = ?",
+                "SELECT id FROM APP_Pivots_V2 WHERE nom = ?",
                 (config['nom'],),
                 use_cache=False
             )
@@ -405,7 +549,7 @@ def init_pivots():
     print("-" * 70)
 
     # Afficher un recapitulatif
-    all_pivots = execute_query("SELECT id, nom, data_source_code FROM APP_Pivots ORDER BY id", use_cache=False)
+    all_pivots = execute_query("SELECT id, nom, data_source_code FROM APP_Pivots_V2 ORDER BY id", use_cache=False)
     print(f"\nTotal pivots en base: {len(all_pivots)}")
     for p in all_pivots:
         code = p.get('data_source_code', '-')

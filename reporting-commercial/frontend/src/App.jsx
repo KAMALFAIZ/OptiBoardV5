@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { SettingsProvider } from './context/SettingsContext'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
@@ -8,65 +8,78 @@ import { LicenseProvider, useLicense } from './context/LicenseContext'
 import { ChatProvider } from './context/ChatContext'
 import { DWHProvider, useDWH } from './context/DWHContext'
 import { DataSourceProvider } from './context/DataSourceContext'
+import { ToastProvider } from './components/common/Toast'
 import Layout from './components/common/Layout'
 import MobileLayout from './components/mobile/MobileLayout'
 import { useIsMobile } from './hooks/useIsMobile'
-import HomePage from './pages/HomePage'
-import Ventes from './pages/Ventes'
-import Stocks from './pages/Stocks'
-import Recouvrement from './pages/Recouvrement'
-import UserManagement from './pages/UserManagement'
-import ClientUserManagement from './pages/ClientUserManagement'
-import ClientDWHManagement from './pages/ClientDWHManagement'
-import DashboardBuilder from './pages/DashboardBuilder'
-import DashboardView from './pages/DashboardView'
-import GridViewBuilder from './pages/GridViewBuilder'
-import GridViewDisplay from './pages/GridViewDisplay'
-import MenuManagement from './pages/MenuManagement'
-import MenuMasterManagement from './pages/MenuMasterManagement'
+import LicenseBanner from './components/common/LicenseBanner'
+import api from './services/api'
+import ErrorBoundary from './components/common/ErrorBoundary'
+
+// Pages critiques (affichées au premier rendu, pas de lazy)
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
-import Settings from './pages/Settings'
-import ThemeManagement from './pages/ThemeManagement'
-import ReportScheduler from './pages/ReportScheduler'
-import DatabaseManagement from './pages/DatabaseManagement'
-import DWHManagement from './pages/DWHManagement'
-import DataSourceTemplates from './pages/DataSourceTemplates'
-import ETLAdmin from './pages/ETLAdmin'
-import ListeVentes from './pages/ListeVentes'
-import AnalyseCACreances from './pages/AnalyseCACreances'
-import PIC2026 from './pages/PIC2026'
-import PivotBuilderV2 from './pages/PivotBuilderV2'
-import PivotViewerV2 from './pages/PivotViewerV2'
 import LicensePage from './pages/LicensePage'
-import LicenseBanner from './components/common/LicenseBanner'
-import AIAssistantPage from './pages/AIAssistantPage'
-import ETLColonnesPage from './pages/ETLColonnesPage'
-import UpdateManagerPage from './pages/UpdateManagerPage'
-import AIQueryLibraryPage from './pages/AIQueryLibraryPage'
-import AIPromptsPage from './pages/AIPromptsPage'
-import EnvManagerPage from './pages/EnvManagerPage'
-import MasterConfigPage from './pages/MasterConfigPage'
-import RolesAdmin from './pages/RolesAdmin'
-import AlertsPage from './pages/AlertsPage'
-import MySubscriptionsPage from './pages/MySubscriptionsPage'
-import AdminSubscriptionsPage from './pages/AdminSubscriptionsPage'
-import DrillThroughPage from './pages/DrillThroughPage'
-import FicheClient from './pages/FicheClient'
-import FicheFournisseur from './pages/FicheFournisseur'
-import Comptabilite from './pages/Comptabilite'
-import SageConfigAdmin from './pages/SageConfigAdmin'
-import DigestAdmin from './pages/DigestAdmin'
-import AIPresentationBuilder from './pages/AIPresentationBuilder'
-import AIDeckBuilder from './pages/AIDeckBuilder'
-import SpreadsheetBuilder from './pages/SpreadsheetBuilder'
-import SpreadsheetViewer from './pages/SpreadsheetViewer'
-import Setup2FAPage from './pages/Setup2FAPage'
-import DemoRegisterPage from './pages/DemoRegisterPage'
-import DemoStatusPage from './pages/DemoStatusPage'
-import DemoBoardPage from './pages/DemoBoardPage'
-import DemoLaunchPage from './pages/DemoLaunchPage'
-import api from './services/api'
+import HomePage from './pages/HomePage'
+
+// Lazy-loaded pages — chaque page = chunk séparé (code splitting)
+const Ventes = lazy(() => import('./pages/Ventes'))
+const Stocks = lazy(() => import('./pages/Stocks'))
+const Recouvrement = lazy(() => import('./pages/Recouvrement'))
+const UserManagement = lazy(() => import('./pages/UserManagement'))
+const ClientUserManagement = lazy(() => import('./pages/ClientUserManagement'))
+const ClientDWHManagement = lazy(() => import('./pages/ClientDWHManagement'))
+const DashboardBuilder = lazy(() => import('./pages/DashboardBuilder'))
+const DashboardView = lazy(() => import('./pages/DashboardView'))
+const GridViewBuilder = lazy(() => import('./pages/GridViewBuilder'))
+const GridViewDisplay = lazy(() => import('./pages/GridViewDisplay'))
+const MenuManagement = lazy(() => import('./pages/MenuManagement'))
+const MenuMasterManagement = lazy(() => import('./pages/MenuMasterManagement'))
+const Settings = lazy(() => import('./pages/Settings'))
+const ThemeManagement = lazy(() => import('./pages/ThemeManagement'))
+const ReportScheduler = lazy(() => import('./pages/ReportScheduler'))
+const DatabaseManagement = lazy(() => import('./pages/DatabaseManagement'))
+const DWHManagement = lazy(() => import('./pages/DWHManagement'))
+const DataSourceTemplates = lazy(() => import('./pages/DataSourceTemplates'))
+const ETLAdmin = lazy(() => import('./pages/ETLAdmin'))
+const ListeVentes = lazy(() => import('./pages/ListeVentes'))
+const AnalyseCACreances = lazy(() => import('./pages/AnalyseCACreances'))
+const PIC2026 = lazy(() => import('./pages/PIC2026'))
+const PivotBuilderV2 = lazy(() => import('./pages/PivotBuilderV2'))
+const PivotViewerV2 = lazy(() => import('./pages/PivotViewerV2'))
+const AIAssistantPage = lazy(() => import('./pages/AIAssistantPage'))
+const ETLColonnesPage = lazy(() => import('./pages/ETLColonnesPage'))
+const UpdateManagerPage = lazy(() => import('./pages/UpdateManagerPage'))
+const AIQueryLibraryPage = lazy(() => import('./pages/AIQueryLibraryPage'))
+const AIPromptsPage = lazy(() => import('./pages/AIPromptsPage'))
+const EnvManagerPage = lazy(() => import('./pages/EnvManagerPage'))
+const MasterConfigPage = lazy(() => import('./pages/MasterConfigPage'))
+const WhatsAppConfigPage = lazy(() => import('./pages/WhatsAppConfigPage'))
+const RolesAdmin = lazy(() => import('./pages/RolesAdmin'))
+const AlertsPage = lazy(() => import('./pages/AlertsPage'))
+const MySubscriptionsPage = lazy(() => import('./pages/MySubscriptionsPage'))
+const AdminSubscriptionsPage = lazy(() => import('./pages/AdminSubscriptionsPage'))
+const DrillThroughPage = lazy(() => import('./pages/DrillThroughPage'))
+const FicheClient = lazy(() => import('./pages/FicheClient'))
+const FicheFournisseur = lazy(() => import('./pages/FicheFournisseur'))
+const Comptabilite = lazy(() => import('./pages/Comptabilite'))
+const SageConfigAdmin = lazy(() => import('./pages/SageConfigAdmin'))
+const DigestAdmin = lazy(() => import('./pages/DigestAdmin'))
+const AIPresentationBuilder = lazy(() => import('./pages/AIPresentationBuilder'))
+const AIDeckBuilder = lazy(() => import('./pages/AIDeckBuilder'))
+const SpreadsheetBuilder = lazy(() => import('./pages/SpreadsheetBuilder'))
+const SpreadsheetViewer = lazy(() => import('./pages/SpreadsheetViewer'))
+const Setup2FAPage = lazy(() => import('./pages/Setup2FAPage'))
+const DemoRegisterPage = lazy(() => import('./pages/DemoRegisterPage'))
+const DemoStatusPage = lazy(() => import('./pages/DemoStatusPage'))
+const DemoBoardPage = lazy(() => import('./pages/DemoBoardPage'))
+const DemoLaunchPage = lazy(() => import('./pages/DemoLaunchPage'))
+
+const PageLoader = () => (
+  <div className="min-h-[200px] flex items-center justify-center">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+  </div>
+)
 
 // Composant pour proteger les routes
 function ProtectedRoute({ children, pageCode }) {
@@ -206,6 +219,7 @@ function AppContent() {
     >
       {/* Bannières d'avertissement licence (expiration, grâce, mode limité) */}
       <LicenseBanner />
+      <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/" element={
@@ -250,7 +264,9 @@ function AppContent() {
         } />
         <Route path="/view/:id" element={
           <ProtectedRoute pageCode="dashboard">
-            <DashboardView />
+            <ErrorBoundary title="Erreur lors du chargement du dashboard">
+              <DashboardView />
+            </ErrorBoundary>
           </ProtectedRoute>
         } />
         <Route path="/gridview-builder" element={
@@ -283,17 +299,18 @@ function AppContent() {
       <Route path="/liste-ventes" element={<ProtectedRoute pageCode="ventes"><ListeVentes /></ProtectedRoute>} />
       <Route path="/analyse-ca-creances" element={<ProtectedRoute pageCode="dashboard"><AnalyseCACreances /></ProtectedRoute>} />
       <Route path="/pic-2026" element={<ProtectedRoute pageCode="dashboard"><PIC2026 /></ProtectedRoute>} />
-      <Route path="/pivot-builder-v2" element={<ProtectedRoute pageCode="admin"><PivotBuilderV2 /></ProtectedRoute>} />
-      <Route path="/pivot-v2/:id" element={<ProtectedRoute pageCode="dashboard"><PivotViewerV2 /></ProtectedRoute>} />
-      <Route path="/ai-assistant" element={<ProtectedRoute pageCode="dashboard"><AIAssistantPage /></ProtectedRoute>} />
-      <Route path="/ai-presentation" element={<ProtectedRoute pageCode="dashboard"><AIPresentationBuilder /></ProtectedRoute>} />
-      <Route path="/ai-deck" element={<ProtectedRoute pageCode="dashboard"><AIDeckBuilder /></ProtectedRoute>} />
+      <Route path="/pivot-builder-v2" element={<ProtectedRoute pageCode="admin"><ErrorBoundary title="Erreur dans le Pivot Builder"><PivotBuilderV2 /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/pivot-v2/:id" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur lors du chargement du pivot"><PivotViewerV2 /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/ai-assistant" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur dans l'assistant IA"><AIAssistantPage /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/ai-presentation" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur dans le générateur IA"><AIPresentationBuilder /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/ai-deck" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur dans le Deck IA"><AIDeckBuilder /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/admin/etl-colonnes" element={<ProtectedRoute pageCode="etl_admin"><ETLColonnesPage /></ProtectedRoute>} />
       <Route path="/updates" element={<ProtectedRoute pageCode="dashboard"><UpdateManagerPage /></ProtectedRoute>} />
       <Route path="/admin/ai-library" element={<ProtectedRoute pageCode="admin"><AIQueryLibraryPage /></ProtectedRoute>} />
       <Route path="/admin/ai-prompts" element={<ProtectedRoute pageCode="admin"><AIPromptsPage /></ProtectedRoute>} />
       <Route path="/admin/env" element={<ProtectedRoute pageCode="admin"><EnvManagerPage /></ProtectedRoute>} />
       <Route path="/admin/master-config" element={<ProtectedRoute pageCode="admin"><MasterConfigPage /></ProtectedRoute>} />
+      <Route path="/admin/whatsapp" element={<ProtectedRoute pageCode="admin"><WhatsAppConfigPage /></ProtectedRoute>} />
       <Route path="/admin/roles" element={<ProtectedRoute pageCode="admin"><RolesAdmin /></ProtectedRoute>} />
       <Route path="/admin/alerts" element={<ProtectedRoute pageCode="admin"><AlertsPage /></ProtectedRoute>} />
       <Route path="/admin/subscriptions" element={<ProtectedRoute pageCode="admin"><AdminSubscriptionsPage /></ProtectedRoute>} />
@@ -305,10 +322,11 @@ function AppContent() {
       <Route path="/comptabilite/:section" element={<ProtectedRoute pageCode="comptabilite"><Comptabilite /></ProtectedRoute>} />
       <Route path="/admin/sage-config" element={<ProtectedRoute pageCode="admin"><SageConfigAdmin /></ProtectedRoute>} />
       <Route path="/admin/digest" element={<ProtectedRoute pageCode="admin"><DigestAdmin /></ProtectedRoute>} />
-      <Route path="/spreadsheet-builder" element={<ProtectedRoute pageCode="admin"><SpreadsheetBuilder /></ProtectedRoute>} />
-      <Route path="/spreadsheet/:id" element={<ProtectedRoute pageCode="dashboard"><SpreadsheetViewer /></ProtectedRoute>} />
+      <Route path="/spreadsheet-builder" element={<ProtectedRoute pageCode="admin"><ErrorBoundary title="Erreur dans le Spreadsheet Builder"><SpreadsheetBuilder /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/spreadsheet/:id" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur lors du chargement du tableur"><SpreadsheetViewer /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/setup-2fa" element={<ProtectedRoute><Setup2FAPage /></ProtectedRoute>} />
       </Routes>
+      </Suspense>
     </Layout>
   )
 }
@@ -318,12 +336,14 @@ function AppRoot() {
   const { pathname } = window.location
   if (pathname === '/demo' || pathname.startsWith('/demo/')) {
     return (
+      <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/demo" element={<DemoRegisterPage />} />
         <Route path="/demo/:token" element={<DemoStatusPage />} />
         <Route path="/demo/:token/board" element={<DemoBoardPage />} />
         <Route path="/demo/:token/launch" element={<DemoLaunchPage />} />
       </Routes>
+      </Suspense>
     )
   }
   return (
@@ -335,7 +355,9 @@ function AppRoot() {
               <ChatProvider>
                 <DWHProvider>
                   <DataSourceProvider>
-                    <AppContent />
+                    <ToastProvider>
+                      <AppContent />
+                    </ToastProvider>
                   </DataSourceProvider>
                 </DWHProvider>
               </ChatProvider>
@@ -350,7 +372,9 @@ function AppRoot() {
 function App() {
   return (
     <Router>
-      <AppRoot />
+      <ErrorBoundary title="Une erreur critique est survenue — veuillez recharger la page">
+        <AppRoot />
+      </ErrorBoundary>
     </Router>
   )
 }

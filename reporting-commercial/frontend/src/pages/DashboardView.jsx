@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
+import { useSettings } from '../context/SettingsContext'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import {
   BarChart2, LineChart, PieChart, Activity, Table, Type, Gauge,
-  RefreshCw, Edit, AlertCircle, LayoutGrid, X, Download, Search,
-  ChevronLeft, ChevronRight, ArrowUpDown, TrendingUp, TrendingDown, Settings2,
+  RefreshCw, Edit, AlertCircle, LayoutGrid, X, Download,
+  TrendingUp, TrendingDown, Settings2,
   Filter, Layers, Target, Zap, Image, GitBranch, BarChart3, Timer, SlidersHorizontal
 } from 'lucide-react'
 import {
@@ -21,10 +22,11 @@ import SubscribeButton from '../components/common/SubscribeButton'
 import FavoriteButton from '../components/common/FavoriteButton'
 import InsightsPanel from '../components/common/InsightsPanel'
 import ExecutiveSummaryModal from '../components/common/ExecutiveSummaryModal'
-import api, { getBuilderDashboard, previewDataSource, previewUnifiedDataSource, extractErrorMessage } from '../services/api'
+import api, { getBuilderDashboard, previewDataSource, previewUnifiedDataSource, extractErrorMessage, drilldownDataSource, exportDrilldownDataSource } from '../services/api'
 import { useTheme } from '../context/ThemeContext'
 import { useGlobalFilters } from '../context/GlobalFilterContext'
 import GlobalFilterBar from '../components/GlobalFilterBar'
+import DrillDownModal from '../components/PivotV2/DrillDownModal'
 
 // ─── Widget types ───
 const WIDGET_TYPE_MAP = {
@@ -85,7 +87,8 @@ function autoDetectFields(data, cfg) {
 // ─── Aggregation helper ───
 function aggregateData(data, field, func = 'SUM') {
   if (!data?.length || !field) return 0
-  const values = data.map(r => Number(r[field]) || 0).filter(v => !isNaN(v))
+  const raw = data.map(r => r[field]).filter(v => v !== null && v !== undefined && v !== '')
+  const values = raw.map(v => Number(v)).filter(v => !isNaN(v))
   if (!values.length) return 0
   switch (func) {
     case 'SUM': return values.reduce((a, b) => a + b, 0)
@@ -125,7 +128,7 @@ export default function DashboardView() {
   const [openParamsCount, setOpenParamsCount] = useState(0)
   const [widgetFilters, setWidgetFilters] = useState({})
   const [drillByColumn, setDrillByColumn] = useState({})
-  const [detailModal, setDetailModal] = useState({ isOpen: false, title: '', data: [], filterField: null, filterValue: null })
+  const [drilldownState, setDrilldownState] = useState({ isOpen: false, title: '', dsCode: null, filterField: null, filterValue: null })
   const [containerWidth, setContainerWidth] = useState(1200)
   // Bloque le chargement des widgets jusqu'à ce que l'utilisateur confirme les paramètres
   const [paramsConfirmed, setParamsConfirmed] = useState(false)
@@ -265,16 +268,76 @@ export default function DashboardView() {
     return `${rule.target_url}?${params.toString()}`
   }
 
-  const openDetail = (title, data, filter) => {
-    // Si une règle drill-through est configurée pour ce champ, naviguer vers la cible
+  const openDetail = (title, filter, dsCode, dsId, isTemplate, context, drilldownFilterField) => {
     if (filter?.field && drillByColumn[filter.field]?.length > 0) {
       const rule = drillByColumn[filter.field][0]
       navigate(buildDrillUrl(rule, filter.value, dashboard?.nom || title))
       return
     }
-    // Sinon, comportement modal existant
-    setDetailModal({ isOpen: true, title, data, filterField: filter?.field || null, filterValue: filter?.value || null })
+    const effectiveDsCode = dsCode || null
+    const effectiveFilterField = drilldownFilterField || filter?.field || null
+    setDrilldownState({
+      isOpen: true,
+      title,
+      dsCode: effectiveDsCode,
+      filterField: effectiveFilterField,
+      filterValue: filter?.value !== undefined ? filter.value : null,
+    })
   }
+
+  const fetchDashboardDrilldown = useCallback(async (_unused, request) => {
+    const { dsCode, filterField, filterValue } = drilldownState
+    if (!dsCode) return { success: false, error: 'Aucune source configuree' }
+    try {
+      const res = await drilldownDataSource(dsCode, {
+        filterField: filterField || null,
+        filterValue: filterValue !== null ? filterValue : null,
+        context: request.context || {},
+        page: request.page || 1,
+        pageSize: request.pageSize || 50,
+        sortField: request.sortField || null,
+        sortDirection: request.sortDirection || 'asc',
+      })
+      return res.data
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  }, [drilldownState])
+
+  const handleExportDashboardDrilldown = useCallback(async (request) => {
+    const { dsCode, filterField, filterValue } = drilldownState
+    if (!dsCode) return
+    return exportDrilldownDataSource(dsCode, {
+      filterField: filterField || null,
+      filterValue: filterValue !== null ? filterValue : null,
+      context: request.context || {},
+      sortField: request.sortField || null,
+      sortDirection: request.sortDirection || 'asc',
+    })
+  }, [drilldownState])
+
+  const exportDashboardCSV = useCallback(() => {
+    if (!insightsData.length) return
+    const keys = Object.keys(insightsData[0])
+    const sep = ';'
+    const header = keys.join(sep)
+    const rows = insightsData.map(row =>
+      keys.map(k => {
+        const v = row[k]
+        if (v == null) return ''
+        const s = String(v).replace(/"/g, '""')
+        return s.includes(sep) || s.includes('"') || s.includes('\n') ? `"${s}"` : s
+      }).join(sep)
+    )
+    const bom = '﻿'
+    const blob = new Blob([bom + header + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${dashboard?.nom || 'dashboard'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [insightsData, dashboard])
 
   if (loading) return <Loading message="Chargement du dashboard..." />
 
@@ -321,6 +384,13 @@ export default function DashboardView() {
           )}
           {dashboard && <FavoriteButton reportType="dashboard" reportId={parseInt(id)} reportNom={dashboard.nom} />}
           {!isMobile && dashboard && <SubscribeButton reportType="dashboard" reportId={parseInt(id)} reportNom={dashboard.nom} />}
+          {!isMobile && insightsData.length > 0 && (
+            <button onClick={exportDashboardCSV}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+              title="Exporter les données en CSV">
+              <Download className="w-4 h-4" />CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -369,19 +439,32 @@ export default function DashboardView() {
         </div>
       )}
 
-      {/* Detail Modal */}
-      {detailModal.isOpen && (
-        <DetailModal
-          title={detailModal.title}
-          data={detailModal.data}
-          filterField={detailModal.filterField}
-          filterValue={detailModal.filterValue}
-          onClose={() => setDetailModal({ isOpen: false, title: '', data: [], filterField: null, filterValue: null })}
-        />
-      )}
+      {/* Drilldown Modal */}
+      <DrillDownModal
+        isOpen={drilldownState.isOpen}
+        onClose={() => setDrilldownState(p => ({ ...p, isOpen: false }))}
+        pivotId={null}
+        cellInfo={drilldownState.filterField ? {
+          rowValues: { [drilldownState.filterField]: drilldownState.filterValue },
+          valueField: drilldownState.filterField,
+        } : null}
+        context={{
+          dateDebut: contextFilters?.dateDebut,
+          dateFin: contextFilters?.dateFin,
+          societe: contextFilters?.societe,
+          commercial: contextFilters?.commercial,
+          gamme: contextFilters?.gamme,
+        }}
+        fetchDrilldown={fetchDashboardDrilldown}
+        exportDrilldown={handleExportDashboardDrilldown}
+        drilldownDsCode={drilldownState.dsCode}
+        title={drilldownState.title}
+      />
     </div>
   )
 }
+
+
 
 
 // ════════════════════════════════════════════════════════════════════
@@ -539,7 +622,16 @@ function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData, param
         ) : !widget.config?.dataSourceId && !widget.config?.dataSourceCode && !['text', 'image'].includes(widget.type) ? (
           <div className="flex items-center justify-center h-full text-gray-400 text-xs">Aucune source configuree</div>
         ) : (
-          <WidgetContent widget={widget} data={data} onDrillDown={(filter) => onDrillDown(widget.title, data, filter)} />
+          <WidgetContent widget={widget} data={data} onDrillDown={(filter) => {
+            const hasDrillDs = !!widget.config?.drilldownDsCode
+            const drillDsCode = widget.config?.drilldownDsCode || widget.config?.dataSourceCode
+            const drillDsId   = widget.config?.drilldownDsId   || widget.config?.dataSourceId
+            const drillIsTemplate = hasDrillDs
+              ? (widget.config?.drilldownDsOrigin === 'template' || true)
+              : widget.config?.dataSourceOrigin === 'template'
+            const drillFilterField = hasDrillDs ? (widget.config?.drilldownFilterField || null) : null
+            onDrillDown(widget.title, filter, drillDsCode, drillDsId, drillIsTemplate, globalFilters, drillFilterField)
+          }} />
         )}
       </div>
     </>
@@ -547,11 +639,19 @@ function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData, param
 }
 
 
+// Humanise un nom de champ : "ValeurStock" → "Valeur Stock", "CA HT" → "CA HT"
+function humanizeField(name) {
+  if (!name) return ''
+  // Insere un espace avant chaque majuscule qui suit une minuscule (CamelCase)
+  return name.replace(/([a-z])([A-Z])/g, '$1 $2')
+}
+
 // ════════════════════════════════════════════════════════════════════
 // WIDGET CONTENT (shared renderer)
 // ════════════════════════════════════════════════════════════════════
-function WidgetContent({ widget, data, onDrillDown }) {
+const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown }) {
   const { theme } = useTheme()
+  const { formatKpiNumber } = useSettings()
   const COLORS = generateThemeColors(theme)
   const cfg = widget.config || {}
 
@@ -567,9 +667,9 @@ function WidgetContent({ widget, data, onDrillDown }) {
         <div className="flex flex-col items-center justify-center h-full cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors"
           onClick={() => onDrillDown?.()}>
           <span className="text-3xl font-black tabular-nums" style={{ color: kpiColor }}>
-            {cfg.prefix || ''}{formatNumber(total)}{cfg.suffix || ''}
+            {cfg.prefix || ''}{formatKpiNumber(total, false)}{cfg.suffix || ''}
           </span>
-          <span className="text-xs text-gray-500 mt-1">{cfg.subtitle || `${vf} (${agg})`}</span>
+          <span className="text-xs text-gray-500 mt-1">{cfg.subtitle || humanizeField(vf)}</span>
           {widget.type === 'kpi_compare' && cfg.compare_field && (
             <CompareIndicator data={data} valueField={vf} compareField={cfg.compare_field} aggregation={agg} />
           )}
@@ -581,11 +681,12 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const { yf: vf } = autoDetectFields(data, { x_field: cfg.x_field, y_field: cfg.value_field })
       const agg = cfg.aggregation || 'SUM'
       const total = aggregateData(data, vf, agg)
-      const maxVal = cfg.max_value || 100
-      const pct = Math.min(100, Math.max(0, (total / maxVal) * 100))
+      const maxVal = Number(cfg.max_value) || 100
+      const pct = maxVal !== 0 ? Math.min(100, Math.max(0, (total / maxVal) * 100)) : 0
       const gaugeColor = getConditionalColor(total, cfg.thresholds) || cfg.kpi_color || '#3b82f6'
       return (
-        <div className="flex flex-col items-center justify-center h-full">
+        <div className="flex flex-col items-center justify-center h-full cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors"
+          onClick={() => onDrillDown?.()}>
           <ResponsiveContainer width="100%" height="80%">
             <RadialBarChart cx="50%" cy="50%" innerRadius="60%" outerRadius="90%" barSize={12} data={[{ value: pct, fill: gaugeColor }]} startAngle={180} endAngle={0}>
               <RadialBar background dataKey="value" cornerRadius={6} fill={gaugeColor} />
@@ -601,11 +702,12 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const { yf: vf } = autoDetectFields(data, { x_field: cfg.x_field, y_field: cfg.value_field })
       const agg = cfg.aggregation || 'SUM'
       const total = aggregateData(data, vf, agg)
-      const maxVal = cfg.max_value || 100
-      const pct = Math.min(100, Math.max(0, (total / maxVal) * 100))
+      const maxVal = Number(cfg.max_value) || 100
+      const pct = maxVal !== 0 ? Math.min(100, Math.max(0, (total / maxVal) * 100)) : 0
       const barColor = getConditionalColor(pct, cfg.thresholds) || cfg.kpi_color || '#3b82f6'
       return (
-        <div className="flex flex-col justify-center h-full px-3 gap-2">
+        <div className="flex flex-col justify-center h-full px-3 gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors"
+          onClick={() => onDrillDown?.()}>
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{cfg.subtitle || vf}</span>
             <span className="text-sm font-bold" style={{ color: barColor }}>{pct.toFixed(1)}%</span>
@@ -631,7 +733,8 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const agg = cfg.aggregation || 'SUM'
       const total = aggregateData(data, yf, agg)
       return (
-        <div className="flex items-center h-full gap-3 px-1">
+        <div className="flex items-center h-full gap-3 px-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors"
+          onClick={() => onDrillDown?.()}>
           <div className="flex flex-col flex-shrink-0">
             <span className="text-lg font-black tabular-nums" style={{ color }}>{formatNumber(total)}</span>
             <span className="text-[10px] text-gray-400">{cfg.subtitle || yf}</span>
@@ -684,7 +787,8 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const mode = cfg.stack_mode || 'stacked'
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+            onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
             <XAxis dataKey={xf} tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
@@ -704,7 +808,8 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const { xf, yf } = autoDetectFields(data, cfg)
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+          <ComposedChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+            onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
             <XAxis dataKey={xf} tick={{ fontSize: 11 }} />
             <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
@@ -744,14 +849,20 @@ function WidgetContent({ widget, data, onDrillDown }) {
 
     case 'chart_pie': {
       const { xf: lf, yf: vf } = autoDetectFields(data, { x_field: cfg.label_field, y_field: cfg.value_field })
+      const minPct = cfg.group_others_pct ?? 2
+      const labelPct = cfg.label_min_pct ?? 5
+      const total = data.reduce((s, r) => s + (Number(r[vf]) || 0), 0)
+      const mainSlices = data.filter(r => total > 0 && (Number(r[vf]) || 0) / total * 100 >= minPct)
+      const othersVal = data.filter(r => total === 0 || (Number(r[vf]) || 0) / total * 100 < minPct).reduce((s, r) => s + (Number(r[vf]) || 0), 0)
+      const pieData = othersVal > 0 ? [...mainSlices, { [lf]: 'Autres', [vf]: othersVal }] : mainSlices
       return (
         <ResponsiveContainer width="100%" height="100%">
           <RePieChart>
-            <Pie data={data} dataKey={vf} nameKey={lf} cx="50%" cy="50%" outerRadius="80%" innerRadius={cfg.donut ? '45%' : '0%'}
-              label={cfg.show_labels !== false ? ({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%` : false}
-              labelLine={cfg.show_labels !== false}
-              onClick={entry => entry?.[lf] && onDrillDown?.({ field: lf, value: entry[lf] })} style={{ cursor: 'pointer' }}>
-              {data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+            <Pie data={pieData} dataKey={vf} nameKey={lf} cx="50%" cy="50%" outerRadius="80%" innerRadius={cfg.donut ? '45%' : '0%'}
+              label={cfg.show_labels !== false ? ({ name, percent }) => percent * 100 >= labelPct ? `${name}: ${(percent * 100).toFixed(0)}%` : '' : false}
+              labelLine={cfg.show_labels !== false ? ({ percent }) => percent * 100 >= labelPct : false}
+              onClick={entry => entry?.[lf] && entry[lf] !== 'Autres' && onDrillDown?.({ field: lf, value: entry[lf] })} style={{ cursor: 'pointer' }}>
+              {pieData.map((row, i) => <Cell key={i} fill={row[lf] === 'Autres' ? '#94a3b8' : COLORS[i % COLORS.length]} />)}
             </Pie>
             <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
@@ -789,8 +900,9 @@ function WidgetContent({ widget, data, onDrillDown }) {
       return (
         <ResponsiveContainer width="100%" height="100%">
           <FunnelChart>
-            <Tooltip formatter={v => formatNumber(v)} />
-            <Funnel dataKey="value" data={funnelData} isAnimationActive>
+            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
+            <Funnel dataKey="value" data={funnelData} isAnimationActive
+              onClick={entry => entry?.name && onDrillDown?.({ field: lf, value: entry.name })} style={{ cursor: 'pointer' }}>
               <LabelList position="right" fill="#374151" fontSize={10} formatter={v => formatNumber(v)} />
               <LabelList position="left" fill="#6b7280" fontSize={10} dataKey="name" />
             </Funnel>
@@ -823,8 +935,9 @@ function WidgetContent({ widget, data, onDrillDown }) {
       return (
         <ResponsiveContainer width="100%" height="100%">
           <ReTreemap data={treemapData} dataKey="size" nameKey="name" aspectRatio={4 / 3}
-            content={<TreemapLabel />}>
-            <Tooltip formatter={v => formatNumber(v)} />
+            content={<TreemapLabel />}
+            onClick={entry => entry?.name && onDrillDown?.({ field: lf, value: entry.name })} style={{ cursor: 'pointer' }}>
+            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
           </ReTreemap>
         </ResponsiveContainer>
       )
@@ -833,37 +946,9 @@ function WidgetContent({ widget, data, onDrillDown }) {
     case 'table': {
       if (!data?.length) return <div className="text-center text-gray-400 text-xs py-4">Aucune donnee</div>
       const cols = cfg.visible_columns?.length ? cfg.visible_columns : Object.keys(data[0])
-      return (
-        <div className="overflow-auto h-full">
-          <table className="w-full text-xs">
-            <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
-              <tr>{cols.map(c => <th key={c} className="px-3 py-2 text-left font-semibold text-gray-600 dark:text-gray-300 border-b whitespace-nowrap">{c}</th>)}</tr>
-            </thead>
-            <tbody>
-              {data.slice(0, cfg.max_rows || 100).map((row, i) => (
-                <tr key={i} className={i % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-750'}>
-                  {cols.map(c => {
-                    const val = row[c]
-                    const isNum = typeof val === 'number'
-                    let cellBg = ''
-                    if (isNum && cfg.table_thresholds?.[c]) {
-                      const cc = getConditionalColor(val, cfg.table_thresholds[c])
-                      if (cc) cellBg = cc
-                    }
-                    return (
-                      <td key={c} className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap"
-                        style={cellBg ? { backgroundColor: cellBg + '30', color: cellBg } : {}}>
-                        {isNum ? formatNumber(val) : String(val ?? '')}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {data.length > (cfg.max_rows || 100) && <p className="text-center text-gray-400 text-[10px] py-1">{data.length} lignes total</p>}
-        </div>
-      )
+      const pageSize = cfg.max_rows || 50
+      const totalPages = Math.ceil(data.length / pageSize)
+      return <TableWidget data={data} cols={cols} pageSize={pageSize} totalPages={totalPages} cfg={cfg} onDrillDown={onDrillDown} />
     }
 
     case 'text': {
@@ -891,12 +976,69 @@ function WidgetContent({ widget, data, onDrillDown }) {
     default:
       return <div className="text-xs text-gray-400 text-center">Widget non supporte</div>
   }
+})
+
+function TableWidget({ data, cols, pageSize, totalPages, cfg, onDrillDown }) {
+  const [page, setPage] = useState(0)
+  const pageData = data.slice(page * pageSize, (page + 1) * pageSize)
+  return (
+    <div className="flex flex-col h-full">
+      <div className="overflow-auto flex-1">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+            <tr>{cols.map(c => <th key={c} className="px-3 py-2 text-left font-semibold text-gray-600 dark:text-gray-300 border-b whitespace-nowrap">{humanizeField(c)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {pageData.map((row, i) => (
+              <tr key={`${page}-${i}`} className={`${i % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-750'} cursor-pointer hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors`}
+                onClick={() => { const firstCol = cols[0]; onDrillDown?.({ field: firstCol, value: row[firstCol] }) }}>
+                {cols.map(c => {
+                  const val = row[c]
+                  const isNum = typeof val === 'number'
+                  let cellBg = ''
+                  if (isNum && cfg.table_thresholds?.[c]) {
+                    const cc = getConditionalColor(val, cfg.table_thresholds[c])
+                    if (cc) cellBg = cc
+                  }
+                  return (
+                    <td key={c} className="px-3 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap"
+                      style={cellBg ? { backgroundColor: cellBg + '30', color: cellBg } : {}}>
+                      {isNum ? formatNumber(val) : String(val ?? '')}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <span className="text-[10px] text-gray-400">{data.length} lignes</span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+              className="px-1.5 py-0.5 text-[10px] rounded bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-30 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">&lt;</button>
+            <span className="text-[10px] text-gray-500">{page + 1}/{totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+              className="px-1.5 py-0.5 text-[10px] rounded bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-30 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">&gt;</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function CompareIndicator({ data, valueField, compareField, aggregation = 'SUM' }) {
   const current = aggregateData(data, valueField, aggregation)
   const prev = aggregateData(data, compareField, aggregation)
-  if (!prev) return null
+  if (prev === 0 && current === 0) return null
+  if (prev === 0) {
+    return (
+      <span className="flex items-center gap-0.5 text-xs font-semibold mt-1 text-blue-500">
+        <TrendingUp className="w-3 h-3" />Nouveau
+      </span>
+    )
+  }
   const pct = ((current - prev) / Math.abs(prev)) * 100
   const isUp = pct > 0
   return (
@@ -919,128 +1061,6 @@ function CustomTooltip({ active, payload, label }) {
         </p>
       ))}
       <p className="text-[10px] text-primary-500 mt-1.5">Cliquez pour le detail</p>
-    </div>
-  )
-}
-
-
-// ════════════════════════════════════════════════════════════════════
-// DETAIL MODAL (Drill-Down)
-// ════════════════════════════════════════════════════════════════════
-function DetailModal({ title, data, filterField, filterValue, onClose }) {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [sortField, setSortField] = useState(null)
-  const [sortDirection, setSortDirection] = useState('asc')
-  const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 50
-
-  const filteredData = data.filter(row => {
-    if (!searchTerm) return true
-    const s = searchTerm.toLowerCase()
-    return Object.values(row).some(v => String(v).toLowerCase().includes(s))
-  })
-
-  const sortedData = [...filteredData].sort((a, b) => {
-    if (!sortField) return 0
-    const av = a[sortField], bv = b[sortField]
-    if (typeof av === 'number' && typeof bv === 'number') return sortDirection === 'asc' ? av - bv : bv - av
-    return sortDirection === 'asc' ? String(av || '').localeCompare(String(bv || '')) : String(bv || '').localeCompare(String(av || ''))
-  })
-
-  const totalPages = Math.ceil(sortedData.length / pageSize)
-  const paginatedData = sortedData.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const columns = data.length > 0 ? Object.keys(data[0]) : []
-
-  const handleSort = (field) => {
-    if (sortField === field) setSortDirection(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortField(field); setSortDirection('asc') }
-  }
-
-  const exportCSV = () => {
-    if (!sortedData.length) return
-    const headers = columns.join(';')
-    const rows = sortedData.map(row => columns.map(c => {
-      const v = row[c]
-      return typeof v === 'number' ? v.toString().replace('.', ',') : `"${String(v || '').replace(/"/g, '""')}"`
-    }).join(';'))
-    const csv = [headers, ...rows].join('\n')
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_detail.csv`; a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-[95vw] h-[90vh] max-w-6xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{title} - Detail</h2>
-            {filterField && filterValue && <p className="text-sm text-primary-600 mt-0.5">Filtre: {filterField} = "{filterValue}"</p>}
-            <p className="text-sm text-gray-500">{sortedData.length} enregistrement{sortedData.length > 1 ? 's' : ''}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input type="text" value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1) }}
-                placeholder="Rechercher..." className="pl-9 pr-4 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 w-64" />
-            </div>
-            <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
-              <Download className="w-4 h-4" />CSV
-            </button>
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><X className="w-5 h-5" /></button>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="flex-1 overflow-auto" style={{ minHeight: 0 }}>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
-              <tr>
-                {columns.map(c => (
-                  <th key={c} onClick={() => handleSort(c)}
-                    className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 border-b cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      {c}
-                      {sortField === c && <ArrowUpDown className={`w-3 h-3 ${sortDirection === 'desc' ? 'rotate-180' : ''}`} />}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedData.map((row, i) => (
-                <tr key={i} className={`${i % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-750'} hover:bg-primary-50 dark:hover:bg-primary-900/20`}>
-                  {columns.map(c => (
-                    <td key={c} className={`px-4 py-3 border-b border-gray-100 dark:border-gray-700 whitespace-nowrap ${
-                      filterField === c && String(row[c]) === String(filterValue) ? 'bg-primary-100 dark:bg-primary-900/30 font-medium text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'
-                    }`}>
-                      {typeof row[c] === 'number' ? formatNumber(row[c]) : String(row[c] ?? '')}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {!paginatedData.length && <tr><td colSpan={columns.length} className="text-center py-12 text-gray-500">Aucune donnee trouvee</td></tr>}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex-shrink-0">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Page {currentPage} / {totalPages}</span>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
-                className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
-                className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"><ChevronRight className="w-4 h-4" /></button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

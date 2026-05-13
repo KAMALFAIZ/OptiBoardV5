@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
+import api from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -22,14 +23,24 @@ export function AuthProvider({ children }) {
         setUser(JSON.parse(savedUser))
       } catch (e) {
         localStorage.removeItem('user');  localStorage.removeItem('token')
+        localStorage.removeItem('session_token')
         sessionStorage.removeItem('user'); sessionStorage.removeItem('token')
+        sessionStorage.removeItem('session_token')
       }
     }
     setLoading(false)
   }, [])
 
   // ── Déconnexion ───────────────────────────────────────────────────────────
-  const logout = useCallback((reason = 'manual') => {
+  const logout = useCallback(async (reason = 'manual') => {
+    // Invalider la session côté serveur (best-effort, non bloquant)
+    const sessionToken = localStorage.getItem('session_token') || sessionStorage.getItem('session_token')
+    if (sessionToken && reason !== 'expired') {
+      try {
+        await api.post('/auth/logout', {}, { headers: { 'X-Session-Token': sessionToken } })
+      } catch (_) { /* ignore — on déconnecte quand même */ }
+    }
+
     // Lire le code client AVANT d'effacer le storage
     let clientCode = null
     try {
@@ -40,9 +51,9 @@ export function AuthProvider({ children }) {
     setUser(null)
     setSessionWarning(false)
     localStorage.removeItem('user');    localStorage.removeItem('token')
-    localStorage.removeItem('currentDWH')
+    localStorage.removeItem('currentDWH'); localStorage.removeItem('session_token')
     sessionStorage.removeItem('user'); sessionStorage.removeItem('token')
-    sessionStorage.removeItem('currentDWH')
+    sessionStorage.removeItem('currentDWH'); sessionStorage.removeItem('session_token')
 
     if (reason === 'idle') {
       document.title = 'Session expirée - OptiBoard'

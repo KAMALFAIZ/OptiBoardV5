@@ -3,8 +3,11 @@ from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timedelta
+import logging
 
 from ..database_unified import execute_central as _read, write_central as _write
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/subscriptions", tags=["admin-subscriptions"])
 
@@ -28,7 +31,7 @@ def init_delivery_logs_table():
         )
         """)
     except Exception as e:
-        print(f"[ADMIN-SUBS] init_delivery_logs error: {e}")
+        logger.error(f"[ADMIN-SUBS] init_delivery_logs error: {e}")
 
 
 def log_delivery(sub_id, user_email, report_nom, channel, status, error_msg=None):
@@ -41,7 +44,7 @@ def log_delivery(sub_id, user_email, report_nom, channel, status, error_msg=None
             (sub_id, user_email, report_nom, channel, status, error_msg)
         )
     except Exception as e:
-        print(f"[ADMIN-SUBS] log_delivery error: {e}")
+        logger.error(f"[ADMIN-SUBS] log_delivery error: {e}")
 
 
 # ==================== STATS ====================

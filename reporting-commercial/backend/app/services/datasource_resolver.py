@@ -332,7 +332,7 @@ class DataSourceResolver:
                 FROM APP_DataSources_Templates
                 WHERE code = ? AND actif = 1
             """
-            results = execute_central_query(query, (code,), use_cache=True)
+            results = execute_central_query(query, (code,), use_cache=False)
 
             if results:
                 row = results[0]
@@ -394,7 +394,7 @@ class DataSourceResolver:
                 FROM APP_DataSources_Templates
                 WHERE id = ? AND actif = 1
             """
-            results = execute_central_query(query, (ds_id,), use_cache=True)
+            results = execute_central_query(query, (ds_id,), use_cache=False)
 
             if results:
                 row = results[0]

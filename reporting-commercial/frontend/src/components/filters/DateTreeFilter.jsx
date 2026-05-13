@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useState, useEffect, useRef } from 'react'
+import { useGridFilter } from 'ag-grid-react'
 
 const MONTHS_FR = [
   'Janvier','Février','Mars','Avril','Mai','Juin',
@@ -102,6 +103,7 @@ const DateTreeFilter = forwardRef((props, ref) => {
   const treeRef      = useRef({})
   const selRef       = useRef({})
   const hidePopupRef = useRef(null)
+  const prevModelRef = useRef(null)
 
   const [tree, setTree]         = useState({})
   const [sel, setSel]           = useState({})
@@ -126,13 +128,14 @@ const DateTreeFilter = forwardRef((props, ref) => {
     setExpanded(exp)
   }, [])
 
-  useImperativeHandle(ref, () => ({
-    afterGuiAttached(params) {
-      if (params?.hidePopup) hidePopupRef.current = params.hidePopup
-    },
-    isFilterActive() {
-      return !isAllSelected(selRef.current, treeRef.current)
-    },
+  const isActive = () => !isAllSelected(selRef.current, treeRef.current)
+
+  const buildModel = () => {
+    if (!isActive()) return null
+    return { filterType: 'dateTree', selected: selRef.current }
+  }
+
+  useGridFilter({
     doesFilterPass(params) {
       const raw = params.data?.[colId]
       if (!raw) return false
@@ -142,11 +145,16 @@ const DateTreeFilter = forwardRef((props, ref) => {
       const m = String(d.getMonth())
       const day = d.getDate()
       return (selRef.current[y]?.[m] || []).includes(day)
+    }
+  })
+
+  useImperativeHandle(ref, () => ({
+    afterGuiAttached(params) {
+      if (params?.hidePopup) hidePopupRef.current = params.hidePopup
+      prevModelRef.current = buildModel()
     },
-    getModel() {
-      if (isAllSelected(selRef.current, treeRef.current)) return null
-      return { filterType: 'dateTree', selected: selRef.current }
-    },
+    isFilterActive: isActive,
+    getModel: buildModel,
     setModel(model) {
       const t = treeRef.current
       updateSel(model ? (model.selected || cloneTree(t)) : cloneTree(t))
@@ -188,8 +196,16 @@ const DateTreeFilter = forwardRef((props, ref) => {
     updateSel(next)
   }
 
-  const applyFilter  = () => { props.filterChangedCallback?.(); hidePopupRef.current?.() }
-  const cancelFilter = () => { hidePopupRef.current?.() }
+  const applyFilter = () => {
+    const model = buildModel()
+    props.onModelChange?.(model)
+    props.filterChangedCallback?.()
+    hidePopupRef.current?.()
+  }
+  const cancelFilter = () => {
+    props.onModelChange?.(prevModelRef.current ?? null)
+    hidePopupRef.current?.()
+  }
 
   // Search filter
   const q = search.toLowerCase()

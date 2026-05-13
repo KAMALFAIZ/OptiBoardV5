@@ -28,11 +28,11 @@ new_query = """SELECT
     li.[Remise 1]                  AS [Remise],
     li.[Montant HT Net]            AS [CA HT],
     li.[Montant TTC Net]           AS [CA TTC],
-    li.[Prix de revient]           AS [Prix Revient],
-    li.Quantité * li.[Prix de revient]                              AS [Cout Revient],
-    li.[Montant HT Net] - li.Quantité * li.[Prix de revient]        AS [Marge Brute],
+    li.[CMUP]           AS [Prix Revient],
+    li.Quantité * li.[CMUP]                              AS [Cout Revient],
+    li.[Montant HT Net] - li.Quantité * li.[CMUP]        AS [Marge Brute],
     CASE WHEN li.[Montant HT Net] <> 0
-        THEN ROUND(100.0 * (li.[Montant HT Net] - li.Quantité * li.[Prix de revient]) / li.[Montant HT Net], 2)
+        THEN ROUND(100.0 * (li.[Montant HT Net] - li.Quantité * li.[CMUP]) / li.[Montant HT Net], 2)
         ELSE 0 END                 AS [Taux Marge],
     li.[Poids net]                 AS [Poids Net],
     en.Expédition                  AS [Expedition]

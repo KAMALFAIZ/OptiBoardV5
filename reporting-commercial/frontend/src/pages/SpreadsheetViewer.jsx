@@ -10,7 +10,7 @@ import {
 import {
   RefreshCw, Save, Download, RotateCcw, Loader2, FileSpreadsheet,
   AlertCircle, Upload, BarChart3, Table2, TrendingUp, TrendingDown,
-  Hash, ChevronDown
+  Hash, ChevronDown, SlidersHorizontal, Check
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -62,6 +62,8 @@ export default function SpreadsheetViewer() {
   const [viewMode, setViewMode] = useState('dashboard')
   const [activeChartSheet, setActiveChartSheet] = useState(0)
   const [chartType, setChartType] = useState('bar')
+  const [selectedChartCols, setSelectedChartCols] = useState(null)
+  const [showColPicker, setShowColPicker] = useState(false)
 
   const saveTimerRef = useRef(null)
   const currentSheetsRef = useRef(null)
@@ -362,6 +364,48 @@ export default function SpreadsheetViewer() {
                   {currentMeta.row_count} lignes | {currentMeta.column_count || currentMeta.headers?.length || '?'} colonnes
                 </span>
               )}
+
+              {/* Column picker */}
+              {currentMeta?.numeric_cols?.length > 0 && (
+                <div className="relative">
+                  <button onClick={() => setShowColPicker(!showColPicker)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors
+                      ${showColPicker ? 'bg-primary-50 dark:bg-primary-900/30 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    <SlidersHorizontal size={12} />
+                    Colonnes
+                    {selectedChartCols && <span className="ml-1 bg-primary-100 dark:bg-primary-800 text-primary-700 dark:text-primary-300 px-1.5 rounded-full text-[10px]">{selectedChartCols.length}</span>}
+                  </button>
+                  {showColPicker && (
+                    <div className="absolute top-full mt-1 left-0 z-20 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg p-2 min-w-[180px]">
+                      <p className="text-[10px] text-gray-400 uppercase font-semibold px-2 pb-1">Colonnes du graphique</p>
+                      {currentMeta.numeric_cols.map(col => {
+                        const active = selectedChartCols ? selectedChartCols.includes(col) : currentMeta.numeric_cols.indexOf(col) < 4
+                        return (
+                          <button key={col} onClick={() => {
+                            setSelectedChartCols(prev => {
+                              const current = prev || currentMeta.numeric_cols.slice(0, 4)
+                              return active ? current.filter(c => c !== col) : [...current, col]
+                            })
+                          }}
+                            className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-xs hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                            <span className={`w-4 h-4 rounded flex items-center justify-center text-white ${active ? 'bg-primary-500' : 'border border-gray-300 dark:border-gray-600'}`}>
+                              {active && <Check size={10} />}
+                            </span>
+                            <span className="truncate text-gray-700 dark:text-gray-300">{currentMeta.stats?.[col]?.label || col}</span>
+                          </button>
+                        )
+                      })}
+                      {selectedChartCols && (
+                        <button onClick={() => setSelectedChartCols(null)}
+                          className="w-full text-center text-[10px] text-primary-500 hover:text-primary-700 mt-1 py-1">
+                          Réinitialiser
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Chart */}
@@ -379,9 +423,9 @@ export default function SpreadsheetViewer() {
                         <YAxis tick={{ fontSize: 10 }} tickFormatter={formatNum} />
                         <Tooltip formatter={(v) => formatNum(v)} />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
-                        {(currentMeta.numeric_cols || []).slice(0, 4).map((col, i) => {
+                        {(selectedChartCols || (currentMeta.numeric_cols || []).slice(0, 4)).map((col, i) => {
                           const label = currentMeta.stats?.[col]?.label || col
-                          return <Bar key={col} dataKey={col} name={label} fill={CHART_COLORS[i]} radius={[4, 4, 0, 0]} />
+                          return <Bar key={col} dataKey={col} name={label} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[4, 4, 0, 0]} />
                         })}
                       </BarChart>
                     ) : chartType === 'line' ? (
@@ -391,9 +435,9 @@ export default function SpreadsheetViewer() {
                         <YAxis tick={{ fontSize: 10 }} tickFormatter={formatNum} />
                         <Tooltip formatter={(v) => formatNum(v)} />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
-                        {(currentMeta.numeric_cols || []).slice(0, 4).map((col, i) => {
+                        {(selectedChartCols || (currentMeta.numeric_cols || []).slice(0, 4)).map((col, i) => {
                           const label = currentMeta.stats?.[col]?.label || col
-                          return <Line key={col} type="monotone" dataKey={col} name={label} stroke={CHART_COLORS[i]} strokeWidth={2} dot={{ r: 3 }} />
+                          return <Line key={col} type="monotone" dataKey={col} name={label} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />
                         })}
                       </LineChart>
                     ) : (
@@ -401,7 +445,7 @@ export default function SpreadsheetViewer() {
                         <Pie
                           data={currentMeta.chart_data.slice(0, 10).map((d, i) => ({
                             name: d.name,
-                            value: d[currentMeta.numeric_cols?.[0]] || 0,
+                            value: d[(selectedChartCols || currentMeta.numeric_cols)?.[0]] || 0,
                           }))}
                           cx="50%" cy="50%"
                           outerRadius={120}

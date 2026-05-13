@@ -34,6 +34,7 @@ const defaultSettings = {
   showEvolution: true,
   showSparkline: true,
   kpiSize: 'medium', // 'small', 'medium', 'large'
+  kpiNumberFormat: 'auto', // 'auto', 'full', 'millier', 'million'
 
   // Dates
   dateFormat: 'DD/MM/YYYY',
@@ -76,6 +77,45 @@ export function SettingsProvider({ children }) {
   const resetSettings = () => {
     setSettings(defaultSettings)
     localStorage.removeItem('appSettings')
+  }
+
+  // Fonction pour formater un nombre KPI selon kpiNumberFormat + symbole de devise
+  // showCurrency=true (defaut) : ajoute le symbole devise
+  // showCurrency=false : formate le nombre seulement, sans devise (utile quand le suffix gere l'unite)
+  const formatKpiNumber = (value, showCurrency = true) => {
+    if (value === null || value === undefined || isNaN(value)) return '-'
+    const num = parseFloat(value)
+    const fmt = settings.kpiNumberFormat || 'auto'
+    const dec = settings.decimalPlaces ?? 2
+    const sep = settings.thousandSeparator ?? ' '
+    const decSep = settings.decimalSeparator ?? ','
+    const symbol = settings.currencySymbol || ''
+    const pos = settings.currencyPosition || 'after'
+
+    const withSymbol = (str) => {
+      if (!symbol || !showCurrency) return str
+      return pos === 'before' ? symbol + ' ' + str : str + ' ' + symbol
+    }
+
+    const toFull = (n) => {
+      const parts = n.toFixed(dec).split('.')
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, sep)
+      return parts.join(decSep)
+    }
+
+    if (fmt === 'million') {
+      return withSymbol((num / 1_000_000).toFixed(dec).replace('.', decSep) + ' M')
+    }
+    if (fmt === 'millier') {
+      return withSymbol((num / 1_000).toFixed(dec).replace('.', decSep) + ' K')
+    }
+    if (fmt === 'auto') {
+      if (Math.abs(num) >= 1_000_000_000) return withSymbol((num / 1_000_000_000).toFixed(1).replace('.', decSep) + ' Mrd')
+      if (Math.abs(num) >= 1_000_000) return withSymbol((num / 1_000_000).toFixed(1).replace('.', decSep) + ' M')
+      if (Math.abs(num) >= 1_000) return withSymbol((num / 1_000).toFixed(1).replace('.', decSep) + ' K')
+      return withSymbol(toFull(num))
+    }
+    return withSymbol(toFull(num))
   }
 
   // Fonction pour formater les nombres selon les paramètres
@@ -149,6 +189,7 @@ export function SettingsProvider({ children }) {
       updateSettings,
       resetSettings,
       formatNumber,
+      formatKpiNumber,
       formatPercent,
       formatDate,
       defaultSettings

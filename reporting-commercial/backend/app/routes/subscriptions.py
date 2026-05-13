@@ -4,6 +4,9 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime, timedelta
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..database_unified import execute_central as execute_query, write_central as _write
 from ..services.email_service import send_email
@@ -82,7 +85,7 @@ def _init_message_templates_table():
         )
         """)
     except Exception as e:
-        print(f"[TEMPLATES] init error: {e}")
+        logger.error(f"[TEMPLATES] init error: {e}")
 
 
 def init_subscription_tables():
@@ -122,10 +125,10 @@ def init_subscription_tables():
             try:
                 _write(mig)
             except Exception as me:
-                print(f"[SUBSCRIPTIONS] Migration warning: {me}")
+                logger.warning(f"[SUBSCRIPTIONS] Migration warning: {me}")
         return True
     except Exception as e:
-        print(f"[SUBSCRIPTIONS] Erreur init table: {e}")
+        logger.error(f"[SUBSCRIPTIONS] Erreur init table: {e}")
         return False
 
 
@@ -145,7 +148,7 @@ def _init_recipients_table():
         )
         """)
     except Exception as e:
-        print(f"[SUBSCRIPTIONS] _init_recipients_table error: {e}")
+        logger.error(f"[SUBSCRIPTIONS] _init_recipients_table error: {e}")
 
 
 def _next_send_date(
@@ -201,7 +204,7 @@ def _sync_recipients(sub_id: int, recipients: list):
                 (sub_id, r.get("nom"), r.get("channel", "email"), r["contact_info"])
             )
     except Exception as e:
-        print(f"[RECIPIENTS] sync error: {e}")
+        logger.error(f"[RECIPIENTS] sync error: {e}")
 
 
 def _get_recipients(sub_id: int) -> list:
@@ -458,7 +461,7 @@ async def deliver_due_subscriptions():
               AND (next_send IS NULL OR next_send <= GETDATE())
         """, use_cache=False)
     except Exception as e:
-        print(f"[SUBSCRIPTIONS] Erreur chargement abonnements: {e}")
+        logger.error(f"[SUBSCRIPTIONS] Erreur chargement abonnements: {e}")
         return
 
     today = datetime.now().date()
@@ -539,9 +542,9 @@ async def deliver_due_subscriptions():
         except Exception as e:
             log_delivery(sub.get("id"), sub.get("user_email","?"), sub.get("report_nom","?"),
                          sub.get("channel","email"), "error", str(e)[:500])
-            print(f"[SUBSCRIPTIONS] Erreur livraison #{sub.get('id')}: {e}")
+            logger.error(f"[SUBSCRIPTIONS] Erreur livraison #{sub.get('id')}: {e}")
 
-    print(f"[SUBSCRIPTIONS] {delivered}/{len(due)} rapport(s) livrés")
+    logger.info(f"[SUBSCRIPTIONS] {delivered}/{len(due)} rapport(s) livrés")
 
 
 def _build_subscription_email(report_name: str, freq_label: str, email: str, sub_id: int) -> str:

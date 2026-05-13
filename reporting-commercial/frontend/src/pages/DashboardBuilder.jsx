@@ -18,6 +18,7 @@ import GridLayout from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import Loading from '../components/common/Loading'
+import useSidebarResize from '../hooks/useSidebarResize'
 import DataSourceSelector from '../components/DataSourceSelector'
 import AIDashboardGenerator from '../components/ai/AIDashboardGenerator'
 import {
@@ -85,7 +86,8 @@ const formatNumber = (val) => {
 // ─── Aggregation helper ───
 function aggregateData(data, field, func = 'SUM') {
   if (!data?.length || !field) return 0
-  const values = data.map(r => Number(r[field]) || 0).filter(v => !isNaN(v))
+  const raw = data.map(r => r[field]).filter(v => v !== null && v !== undefined && v !== '')
+  const values = raw.map(v => Number(v)).filter(v => !isNaN(v))
   if (!values.length) return 0
   switch (func) {
     case 'SUM': return values.reduce((a, b) => a + b, 0)
@@ -153,8 +155,7 @@ export default function DashboardBuilder() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sidebarAppFilter, setSidebarAppFilter] = useState('')
 
-  const [sidebarWidth, setSidebarWidth] = useState(192)
-  const sidebarDragging = useRef(false)
+  const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(192, 140, 480)
   const [dashboardApplication, setDashboardApplication] = useState('')
 
   const APPLICATION_OPTIONS = [
@@ -174,30 +175,6 @@ export default function DashboardBuilder() {
     widgets.map(w => ({ i: w.id, x: w.x || 0, y: w.y || 0, w: w.w || 4, h: w.h || 4, minW: 2, minH: 2 })),
     [widgets]
   )
-
-  // Sidebar resize handlers
-  const handleSidebarResizeStart = useCallback((e) => {
-    e.preventDefault()
-    sidebarDragging.current = true
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-    const onMouseMove = (e) => {
-      if (!sidebarDragging.current) return
-      const newWidth = Math.min(Math.max(startWidth + (e.clientX - startX), 140), 480)
-      setSidebarWidth(newWidth)
-    }
-    const onMouseUp = () => {
-      sidebarDragging.current = false
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [sidebarWidth])
 
   // Track container width for GridLayout
   useEffect(() => {
@@ -302,9 +279,14 @@ export default function DashboardBuilder() {
 
   const saveDashboard = async () => {
     if (!currentDashboard) return
+    const unconfigured = widgets.filter(w =>
+      !['text', 'image'].includes(w.type) && !w.config?.dataSourceId && !w.config?.dataSourceCode
+    )
+    if (unconfigured.length > 0) {
+      showToast(`${unconfigured.length} widget(s) sans source de donnees`, 'warning')
+    }
     setSaving(true)
     try {
-      // Sanitize widget positions to integers for clean storage
       const cleanWidgets = widgets.map(w => ({
         ...w,
         x: Math.round(w.x || 0),
@@ -333,6 +315,29 @@ export default function DashboardBuilder() {
       loadData()
       showToast('Dashboard supprime')
     } catch (e) { console.error(e) }
+  }
+
+  const cloneDashboard = async (dashId) => {
+    try {
+      const res = await getBuilderDashboard(dashId)
+      const src = res.data?.data
+      if (!src) return
+      const createRes = await createBuilderDashboard({
+        nom: `${src.nom} (copie)`,
+        description: src.description || '',
+        application: src.application || null,
+        widgets: (src.widgets || []).map(w => ({ ...w, id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` })),
+        auto_refresh: src.auto_refresh || 0,
+      })
+      if (createRes.data?.id) {
+        showToast('Dashboard dupliqué')
+        loadData()
+        selectDashboard(createRes.data.id)
+      }
+    } catch (e) {
+      console.error('Erreur duplication:', e)
+      showToast('Erreur duplication', 'error')
+    }
   }
 
   const handleQuickSetAppDB = async (e, dashId, appValue) => {
@@ -520,9 +525,15 @@ export default function DashboardBuilder() {
                   <span className={`flex-1 truncate text-[11px] font-semibold ${currentDashboard?.id === d.id ? 'text-primary-700 dark:text-primary-400' : 'text-gray-800 dark:text-gray-200'}`}>
                     {d.nom}
                   </span>
+                  <button onClick={(e) => { e.stopPropagation(); cloneDashboard(d.id) }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-all flex-shrink-0"
+                    title="Dupliquer">
+                    <Copy className="w-3 h-3 text-blue-400" />
+                  </button>
                   {!d.is_public && (
                     <button onClick={(e) => { e.stopPropagation(); deleteDashboard(d.id) }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-all flex-shrink-0">
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-all flex-shrink-0"
+                      title="Supprimer">
                       <Trash2 className="w-3 h-3 text-red-400" />
                     </button>
                   )}
@@ -921,8 +932,8 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const vf = cfg.value_field || Object.keys(data[0] || {})[1] || 'value'
       const agg = cfg.aggregation || 'SUM'
       const total = aggregateData(data, vf, agg)
-      const maxVal = cfg.max_value || 100
-      const pct = Math.min(100, Math.max(0, (total / maxVal) * 100))
+      const maxVal = Number(cfg.max_value) || 100
+      const pct = maxVal !== 0 ? Math.min(100, Math.max(0, (total / maxVal) * 100)) : 0
       const gaugeColor = getConditionalColor(total, cfg.thresholds) || cfg.kpi_color || '#3b82f6'
       return (
         <div className="flex flex-col items-center justify-center h-full">
@@ -941,8 +952,8 @@ function WidgetContent({ widget, data, onDrillDown }) {
       const vf = cfg.value_field || Object.keys(data[0] || {})[1] || 'value'
       const agg = cfg.aggregation || 'SUM'
       const total = aggregateData(data, vf, agg)
-      const maxVal = cfg.max_value || 100
-      const pct = Math.min(100, Math.max(0, (total / maxVal) * 100))
+      const maxVal = Number(cfg.max_value) || 100
+      const pct = maxVal !== 0 ? Math.min(100, Math.max(0, (total / maxVal) * 100)) : 0
       const barColor = getConditionalColor(pct, cfg.thresholds) || cfg.kpi_color || '#3b82f6'
       return (
         <div className="flex flex-col justify-center h-full px-2 gap-2">
@@ -1247,7 +1258,14 @@ function WidgetContent({ widget, data, onDrillDown }) {
 function CompareIndicator({ data, valueField, compareField, aggregation = 'SUM' }) {
   const current = aggregateData(data, valueField, aggregation)
   const prev = aggregateData(data, compareField, aggregation)
-  if (!prev) return null
+  if (prev === 0 && current === 0) return null
+  if (prev === 0) {
+    return (
+      <span className="flex items-center gap-0.5 text-xs font-semibold mt-1 text-blue-500">
+        <TrendingUp className="w-3 h-3" />Nouveau
+      </span>
+    )
+  }
   const pct = ((current - prev) / Math.abs(prev)) * 100
   const isUp = pct > 0
   return (
@@ -1510,6 +1528,45 @@ function WidgetConfigPanel({ widget, onUpdate }) {
                 ]} />
               )}
               <TextInput label="Limiter a N lignes" cfgKey="limit_rows" placeholder="Toutes" type="number" />
+
+              <hr className="border-gray-200 dark:border-gray-700" />
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Source drilldown (detail)</p>
+              <DataSourceSelector
+                value={cfg.drilldownDsCode || cfg.drilldownDsId}
+                onChange={(ds) => onUpdate({
+                  config: { ...cfg, drilldownDsId: ds?.id || null, drilldownDsCode: ds?.code || null, drilldownDsOrigin: ds?.origin || null }
+                })}
+                showPreview={false}
+                placeholder="Meme source (par defaut)"
+              />
+              {cfg.drilldownDsCode && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <Settings2 className="w-3 h-3" />Drilldown: {cfg.drilldownDsCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onUpdate({
+                        config: { ...cfg, drilldownDsId: null, drilldownDsCode: null, drilldownDsOrigin: null, drilldownFilterField: null }
+                      })}
+                      className="text-[10px] text-red-400 hover:text-red-600"
+                    >
+                      Retirer
+                    </button>
+                  </div>
+                  <TextInput label="Champ filtre drilldown" cfgKey="drilldownFilterField" placeholder="Ex: Client, Code Client..." />
+                  <p className="text-[10px] text-gray-400 leading-tight">
+                    Nom du champ dans la source drilldown pour filtrer par la valeur cliquee.
+                    Si vide, le nom du champ clique (axe X) est utilise tel quel.
+                  </p>
+                </>
+              )}
+              {!cfg.drilldownDsCode && (
+                <p className="text-[10px] text-gray-400 leading-tight">
+                  Source de donnees utilisee lors du clic (drill-down). Si vide, la source principale est utilisee.
+                </p>
+              )}
 
               <hr className="border-gray-200 dark:border-gray-700" />
               <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Filtre global</p>

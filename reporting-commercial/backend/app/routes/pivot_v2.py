@@ -32,6 +32,10 @@ logger = logging.getLogger("PivotV2")
 
 router = APIRouter(prefix="/api/v2/pivots", tags=["Pivot V2"])
 
+# Cache TTL pour la détection de champs (10 minutes)
+_FIELDS_CACHE: Dict[str, Any] = {}
+_FIELDS_CACHE_TTL = 600
+
 
 def _pv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
     """Lit depuis la DB client (APP_Pivots_V2 client) si dwh_code présent, sinon centrale.
@@ -107,6 +111,7 @@ class PivotCreateRequest(BaseModel):
     data_source_id: Optional[int] = None
     data_source_code: Optional[str] = None
     drilldown_data_source_code: Optional[str] = None
+    drilldown_field_mapping: Optional[Dict[str, str]] = None
     rows_config: Optional[List[PivotAxisField]] = []
     columns_config: Optional[List[PivotAxisField]] = []
     filters_config: Optional[List[PivotFilterField]] = []
@@ -134,6 +139,7 @@ class PivotUpdateRequest(BaseModel):
     data_source_id: Optional[int] = None
     data_source_code: Optional[str] = None
     drilldown_data_source_code: Optional[str] = None
+    drilldown_field_mapping: Optional[Dict[str, str]] = None
     rows_config: Optional[List[PivotAxisField]] = None
     columns_config: Optional[List[PivotAxisField]] = None
     filters_config: Optional[List[PivotFilterField]] = None
@@ -239,6 +245,7 @@ def init_pivot_v2_tables():
                 ("window_calculations", "NVARCHAR(MAX)"),
                 ("application", "NVARCHAR(100)"),
                 ("drilldown_data_source_code", "VARCHAR(100)"),
+                ("drilldown_field_mapping", "NVARCHAR(MAX)"),
             ]
             for col_name, col_def in new_columns:
                 try:
@@ -286,6 +293,58 @@ def _normalize_row(row: Dict[str, Any]) -> Dict[str, Any]:
         k: float(v) if isinstance(v, Decimal) else v
         for k, v in row.items()
     }
+
+
+_DATE_DERIVE_KEYWORDS = ('date', 'mois', 'periode', 'livraison', 'echeance', 'facture', 'reglement')
+
+
+
+def _inject_date_derived_fields(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Injecte des colonnes derivees _Annee et _Mois pour chaque colonne date/periode detectee."""
+    if not rows:
+        return rows
+
+    from datetime import datetime, date as date_type
+
+    # Detecter les colonnes candidates dans la premiere ligne
+    sample = rows[0]
+    date_cols = []
+    for col_name, val in sample.items():
+        name_lower = col_name.lower()
+        is_date_name = any(k in name_lower for k in _DATE_DERIVE_KEYWORDS)
+        is_date_val = isinstance(val, (datetime, date_type))
+        # Aussi detecter les chaines "YYYY-MM" ou "YYYY-MM-DD"
+        is_date_str = isinstance(val, str) and len(val) >= 7 and val[:4].isdigit() and val[4] == '-'
+        if (is_date_name or is_date_val) and not col_name.endswith('_Annee') and not col_name.endswith('_Mois'):
+            date_cols.append((col_name, is_date_val or is_date_str))
+
+    if not date_cols:
+        return rows
+
+    def _extract_year_month(val):
+        if val is None:
+            return None, None
+        if isinstance(val, (datetime, date_type)):
+            return str(val.year), _MONTH_NAMES_FR.get(val.month, str(val.month))
+        if isinstance(val, str) and len(val) >= 7 and val[:4].isdigit() and val[4] == '-':
+            try:
+                year = int(val[:4])
+                month = int(val[5:7])
+                return str(year), _MONTH_NAMES_FR.get(month, val[5:7])
+            except Exception:
+                pass
+        return None, None
+
+    result = []
+    for row in rows:
+        new_row = dict(row)
+        for col_name, _ in date_cols:
+            val = row.get(col_name)
+            year, month = _extract_year_month(val)
+            new_row[col_name + '_Annee'] = year
+            new_row[col_name + '_Mois'] = month
+        result.append(new_row)
+    return result
 
 
 def _resolve_and_execute(
@@ -348,6 +407,118 @@ def _resolve_and_execute(
         data = execute_query(query_clean, use_cache=False)
 
     rows = [_normalize_row(row) for row in data]
+    rows = _inject_date_derived_fields(rows)
+
+    if return_debug:
+        return rows, debug_info
+    return rows
+
+
+def _resolve_and_execute_aggregated(
+    pivot_config: Dict[str, Any],
+    context: Dict[str, Any],
+    rows_config: List[Dict[str, Any]],
+    columns_config: List[Dict[str, Any]],
+    values_config: List[Dict[str, Any]],
+    dwh_code: Optional[str] = None,
+    return_debug: bool = False
+):
+    """Execute la requete avec agregation SQL server-side.
+
+    Au lieu de ramener toutes les lignes brutes et d'agreger en Python,
+    on construit un SELECT ... GROUP BY cote SQL pour ne ramener que les
+    lignes pivotees pre-agregees. Les alias de valeurs gardent le nom
+    original du champ pour rester compatibles avec _build_pivot_data.
+    """
+    ds_code = pivot_config.get("data_source_code")
+    ds_id = pivot_config.get("data_source_id")
+
+    if ds_code:
+        ds = resolve_datasource(ds_code, dwh_code)
+    elif ds_id:
+        ds = resolve_datasource(ds_id, dwh_code)
+    else:
+        raise ValueError("Aucune source de donnees configuree pour ce pivot")
+
+    query = inject_params(ds.query_template, context)
+    query_clean = re.sub(r'\s+ORDER\s+BY\s+[\s\S]+$', '', query, flags=re.IGNORECASE)
+
+    select_parts = []
+    group_parts = []
+
+    all_dim_fields = list(rows_config) + list(columns_config)
+    for rf in all_dim_fields:
+        fname = rf["field"]
+        grouping = rf.get("date_grouping")
+        if grouping:
+            sql_expr = _date_grouping_sql_expr(fname, grouping)
+            if sql_expr:
+                select_parts.append(f"{sql_expr} AS [{fname}]")
+                group_parts.append(sql_expr)
+            else:
+                select_parts.append(f"[{fname}]")
+                group_parts.append(f"[{fname}]")
+        else:
+            select_parts.append(f"[{fname}]")
+            group_parts.append(f"[{fname}]")
+
+    for vf in values_config:
+        fname = vf["field"]
+        agg = vf.get("aggregation", "SUM").upper()
+        if agg in ("SUM", "COUNT", "AVG", "MIN", "MAX"):
+            select_parts.append(f"{agg}([{fname}]) AS [{fname}]")
+        elif agg == "DISTINCTCOUNT":
+            select_parts.append(f"COUNT(DISTINCT [{fname}]) AS [{fname}]")
+        else:
+            select_parts.append(f"SUM([{fname}]) AS [{fname}]")
+
+    if not select_parts or not group_parts:
+        raise ValueError("Impossible de construire la requete aggregee: pas de dimensions")
+
+    select_clause = ",\n    ".join(select_parts)
+    group_clause = ",\n    ".join(group_parts)
+
+    agg_query = f"SELECT\n    {select_clause}\nFROM ({query_clean}) AS __src__\nGROUP BY\n    {group_clause}"
+
+    effective_dwh = dwh_code
+    if not effective_dwh and ds.origin.value == "template":
+        try:
+            dwh_list = execute_query(
+                "SELECT TOP 1 code FROM APP_DWH WHERE actif = 1 ORDER BY id",
+                use_cache=True
+            )
+            if dwh_list:
+                effective_dwh = dwh_list[0]['code']
+        except Exception:
+            pass
+
+    debug_info = {
+        "datasource_code": ds_code or str(ds_id),
+        "datasource_origin": ds.origin.value,
+        "effective_dwh": effective_dwh,
+        "context_passed": context,
+        "query_injected": agg_query,
+        "server_side_aggregation": True,
+    }
+    logger.info(f"[PIVOT AGG] datasource={debug_info['datasource_code']} dwh={effective_dwh}")
+    logger.info(f"[PIVOT AGG] query=\n{agg_query}")
+
+    if effective_dwh and ds.origin.value == "template":
+        data = DWHConnectionManager.execute_dwh_query(effective_dwh, agg_query, use_cache=False)
+    else:
+        data = execute_query(agg_query, use_cache=False)
+
+    rows = [_normalize_row(row) for row in data]
+
+    count_query = f"SELECT COUNT(*) AS cnt FROM ({query_clean}) AS __cnt__"
+    try:
+        if effective_dwh and ds.origin.value == "template":
+            cnt_res = DWHConnectionManager.execute_dwh_query(effective_dwh, count_query, use_cache=False)
+        else:
+            cnt_res = execute_query(count_query, use_cache=False)
+        debug_info["source_row_count"] = cnt_res[0]["cnt"] if cnt_res else 0
+    except Exception:
+        debug_info["source_row_count"] = -1
 
     if return_debug:
         return rows, debug_info
@@ -364,19 +535,31 @@ _MONTH_NAMES_FR = {
 _MONTH_NAMES_FR_REVERSE = {v: k for k, v in _MONTH_NAMES_FR.items()}
 
 
+_MONTH_CASE_SQL = (
+    "CASE MONTH({f}) "
+    "WHEN 1 THEN 'Janvier' WHEN 2 THEN 'Fevrier' WHEN 3 THEN 'Mars' "
+    "WHEN 4 THEN 'Avril' WHEN 5 THEN 'Mai' WHEN 6 THEN 'Juin' "
+    "WHEN 7 THEN 'Juillet' WHEN 8 THEN 'Aout' WHEN 9 THEN 'Septembre' "
+    "WHEN 10 THEN 'Octobre' WHEN 11 THEN 'Novembre' WHEN 12 THEN 'Decembre' END"
+)
+
+
 def _date_grouping_sql_expr(field_name: str, grouping: str) -> str:
-    """Retourne l'expression SQL Server equivalente au regroupement Python"""
+    """Retourne l'expression SQL Server equivalente au regroupement Python.
+
+    Les expressions produisent les memes chaines que _apply_date_grouping()
+    pour que le tri et l'affichage soient coherents.
+    """
     f = f"[{field_name}]"
+    month_case = _MONTH_CASE_SQL.format(f=field_name)
     if grouping == "jour":
-        return f"CONVERT(VARCHAR(10), {f}, 23)"  # YYYY-MM-DD
+        return f"CONVERT(VARCHAR(10), {f}, 23)"
     elif grouping == "semaine":
         return f"CAST(YEAR({f}) AS VARCHAR) + '-S' + RIGHT('0' + CAST(DATEPART(ISO_WEEK, {f}) AS VARCHAR), 2)"
     elif grouping == "mois":
-        # Retourne le numero du mois - on comparera cote Python
-        return f"MONTH({f})"
+        return month_case
     elif grouping == "mois_annee":
-        # Retourne mois + annee numeriques - on construira le filtre avec MONTH et YEAR
-        return None  # Cas special, gere separement
+        return f"{month_case} + ' ' + CAST(YEAR({f}) AS VARCHAR)"
     elif grouping == "trimestre":
         return f"'T' + CAST(DATEPART(QUARTER, {f}) AS VARCHAR)"
     elif grouping == "trimestre_annee":
@@ -388,6 +571,99 @@ def _date_grouping_sql_expr(field_name: str, grouping: str) -> str:
     elif grouping == "annee":
         return f"CAST(YEAR({f}) AS VARCHAR)"
     return None
+
+
+def _dedup_select_columns(sql):
+    """Remove duplicate column names from a SELECT to avoid SQL Server errors in subqueries."""
+    match = re.match(r'(?is)(SELECT\s+(?:TOP\s+\d+\s+)?)(.*?)(FROM\s+.+)', sql)
+    if not match:
+        return sql
+    prefix, cols_part, from_part = match.group(1), match.group(2), match.group(3)
+    segments, depth, current = [], 0, []
+    for ch in cols_part:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            segments.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        segments.append(''.join(current).strip())
+    seen, deduped = {}, []
+    for seg in segments:
+        m = re.search(r'(?:\[([^\]]+)\]|(\w+))\s*$', seg)
+        alias = (m.group(1) or m.group(2)).strip() if m else seg.strip()
+        if alias in seen:
+            continue
+        seen[alias] = True
+        deduped.append(seg)
+    return f"{prefix}{', '.join(deduped)} {from_part}"
+
+
+def _extract_drilldown_columns(sql):
+    """Extract column alias names from a SELECT query for auto field resolution."""
+    match = re.match(r'(?is)SELECT\s+(?:TOP\s+\d+\s+)?(.*?)FROM\s+', sql)
+    if not match:
+        return []
+    cols_part = match.group(1)
+    segments, depth, current = [], 0, []
+    for ch in cols_part:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            segments.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        segments.append(''.join(current).strip())
+    names = []
+    for seg in segments:
+        m = re.search(r'(?:\[([^\]]+)\]|(\w+))\s*$', seg)
+        if m:
+            names.append(m.group(1) or m.group(2))
+    return names
+
+
+_FIELD_SYNONYMS = {
+    "client": ["Intitulé client", "Code client", "Nom client"],
+    "fournisseur": ["Intitulé fournisseur", "Code fournisseur", "Nom fournisseur"],
+    "article": ["Désignation Article", "Code Article", "Référence article", "Désignation Ligne"],
+    "famille": ["Intitulé famille", "Code Famille"],
+    "commercial": ["Nom représentant", "Code représentant"],
+    "depot": ["Dépôt", "Code dépôt"],
+    "mois": ["Date BL", "Date"],
+    "periode": ["Date BL", "Date"],
+    "annee": ["Date BL", "Date"],
+    "trimestre": ["Date BL", "Date"],
+    "semaine": ["Date BL", "Date"],
+    "region": ["Région", "Ville"],
+}
+
+
+def _auto_resolve_field(field_name, drill_columns):
+    """Resolve field to best matching column in drill query when exact match is missing."""
+    if not drill_columns or field_name in drill_columns:
+        return field_name
+    fl = field_name.lower()
+    for col in drill_columns:
+        if col.lower() == fl:
+            return col
+    for col in drill_columns:
+        cl = col.lower()
+        if fl in cl or cl in fl:
+            return col
+    for key, candidates in _FIELD_SYNONYMS.items():
+        if key in fl:
+            for c in candidates:
+                if c in drill_columns:
+                    return c
+    return field_name
 
 
 def _build_date_grouping_where(field_name: str, grouping: str, value: str) -> Tuple[str, list]:
@@ -687,12 +963,13 @@ def _build_pivot_data(
         nums = [float(v) for v in values if v is not None and v != ""]
         if not nums:
             return 0
+        n = len(nums)
         if agg == "SUM":
             return sum(nums)
         elif agg == "COUNT":
-            return len(nums)
+            return n
         elif agg == "AVG":
-            return sum(nums) / len(nums)
+            return sum(nums) / n if n else 0
         elif agg == "MIN":
             return min(nums)
         elif agg == "MAX":
@@ -700,15 +977,18 @@ def _build_pivot_data(
         elif agg == "DISTINCTCOUNT":
             return len(set(nums))
         elif agg == "VAR":
-            mean = sum(nums) / len(nums)
-            return sum((x - mean) ** 2 for x in nums) / len(nums)
+            if n < 2:
+                return 0
+            mean = sum(nums) / n
+            return sum((x - mean) ** 2 for x in nums) / n
         elif agg == "STDEV":
-            mean = sum(nums) / len(nums)
-            variance = sum((x - mean) ** 2 for x in nums) / len(nums)
+            if n < 2:
+                return 0
+            mean = sum(nums) / n
+            variance = sum((x - mean) ** 2 for x in nums) / n
             return variance ** 0.5
         elif agg == "MEDIAN":
             sorted_nums = sorted(nums)
-            n = len(sorted_nums)
             mid = n // 2
             if n % 2 == 0:
                 return (sorted_nums[mid - 1] + sorted_nums[mid]) / 2
@@ -1244,6 +1524,7 @@ async def get_pivot(
         row["values_config"] = _parse_json(row.get("values_config"), [])
         row["formatting_rules"] = _parse_json(row.get("formatting_rules"), [])
         row["source_params"] = _parse_json(row.get("source_params"), [])
+        row["drilldown_field_mapping"] = _parse_json(row.get("drilldown_field_mapping"), {})
 
         return {"success": True, "data": row}
     except HTTPException:
@@ -1271,8 +1552,8 @@ async def create_pivot(data: PivotCreateRequest):
                  show_total_percent, comparison_mode, formatting_rules, source_params,
                  grand_total_position, subtotal_position, show_summary_row, summary_functions,
                  window_calculations,
-                 is_public, application, created_by, drilldown_data_source_code, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                 is_public, application, created_by, drilldown_data_source_code, drilldown_field_mapping, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
             """, (
                 data.nom,
                 code,
@@ -1300,6 +1581,7 @@ async def create_pivot(data: PivotCreateRequest):
                 data.application,
                 data.created_by,
                 data.drilldown_data_source_code,
+                _to_json(data.drilldown_field_mapping) if data.drilldown_field_mapping else None,
             ))
             cursor.execute("SELECT @@IDENTITY AS id")
             new_id = cursor.fetchone()[0]
@@ -1356,6 +1638,7 @@ async def update_pivot(
             "source_params": data.source_params if data.source_params is not None else None,
             "summary_functions": data.summary_functions if data.summary_functions is not None else None,
             "window_calculations": data.window_calculations if data.window_calculations is not None else None,
+            "drilldown_field_mapping": data.drilldown_field_mapping if data.drilldown_field_mapping is not None else None,
         }
 
         for field, value in json_fields.items():
@@ -1484,8 +1767,24 @@ async def execute_pivot(
                 "debug": debug_info
             }
 
-        # Executer la requete source (pas de limite : les totaux doivent etre exacts)
-        source_data, debug_info = _resolve_and_execute(config, context, dwh_code, limit=None, return_debug=True)
+        # Tenter l'agregation server-side (SQL GROUP BY) pour de meilleures perfs.
+        # Fallback vers l'approche classique (fetch all + pivot Python) si erreur.
+        use_server_agg = bool(rows_config or columns_config) and bool(values_config)
+        source_data = None
+        debug_info = None
+
+        if use_server_agg:
+            try:
+                source_data, debug_info = _resolve_and_execute_aggregated(
+                    config, context, rows_config, columns_config, values_config,
+                    dwh_code, return_debug=True
+                )
+            except Exception as agg_err:
+                logger.warning(f"[PIVOT] Server-side aggregation failed, fallback to raw: {agg_err}")
+                source_data = None
+
+        if source_data is None:
+            source_data, debug_info = _resolve_and_execute(config, context, dwh_code, limit=None, return_debug=True)
 
         if not source_data:
             return {
@@ -1494,18 +1793,49 @@ async def execute_pivot(
                 "pivotColumns": [],
                 "rowFields": rows_config,
                 "columnField": columns_config[0]["field"] if columns_config else None,
+                "columnHierarchy": None,
                 "valueFields": values_config,
                 "formattingRules": formatting_rules,
                 "metadata": {"totalRows": 0, "executionTime": 0, "hasSubtotals": False},
                 "debug": debug_info
             }
 
-        # Champ colonne pivot (un seul supporte)
-        col_field = columns_config[0]["field"] if columns_config else None
-
-        # Appliquer les regroupements temporels
-        col_field_config = columns_config[0] if columns_config else None
-        source_data = _apply_date_groupings_to_data(source_data, rows_config, col_field_config)
+        # Colonnes pivot — support multi-niveaux (hierarchique)
+        is_server_agg = debug_info.get("server_side_aggregation", False)
+        col_hierarchy = None
+        if len(columns_config) > 1:
+            _COL_COMPOSITE = "__pivot_col_composite__"
+            virtual_names = []
+            for i, cc in enumerate(columns_config):
+                fname = cc["field"]
+                grouping = cc.get("date_grouping")
+                vname = f"__col_{i}__"
+                virtual_names.append(vname)
+                for row in source_data:
+                    raw = row.get(fname)
+                    if grouping and not is_server_agg:
+                        row[vname] = _apply_date_grouping(raw, grouping)
+                    else:
+                        row[vname] = str(raw) if raw is not None else ""
+            for row in source_data:
+                parts = [str(row.get(vn, "")) for vn in virtual_names]
+                row[_COL_COMPOSITE] = " | ".join(parts)
+            col_field = _COL_COMPOSITE
+            col_hierarchy = {
+                "levels": [cc.get("label") or cc.get("date_grouping") or cc["field"] for cc in columns_config],
+                "separator": " | ",
+            }
+            if not is_server_agg:
+                source_data = _apply_date_groupings_to_data(source_data, rows_config, None)
+        elif columns_config:
+            col_field = columns_config[0]["field"]
+            col_field_config = columns_config[0]
+            if not is_server_agg:
+                source_data = _apply_date_groupings_to_data(source_data, rows_config, col_field_config)
+        else:
+            col_field = None
+            if not is_server_agg:
+                source_data = _apply_date_groupings_to_data(source_data, rows_config, None)
 
         # Construire le pivot
         pivot_data, pivot_columns = _build_pivot_data(
@@ -1570,6 +1900,7 @@ async def execute_pivot(
             "pivotColumns": pivot_columns,
             "rowFields": rows_config,
             "columnField": col_field,
+            "columnHierarchy": col_hierarchy,
             "valueFields": value_fields_response,
             "formattingRules": formatting_rules,
             "comparison": comparison_info,
@@ -1585,7 +1916,9 @@ async def execute_pivot(
             },
             "metadata": {
                 "totalRows": len([r for r in pivot_data if not r.get("__isGrandTotal__")]),
-                "sourceRows": len(source_data),
+                "sourceRows": debug_info.get("source_row_count", len(source_data)),
+                "aggregatedRows": len(source_data) if is_server_agg else None,
+                "serverSideAggregation": is_server_agg,
                 "executionTime": execution_time,
                 "hasSubtotals": show_subtotals and len(rows_config) > 1
             }
@@ -1725,9 +2058,17 @@ async def drilldown_pivot(
         else:
             raise ValueError("Aucune source de donnees configuree")
 
+        # Mapping des champs si source drilldown différente
+        field_mapping = _parse_json(config.get("drilldown_field_mapping"), {}) if drill_ds_code else {}
+
         # Injecter les parametres de base
         base_query = inject_params(ds.query_template, context)
         base_query = re.sub(r'\s+ORDER\s+BY\s+[\s\S]+$', '', base_query, flags=re.IGNORECASE)
+        base_query = re.sub(r'--[^\n]*', '', base_query)
+        base_query = _dedup_select_columns(base_query)
+
+        # Extraire les colonnes de la requete drilldown pour auto-resolution
+        drill_columns = _extract_drilldown_columns(base_query)
 
         # Construire les filtres drill-down
         where_parts = []
@@ -1735,29 +2076,33 @@ async def drilldown_pivot(
 
         for field_name, field_value in request.rowValues.items():
             if field_value is not None and field_value != "TOTAL" and not str(field_value).startswith("Sous-total"):
+                mapped_field = field_mapping.get(field_name, field_name)
+                mapped_field = _auto_resolve_field(mapped_field, drill_columns)
                 if str(field_value) == "None" or field_value == "":
-                    where_parts.append(f"[{field_name}] IS NULL")
+                    where_parts.append(f"[{mapped_field}] IS NULL")
                 else:
                     grouping = date_groupings.get(field_name)
                     if grouping:
-                        expr, params = _build_date_grouping_where(field_name, grouping, str(field_value))
+                        expr, params = _build_date_grouping_where(mapped_field, grouping, str(field_value))
                         where_parts.append(f"({expr})")
                         filter_params.extend(params)
                     else:
-                        where_parts.append(f"[{field_name}] = ?")
-                        filter_params.append(field_value)
+                        where_parts.append(f"CAST([{mapped_field}] AS NVARCHAR(MAX)) = ?")
+                        filter_params.append(str(field_value))
 
         if request.columnValue:
             col_field = columns_config[0]["field"] if columns_config else None
             if col_field:
+                mapped_col = field_mapping.get(col_field, col_field)
+                mapped_col = _auto_resolve_field(mapped_col, drill_columns)
                 grouping = date_groupings.get(col_field)
                 if grouping:
-                    expr, params = _build_date_grouping_where(col_field, grouping, str(request.columnValue))
+                    expr, params = _build_date_grouping_where(mapped_col, grouping, str(request.columnValue))
                     where_parts.append(f"({expr})")
                     filter_params.extend(params)
                 else:
-                    where_parts.append(f"[{col_field}] = ?")
-                    filter_params.append(request.columnValue)
+                    where_parts.append(f"CAST([{mapped_col}] AS NVARCHAR(MAX)) = ?")
+                    filter_params.append(str(request.columnValue))
 
         where_clause = " AND ".join(where_parts) if where_parts else "1=1"
 
@@ -1886,36 +2231,46 @@ async def drilldown_pivot_export(
         else:
             raise ValueError("Aucune source de donnees configuree")
 
+        field_mapping = _parse_json(config.get("drilldown_field_mapping"), {}) if drill_ds_code else {}
+
         base_query = inject_params(ds.query_template, context)
         base_query = re.sub(r'\s+ORDER\s+BY\s+[\s\S]+$', '', base_query, flags=re.IGNORECASE)
+        base_query = re.sub(r'--[^\n]*', '', base_query)
+        base_query = _dedup_select_columns(base_query)
+
+        drill_columns = _extract_drilldown_columns(base_query)
 
         where_parts = []
         filter_params = []
         for field_name, field_value in request.rowValues.items():
             if field_value is not None and field_value != "TOTAL" and not str(field_value).startswith("Sous-total"):
+                mapped_field = field_mapping.get(field_name, field_name)
+                mapped_field = _auto_resolve_field(mapped_field, drill_columns)
                 if str(field_value) == "None" or field_value == "":
-                    where_parts.append(f"[{field_name}] IS NULL")
+                    where_parts.append(f"[{mapped_field}] IS NULL")
                 else:
                     grouping = date_groupings.get(field_name)
                     if grouping:
-                        expr, params = _build_date_grouping_where(field_name, grouping, str(field_value))
+                        expr, params = _build_date_grouping_where(mapped_field, grouping, str(field_value))
                         where_parts.append(f"({expr})")
                         filter_params.extend(params)
                     else:
-                        where_parts.append(f"[{field_name}] = ?")
-                        filter_params.append(field_value)
+                        where_parts.append(f"CAST([{mapped_field}] AS NVARCHAR(MAX)) = ?")
+                        filter_params.append(str(field_value))
 
         if request.columnValue:
             col_field = columns_config[0]["field"] if columns_config else None
             if col_field:
+                mapped_col = field_mapping.get(col_field, col_field)
+                mapped_col = _auto_resolve_field(mapped_col, drill_columns)
                 grouping = date_groupings.get(col_field)
                 if grouping:
-                    expr, params = _build_date_grouping_where(col_field, grouping, str(request.columnValue))
+                    expr, params = _build_date_grouping_where(mapped_col, grouping, str(request.columnValue))
                     where_parts.append(f"({expr})")
                     filter_params.extend(params)
                 else:
-                    where_parts.append(f"[{col_field}] = ?")
-                    filter_params.append(request.columnValue)
+                    where_parts.append(f"CAST([{mapped_col}] AS NVARCHAR(MAX)) = ?")
+                    filter_params.append(str(request.columnValue))
 
         where_clause = " AND ".join(where_parts) if where_parts else "1=1"
 
@@ -2005,13 +2360,22 @@ async def get_fields(
     identifier: str,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
-    """Recupere les champs disponibles d'une datasource"""
+    """Recupere les champs disponibles d'une datasource (résultat mis en cache 10 min)"""
     try:
         # Identifier peut etre un ID numerique ou un code string
         if identifier.isdigit():
             ds = resolve_datasource(int(identifier), dwh_code)
         else:
             ds = resolve_datasource(identifier, dwh_code)
+
+        # Clé de cache : code datasource + dwh_code + hash du template
+        cache_key = hashlib.md5(
+            f"{ds.code}|{dwh_code or ''}|{ds.query_template[:200]}".encode()
+        ).hexdigest()
+
+        cached = _FIELDS_CACHE.get(cache_key)
+        if cached and (time.time() - cached["ts"]) < _FIELDS_CACHE_TTL:
+            return {"success": True, "fields": cached["fields"], "cached": True}
 
         # Injecter des valeurs par defaut pour obtenir les colonnes
         from ..services.parameter_resolver import get_default_context
@@ -2046,6 +2410,7 @@ async def get_fields(
                     field_type = "date"
                 fields.append({"name": key, "type": field_type})
 
+        _FIELDS_CACHE[cache_key] = {"fields": fields, "ts": time.time()}
         return {"success": True, "fields": fields}
     except Exception as e:
         logger.error(f"Erreur get fields V2 '{identifier}': {e}")

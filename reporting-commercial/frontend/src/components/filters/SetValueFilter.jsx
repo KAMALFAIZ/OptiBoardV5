@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useState, useEffect, useRef } from 'react'
+import { useGridFilter } from 'ag-grid-react'
 
 // ─── Opérateurs texte ─────────────────────────────────────────────────────────
 const OPERATORS = [
@@ -58,7 +59,8 @@ const SetValueFilter = forwardRef((props, ref) => {
   const modeRef      = useRef('values')
   const opRef        = useRef('contains')
   const filterValRef = useRef('')
-  const hidePopupRef = useRef(null)
+  const hidePopupRef  = useRef(null)
+  const prevModelRef  = useRef(null)
 
   const [allValues, setAllValues] = useState([])
   const [sel, setSel]             = useState(new Set())
@@ -81,18 +83,23 @@ const SetValueFilter = forwardRef((props, ref) => {
     setSel(new Set(vals))
   }, [])
 
-  useImperativeHandle(ref, () => ({
-    afterGuiAttached(params) {
-      if (params?.hidePopup) hidePopupRef.current = params.hidePopup
-    },
-    isFilterActive() {
-      if (modeRef.current === 'condition') {
-        const op = opRef.current
-        if (op === 'blank' || op === 'notBlank') return true
-        return filterValRef.current.trim() !== ''
-      }
-      return allValuesRef.current.some(v => !selRef.current.has(v))
-    },
+  const isActive = () => {
+    if (modeRef.current === 'condition') {
+      const op = opRef.current
+      if (op === 'blank' || op === 'notBlank') return true
+      return filterValRef.current.trim() !== ''
+    }
+    return allValuesRef.current.some(v => !selRef.current.has(v))
+  }
+
+  const buildModel = () => {
+    if (!isActive()) return null
+    return modeRef.current === 'condition'
+      ? { filterType: 'condition', operator: opRef.current, value: filterValRef.current }
+      : { filterType: 'set', values: [...selRef.current] }
+  }
+
+  useGridFilter({
     doesFilterPass(params) {
       const raw = params.data?.[colId]
       const cellStr = raw == null ? '' : String(raw)
@@ -103,13 +110,16 @@ const SetValueFilter = forwardRef((props, ref) => {
         return testOperator(op, cellStr, filterValRef.current)
       }
       return selRef.current.has(cellStr)
+    }
+  })
+
+  useImperativeHandle(ref, () => ({
+    afterGuiAttached(params) {
+      if (params?.hidePopup) hidePopupRef.current = params.hidePopup
+      prevModelRef.current = buildModel()
     },
-    getModel() {
-      if (!this.isFilterActive()) return null
-      return modeRef.current === 'condition'
-        ? { filterType: 'condition', operator: opRef.current, value: filterValRef.current }
-        : { filterType: 'set', values: [...selRef.current] }
-    },
+    isFilterActive: isActive,
+    getModel: buildModel,
     setModel(model) {
       if (!model) {
         updateSel(new Set(allValuesRef.current))
@@ -151,8 +161,16 @@ const SetValueFilter = forwardRef((props, ref) => {
     updateSel(next)
   }
 
-  const applyFilter  = () => { props.filterChangedCallback?.(); hidePopupRef.current?.() }
-  const cancelFilter = () => { hidePopupRef.current?.() }
+  const applyFilter = () => {
+    const model = buildModel()
+    props.onModelChange?.(model)
+    props.filterChangedCallback?.()
+    hidePopupRef.current?.()
+  }
+  const cancelFilter = () => {
+    props.onModelChange?.(prevModelRef.current ?? null)
+    hidePopupRef.current?.()
+  }
   const needsInput   = operator !== 'blank' && operator !== 'notBlank'
 
   return (

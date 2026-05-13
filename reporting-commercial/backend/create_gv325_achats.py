@@ -30,7 +30,7 @@ new_query = """SELECT
     li.[Remise 1]                      AS [Remise],
     li.[Montant HT Net]                AS [Montant HT],
     li.[Montant TTC Net]               AS [Montant TTC],
-    li.[Prix de revient]               AS [Prix Revient],
+    li.[CMUP]               AS [Prix Revient],
     li.[Frais d'approche]              AS [Frais Approche],
     li.CMUP                            AS [CMUP],
     li.[Poids net]                     AS [Poids Net],

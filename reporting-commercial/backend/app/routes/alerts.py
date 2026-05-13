@@ -3,7 +3,10 @@ from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
 import json
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from ..database_unified import execute_central as execute_query, write_central as write_client
 from ..database_unified import execute_dwh
@@ -88,7 +91,7 @@ def init_alert_tables():
             write_client(sql)
         return True
     except Exception as e:
-        print(f"[ALERTS] Erreur init tables: {e}")
+        logger.error(f"[ALERTS] Erreur init tables: {e}")
         return False
 
 
@@ -328,7 +331,7 @@ async def trigger_evaluation(background_tasks: BackgroundTasks):
 async def _run_evaluation():
     from ..database_unified import execute_client, execute_dwh as _execute_dwh
     result = evaluate_all_alerts(execute_client, _execute_dwh)
-    print(f"[ALERTS] Évaluation manuelle: {result}")
+    logger.info(f"[ALERTS] Évaluation manuelle: {result}")
 
 
 # ==================== SEED DÉMO (dev/demo only) ====================

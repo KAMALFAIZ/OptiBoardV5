@@ -153,6 +153,27 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
     })
   }
 
+  const DATE_GROUPING_OPTIONS = [
+    { value: '', label: 'Brut (date exacte)' },
+    { value: 'mois_annee', label: 'Mois-Année' },
+    { value: 'trimestre_annee', label: 'Trimestre-Année' },
+    { value: 'semestre_annee', label: 'Semestre-Année' },
+    { value: 'annee', label: 'Année' },
+    { value: 'mois', label: 'Mois' },
+    { value: 'trimestre', label: 'Trimestre' },
+    { value: 'semestre', label: 'Semestre' },
+    { value: 'jour', label: 'Jour' },
+    { value: 'semaine', label: 'Semaine' },
+  ]
+
+  const handleChangeDateGrouping = (zone, idx, newGrouping) => {
+    setConfig(prev => {
+      const arr = [...prev[zone]]
+      arr[idx] = { ...arr[idx], date_grouping: newGrouping || undefined }
+      return { ...prev, [zone]: arr }
+    })
+  }
+
   const handleApply = () => {
     onApply(config)
     onClose()
@@ -194,6 +215,18 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
               <span className="flex-1 truncate font-medium text-gray-700 dark:text-gray-300">
                 {f.label || f.field}
               </span>
+              {(zone === 'rows' || zone === 'columns') && f.type === 'date' && (
+                <select
+                  value={f.date_grouping || ''}
+                  onChange={(e) => handleChangeDateGrouping(zone, idx, e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[10px] bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 rounded px-1 py-0.5 text-purple-600 dark:text-purple-300 max-w-[100px]"
+                >
+                  {DATE_GROUPING_OPTIONS.map(dg => (
+                    <option key={dg.value} value={dg.value}>{dg.label}</option>
+                  ))}
+                </select>
+              )}
               {zone === 'values' && (
                 <select
                   value={f.aggregation || 'SUM'}
@@ -599,7 +632,9 @@ export default function PivotViewerV2() {
               setError(json.error || 'Erreur export')
               return
             }
-          } catch (_) { }
+          } catch (_) {
+            // Blob is binary data (not JSON error) — proceed to download
+          }
         }
         const ext = format === 'excel' ? 'xlsx' : format === 'pptx' ? 'pptx' : 'pdf'
         const url = URL.createObjectURL(res.data)
@@ -1024,6 +1059,8 @@ export default function PivotViewerV2() {
           gamme: globalFilters?.gamme,
         }}
         fetchDrilldown={fetchDrilldown}
+        drilldownDsCode={pivotConfig?.drilldown_data_source_code}
+        mainDsCode={pivotConfig?.data_source_code}
       />
 
       {/* Menu contextuel drill-through multi-règles (Pivot) */}

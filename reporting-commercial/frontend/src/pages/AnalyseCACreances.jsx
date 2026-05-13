@@ -575,7 +575,7 @@ export default function AnalyseCACreances() {
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Calendar className="w-5 h-5 text-orange-500" />
-            Creances par Mois (Echeances)
+            Créances par Mois (Échéances)
           </h3>
         </div>
         <div className="overflow-x-auto">

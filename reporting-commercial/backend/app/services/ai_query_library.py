@@ -272,9 +272,9 @@ WHERE [Valorise CA] = 'Oui'
     [Code client],
     [Intitulé client] AS [Client],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %],
     COUNT(DISTINCT [N° Pièce]) AS [Nb Factures]
 FROM Lignes_des_ventes
@@ -288,7 +288,7 @@ ORDER BY [CA HT] DESC"""
         """SELECT
     FORMAT([Date], 'yyyy-MM') AS [Periode],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     COUNT(DISTINCT [Code client]) AS [Nb Clients]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
@@ -305,9 +305,9 @@ ORDER BY [Periode]"""
     [Catalogue 1] AS [Catalogue],
     SUM([Quantité]) AS [Qte Vendue],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
@@ -418,9 +418,9 @@ ORDER BY [CA Annee N] DESC"""
     COUNT(DISTINCT [Code article]) AS [Nb Articles],
     SUM([Quantité]) AS [Qte Vendue],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
@@ -435,9 +435,9 @@ ORDER BY [CA HT] DESC"""
     [Nom collaborateur] AS [Nom],
     [Prénom collaborateur] AS [Prenom],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %],
     COUNT(DISTINCT [Code client]) AS [Nb Clients],
     COUNT(DISTINCT [N° Pièce]) AS [Nb Documents]
@@ -483,9 +483,9 @@ ORDER BY [En Cours] DESC"""
     [Code client],
     [Intitulé client] AS [Client],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge Brute],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge Brute],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'

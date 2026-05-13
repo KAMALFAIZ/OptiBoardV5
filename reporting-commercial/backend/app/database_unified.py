@@ -17,12 +17,17 @@ Fonctions d'acces:
 
 import pyodbc
 import logging
+import secrets
 import warnings
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Generator, List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
+
+# Activer le pooling de connexions au niveau ODBC driver (désactivé par défaut dans certains environnements)
+# Cela permet de réutiliser les connexions entre requêtes successives sans coût de reconnexion.
+pyodbc.pooling = True
 
 import pandas as pd
 
@@ -228,14 +233,39 @@ def test_central_connection() -> bool:
 # GESTION DES DWH CLIENTS (DWH_XXX)
 # =====================================================
 
+class _SemaphoreConnection:
+    """Wrapper pyodbc.Connection qui libère le semaphore global à la fermeture."""
+
+    def __init__(self, conn: pyodbc.Connection, sem: threading.Semaphore):
+        self._conn = conn
+        self._sem = sem
+        self._released = False
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        self._conn.close()
+        if not self._released:
+            self._released = True
+            self._sem.release()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
 class DWHConnectionPool:
     """
     Pool de connexions pour les DWH clients.
-    Thread-safe singleton avec cache des configurations.
+    Thread-safe singleton avec cache des configurations et limitation de concurrence.
     """
 
     _instance = None
     _lock = threading.Lock()
+    MAX_CONCURRENT = 20  # max connexions simultanées vers tous les DWH
 
     def __new__(cls):
         if cls._instance is None:
@@ -245,6 +275,8 @@ class DWHConnectionPool:
                     cls._instance._dwh_cache = {}
                     cls._instance._cache_lock = threading.Lock()
                     cls._instance._cache_ttl = 300
+                    # Semaphore global pour limiter la pression sur le serveur SQL
+                    cls._instance._semaphore = threading.Semaphore(cls.MAX_CONCURRENT)
         return cls._instance
 
     def _get_dwh_info(self, dwh_code: str) -> Optional[DWHConfig]:
@@ -300,14 +332,13 @@ class DWHConnectionPool:
                     dwh_code, ssh,
                     dwh_info.base_dwh, dwh_info.user_dwh, dwh_info.password_dwh,
                 )
-                return pyodbc.connect(conn_str)
+                self._semaphore.acquire()
+                return _SemaphoreConnection(pyodbc.connect(conn_str), self._semaphore)
             except Exception as ssh_err:
-                import logging
-                logging.getLogger("database_unified").warning(
-                    f"[SSH] Tunnel échoué pour {dwh_code} ({ssh_err}), fallback connexion directe"
-                )
+                logger.warning(f"[SSH] Tunnel échoué pour {dwh_code} ({ssh_err}), fallback connexion directe")
 
-        return pyodbc.connect(dwh_info.connection_string)
+        self._semaphore.acquire()
+        return _SemaphoreConnection(pyodbc.connect(dwh_info.connection_string), self._semaphore)
 
     def clear_cache(self, dwh_code: str = None):
         """Vide le cache des DWH."""
@@ -364,14 +395,7 @@ def execute_dwh(
     # ── Sage Direct : intercepter si data_source == "sage" ──
     data_source = current_data_source.get()
 
-    # DEBUG fichier
-    try:
-        with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
-            _f.write(f"\n--- execute_dwh ---\n")
-            _f.write(f"data_source={data_source!r} code={code!r}\n")
-            _f.write(f"query[:400]={query[:400]}\n")
-    except Exception:
-        pass
+    logger.debug(f"[execute_dwh] data_source={data_source!r} code={code!r} query[:200]={query[:200]}")
 
     if data_source == "sage" and code:
         try:
@@ -393,24 +417,13 @@ def execute_dwh(
                     matched_table = table
                     break
 
-            try:
-                with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(f"known_tables={known}\n")
-                    _f.write(f"has_known_table={has_known_table} matched={matched_table}\n")
-            except Exception:
-                pass
+            logger.debug(f"[SAGE DIRECT] known_tables={known} has_known_table={has_known_table} matched={matched_table}")
 
             if has_known_table:
                 try:
                     return execute_sage_direct(query, params, dwh_code=code)
                 except Exception as sage_err:
-                    # Mode Sage Live explicite : pas de fallback silencieux vers DWH.
-                    logger.error(f"[SAGE DIRECT] Echec: {sage_err}")
-                    try:
-                        with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
-                            _f.write(f"SAGE_DIRECT_FAILED (no fallback): {sage_err}\n")
-                    except Exception:
-                        pass
+                    logger.error(f"[SAGE DIRECT] Echec (no fallback): {sage_err}")
                     raise RuntimeError(
                         f"Sage Live: impossible d'exécuter la requête sur Sage. "
                         f"Vérifiez que toutes les tables référencées sont mappées "
@@ -420,11 +433,6 @@ def execute_dwh(
             raise
         except Exception as e:
             logger.error(f"[SAGE DIRECT] Erreur détection tables: {e}")
-            try:
-                with open("D:/kasoft-platform/OptiBoard/reporting-commercial/backend/sage_debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(f"DETECTION_ERROR: {e}\n")
-            except Exception:
-                pass
 
     cache_key = f"dwh:{code}:{query}"
 
@@ -909,6 +917,84 @@ def create_user_context(user_data: Dict[str, Any], dwh_code: str = None) -> User
         pages_accessibles=pages_list
     )
 
+
+# =====================================================
+# SESSIONS SERVEUR (APP_Sessions)
+# =====================================================
+
+_SESSION_EXPIRE_MINUTES = 480  # 8 heures
+
+
+def create_session(
+    user_id: int,
+    dwh_code: Optional[str],
+    ip: Optional[str] = None,
+    expire_minutes: int = _SESSION_EXPIRE_MINUTES,
+) -> str:
+    """Crée une session, stocke le token en centrale, retourne le token."""
+    token = secrets.token_hex(32)
+    write_central(
+        """INSERT INTO APP_Sessions (token, user_id, dwh_code, ip_address, expires_at)
+           VALUES (?, ?, ?, ?, DATEADD(minute, ?, GETDATE()))""",
+        (token, user_id, dwh_code, ip, expire_minutes),
+    )
+    # Nettoyage asynchrone des vieilles sessions (best-effort)
+    try:
+        write_central(
+            "DELETE FROM APP_Sessions WHERE expires_at < DATEADD(hour, -24, GETDATE())"
+        )
+    except Exception:
+        pass
+    return token
+
+
+def validate_session(token: str) -> Optional[Dict[str, Any]]:
+    """Valide un token de session. Retourne {user_id, dwh_code} ou None."""
+    if not token or len(token) != 64:
+        return None
+    rows = execute_central(
+        "SELECT user_id, dwh_code FROM APP_Sessions WHERE token=? AND is_active=1 AND expires_at > GETDATE()",
+        (token,),
+        use_cache=False,
+    )
+    if rows:
+        try:
+            write_central(
+                "UPDATE APP_Sessions SET last_activity=GETDATE() WHERE token=?", (token,)
+            )
+        except Exception:
+            pass
+        return rows[0]
+    return None
+
+
+def invalidate_session(token: str) -> None:
+    """Invalide un token de session (logout)."""
+    try:
+        write_central("UPDATE APP_Sessions SET is_active=0 WHERE token=?", (token,))
+    except Exception:
+        pass
+
+
+def invalidate_all_user_sessions(user_id: int, dwh_code: Optional[str] = None) -> None:
+    """Invalide toutes les sessions d'un utilisateur (suspension, reset mdp)."""
+    try:
+        if dwh_code:
+            write_central(
+                "UPDATE APP_Sessions SET is_active=0 WHERE user_id=? AND (dwh_code=? OR dwh_code IS NULL)",
+                (user_id, dwh_code),
+            )
+        else:
+            write_central(
+                "UPDATE APP_Sessions SET is_active=0 WHERE user_id=?", (user_id,)
+            )
+    except Exception:
+        pass
+
+
+# =====================================================
+# FILTRE SOCIETE
+# =====================================================
 
 def build_societe_filter(
     user_context: UserContext,

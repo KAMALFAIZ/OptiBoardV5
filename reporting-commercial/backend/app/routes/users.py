@@ -179,7 +179,7 @@ def init_tables():
                 cursor.execute(query)
         return True
     except Exception as e:
-        print(f"Erreur init tables: {e}")
+        logger.error(f"Erreur init tables: {e}")
         return False
 
 
@@ -249,8 +249,8 @@ async def create_societe(societe: SocieteCreate):
         return {"success": True, "message": "Societe creee avec succes"}
     except Exception as e:
         import traceback
-        print(f"Erreur creation societe: {e}")
-        print(traceback.format_exc())
+        logger.error(f"Erreur creation societe: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -335,7 +335,7 @@ async def migrate_societes_table():
         return {"success": True, "message": "Table APP_Societes migree avec succes"}
     except Exception as e:
         import traceback
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 
 
@@ -523,7 +523,7 @@ async def execute_societe_query(code: str, request: dict):
 @router.get("/dwh")
 async def get_dwh_list():
     """Liste tous les DWH disponibles depuis APP_DWH"""
-    print("[DEBUG] get_dwh_list CALLED")
+    logger.debug("[DEBUG] get_dwh_list CALLED")
     try:
         dwh_list = execute_query(
             """
@@ -536,7 +536,7 @@ async def get_dwh_list():
         )
         return {"success": True, "data": dwh_list}
     except Exception as e:
-        print(f"[ERROR] get_dwh_list: {e}")
+        logger.error(f"[ERROR] get_dwh_list: {e}")
         # Fallback sans is_demo
         try:
             dwh_list = execute_query("SELECT code, nom, serveur_dwh, base_dwh, actif FROM APP_DWH WHERE actif = 1 ORDER BY nom", use_cache=False)

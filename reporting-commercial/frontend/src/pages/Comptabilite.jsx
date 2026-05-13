@@ -24,53 +24,63 @@ const TABS = [
     id: 'balance_generale',        label: 'Balance Générale',         icon: BookOpen,
     ds: 'DS_BALANCE_GENERALE',     type: 'balance',
     columns: ['Compte','Intitule','Nature','Societe','A Nouveau','Mvt Debit','Mvt Credit','Total Debit','Total Credit','Solde','Solde Debiteur','Solde Crediteur'],
+    labels: { Intitule: 'Intitulé', Societe: 'Société', 'Solde Debiteur': 'Solde Débiteur', 'Solde Crediteur': 'Solde Créditeur', 'Mvt Debit': 'Mvt Débit', 'Mvt Credit': 'Mvt Crédit', 'Total Debit': 'Total Débit', 'Total Credit': 'Total Crédit' },
   },
   {
     id: 'journal_ecritures',       label: 'Journal des Écritures',    icon: FileText,
     ds: 'DS_ECRITURES_DETAIL',     type: 'detail',
     columns: ['Date','Journal','Num Piece','Compte','Intitule Compte','Tiers','Libelle','Débit','Crédit','Lettrage','Societe'],
+    labels: { 'Num Piece': 'Num Pièce', 'Intitule Compte': 'Intitulé Compte', Libelle: 'Libellé', Societe: 'Société' },
   },
   {
     id: 'balance_tiers',           label: 'Balance Tiers',            icon: Users,
     ds: 'DS_ECRITURES_PAR_TIERS',  type: 'tiers',
     columns: ['Code Tiers','Tiers','Type','Societe','Total Debit','Total Credit','Solde','Nb Ecritures'],
+    labels: { Societe: 'Société', 'Total Debit': 'Total Débit', 'Total Credit': 'Total Crédit', 'Nb Ecritures': 'Nb Écritures' },
   },
   {
     id: 'tresorerie',              label: 'Écritures de Trésorerie',  icon: Landmark,
     ds: 'DS_TRESORERIE',           type: 'tresorerie',
     columns: ['Compte','Intitule','Societe','Solde Initial','Encaissements','Decaissements','Solde Final'],
+    labels: { Intitule: 'Intitulé', Societe: 'Société', Decaissements: 'Décaissements' },
   },
   {
     id: 'charges',                 label: 'Détail des Charges',       icon: TrendingDown,
     ds: 'DS_DETAIL_CHARGES',       type: 'charges',
     columns: ['Compte','Intitule','Societe','Montant N','Montant N1','Evolution %'],
+    labels: { Intitule: 'Intitulé', Societe: 'Société' },
   },
   {
     id: 'produits',                label: 'Détail des Produits',      icon: TrendingUp,
     ds: 'DS_DETAIL_PRODUITS',      type: 'produits',
     columns: ['Compte','Intitule','Societe','Montant N','Montant N1','Evolution %'],
+    labels: { Intitule: 'Intitulé', Societe: 'Société' },
   },
   {
     id: 'echeances_clients',       label: 'Échéances Clients',        icon: Clock,
     ds: 'DS_ECHEANCES_COMPTABLES', type: 'echeances',
     columns: ['Echeance','Compte','Compte Tiers','Tiers','Num Piece','Libelle','Débit','Crédit','Mode Reglement','Jours Avant Echeance','Societe'],
+    labels: { Echeance: 'Échéance', 'Num Piece': 'Num Pièce', Libelle: 'Libellé', 'Mode Reglement': 'Mode Règlement', 'Jours Avant Echeance': 'Jours Avant Échéance', Societe: 'Société' },
     extraFilter: (r) => (r['Type tiers'] || '').toLowerCase().includes('client'),
   },
   {
     id: 'echeances_fournisseurs',  label: 'Échéances Fournisseurs',   icon: Building2,
     ds: 'DS_ECHEANCES_COMPTABLES', type: 'echeances',
     columns: ['Echeance','Compte','Compte Tiers','Tiers','Num Piece','Libelle','Débit','Crédit','Mode Reglement','Jours Avant Echeance','Societe'],
+    labels: { Echeance: 'Échéance', 'Num Piece': 'Num Pièce', Libelle: 'Libellé', 'Mode Reglement': 'Mode Règlement', 'Jours Avant Echeance': 'Jours Avant Échéance', Societe: 'Société' },
     extraFilter: (r) => (r['Type tiers'] || '').toLowerCase().includes('fourn'),
   },
   {
     id: 'lettrage',                label: 'Lettrage & Rapprochement', icon: Link2,
     ds: 'DS_LETTRAGE',             type: 'lettrage',
     columns: ['Compte','Intitule','Societe','Nb Lettrees','Nb Non Lettrees','Solde Non Lettre'],
+    labels: { Intitule: 'Intitulé', Societe: 'Société', 'Nb Lettrees': 'Nb Lettrées', 'Nb Non Lettrees': 'Nb Non Lettrées', 'Solde Non Lettre': 'Solde Non Lettré' },
   },
   {
     id: 'analyses',                label: 'Analyses Comptables',      icon: BarChart2,
     ds: 'DS_ECRITURES_PAR_MOIS',   type: 'analyses',
     columns: ['Annee','Mois','Societe','Nb Ecritures','Total Debit','Total Credit','Nb Comptes','Nb Pieces'],
+    labels: { Annee: 'Année', Societe: 'Société', 'Nb Ecritures': 'Nb Écritures', 'Total Debit': 'Total Débit', 'Total Credit': 'Total Crédit', 'Nb Pieces': 'Nb Pièces' },
   },
 ]
 
@@ -83,7 +93,7 @@ const MONEY_COLS = new Set([
 ])
 
 // ── DataTable simple ──────────────────────────────────────────────────────────
-function SimpleTable({ rows, columns, pageSize = 25 }) {
+function SimpleTable({ rows, columns, labels = {}, pageSize = 25 }) {
   const [page, setPage] = useState(0)
   if (!rows?.length) return <p className="text-sm text-gray-400 py-8 text-center">Aucune donnée</p>
 
@@ -110,7 +120,7 @@ function SimpleTable({ rows, columns, pageSize = 25 }) {
             <tr>
               {columns.map(c => (
                 <th key={c} className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                  {c}
+                  {labels[c] || c}
                 </th>
               ))}
             </tr>
@@ -226,7 +236,7 @@ function TabPanel({ tab, globalFilters, navigate }) {
           </button>
         </div>
       </div>
-      <SimpleTable rows={rows} columns={tab.columns} />
+      <SimpleTable rows={rows} columns={tab.columns} labels={tab.labels} />
     </div>
   )
 }

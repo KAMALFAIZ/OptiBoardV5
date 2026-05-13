@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import useSidebarResize from '../hooks/useSidebarResize'
 import { useAuth } from '../context/AuthContext'
 import { useGlobalFilters } from '../context/GlobalFilterContext'
 import DataSourceSelector from '../components/DataSourceSelector'
@@ -25,9 +26,9 @@ const TABS = [
 const APPLICATION_OPTIONS = [
   { value: '', label: '-- Aucune application --' },
   { value: 'commercial', label: 'Gestion Commerciale' },
-  { value: 'comptabilite', label: 'Comptabilite' },
+  { value: 'comptabilite', label: 'Comptabilité' },
   { value: 'paie', label: 'Paie' },
-  { value: 'tresorerie', label: 'Gestion Tresorerie' },
+  { value: 'tresorerie', label: 'Gestion Trésorerie' },
 ]
 
 const APP_DOT = {
@@ -37,8 +38,8 @@ const APP_DOT = {
   tresorerie:   'bg-violet-500',
 }
 const APP_LABEL = {
-  commercial: 'Commerciale', comptabilite: 'Comptabilite',
-  paie: 'Paie', tresorerie: 'Tresorerie',
+  commercial: 'Commerciale', comptabilite: 'Comptabilité',
+  paie: 'Paie', tresorerie: 'Trésorerie',
 }
 
 export default function SpreadsheetBuilder() {
@@ -50,8 +51,7 @@ export default function SpreadsheetBuilder() {
   const [listLoading, setListLoading] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [sidebarAppFilter, setSidebarAppFilter] = useState('')
-  const [sidebarWidth, setSidebarWidth] = useState(256)
-  const sidebarDragging = useRef(false)
+  const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(256)
 
   const [config, setConfig] = useState({
     nom: '',
@@ -72,29 +72,6 @@ export default function SpreadsheetBuilder() {
   const [fieldsPerSheet, setFieldsPerSheet] = useState({})
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef(null)
-
-  // Sidebar resize
-  const handleSidebarResizeStart = useCallback((e) => {
-    e.preventDefault()
-    sidebarDragging.current = true
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-    const onMouseMove = (e) => {
-      if (!sidebarDragging.current) return
-      setSidebarWidth(Math.min(Math.max(startWidth + (e.clientX - startX), 160), 520))
-    }
-    const onMouseUp = () => {
-      sidebarDragging.current = false
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [sidebarWidth])
 
   useEffect(() => { loadList() }, [])
 

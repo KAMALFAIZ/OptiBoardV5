@@ -10,7 +10,7 @@ import {
 import * as XLSX from 'xlsx'
 import Loading from '../components/common/Loading'
 import CheckboxListFilter from '../components/common/CheckboxListFilter'
-import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions, exportGridPptx } from '../services/api'
+import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions, exportGridPptx, isRequestCanceled } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { mapColumnsToColDefs, buildTotalsRow, columnStateToPrefs, prefsToColumnState } from '../utils/agGridColumnMapper'
@@ -242,7 +242,15 @@ export default function GridViewDisplay() {
             const defMap  = Object.fromEntries(finalColumns.map(c => [c.field, c]))
             const prefsFields = new Set(prefs.map(c => c.field))
             // 1. Colonnes présentes dans les prefs (dans l'ordre préféré)
-            const merged = prefs.filter(c => defMap[c.field])
+            // Propriétés système (format, type) toujours depuis la DB — prefs = layout seulement
+            const merged = prefs
+              .filter(c => defMap[c.field])
+              .map(c => ({
+                ...c,
+                header: defMap[c.field].header || c.header || c.field,
+                format: defMap[c.field].format || c.format || '',
+                type:   defMap[c.field].type   || c.type   || '',
+              }))
             // 2. Nouvelles colonnes de la définition absentes des prefs (ajoutées visibles)
             const added = finalColumns.filter(c => !prefsFields.has(c.field))
             finalColumns = [...merged, ...added]
@@ -300,9 +308,7 @@ export default function GridViewDisplay() {
             sourceIdentifier = gridData.data_source_id
             sourceRes = await getDataSource(sourceIdentifier)
           }
-          console.log('[DBG] sourceRes success:', sourceRes?.data?.success, 'data?', !!sourceRes?.data?.data)
         } catch (e) {
-          console.warn('[DBG] DataSource 404/erreur:', e?.response?.status, e?.response?.data)
           setLoading(false)
           return
         }
@@ -438,6 +444,7 @@ export default function GridViewDisplay() {
       }
 
       const sourceData = response.data.data || []
+      const apiColumnsRaw = response.data.columns || []   // [{name, type}] depuis le backend
       dbg.responseTotal = response.data.total ?? response.data.count ?? sourceData.length
       dbg.rowsReceived = sourceData.length
       dbg.responseKeys = response.data ? Object.keys(response.data) : []
@@ -504,6 +511,62 @@ export default function GridViewDisplay() {
       }
       setAllData(remappedData)
 
+      // Auto-générer les colonnes depuis les données si columns_config est vide
+      if (columns.length === 0 && remappedData.length > 0) {
+        const autoKeys = Object.keys(remappedData[0]).filter(k => !k.startsWith('__'))
+
+        // Construire un map name→type depuis la réponse API (types SQL réels)
+        // ex: nvarchar→text, decimal→number, datetime→date
+        const apiTypeMap = {}
+        apiColumnsRaw.forEach(c => { if (c.name) apiTypeMap[c.name] = c.type })
+
+        // Fallback : détecter le type en scannant TOUTES les lignes (si API ne retourne rien)
+        // Regex ISO 8601 : "2026-04-14T00:00:00" ou "2026-04-14"
+        const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/
+        const detectColTypeFromData = (key) => {
+          for (const row of remappedData) {
+            const v = row[key]
+            if (v === null || v === undefined) continue
+            // Date ISO sérialisée par le backend (datetime → string JSON)
+            if (typeof v === 'string' && ISO_DATE_RE.test(v.trim())) return 'date'
+            if (typeof v === 'string') {
+              const s = v.trim()
+              if (s === '') continue
+              // Zéros de tête → code varchar ("000172", "001") → text
+              if (s.startsWith('0') && s.length > 1 && !isNaN(Number(s))) return 'text'
+              // Non-numérique → varchar
+              if (isNaN(Number(s))) return 'text'
+              // Sinon : chaîne numérique sans zéros de tête → continuer pour décider
+              continue
+            }
+          }
+          for (const row of remappedData) {
+            const v = row[key]
+            if (typeof v === 'number') return 'number'
+            if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v.trim()))) return 'number'
+          }
+          return 'text'
+        }
+
+        // Détecter si le backend retourne des types significatifs (au moins 1 non-"text")
+        // vs. ancien backend qui retourne "text" pour tout (pas de détection avancée)
+        const apiHasProperTypes = apiColumnsRaw.length > 0 &&
+          apiColumnsRaw.some(c => c.type && c.type !== 'text')
+
+        const autoCols = autoKeys.map(k => {
+          let finalType
+          if (apiHasProperTypes && apiTypeMap[k]) {
+            // Backend avec détection SQL → on lui fait confiance entièrement
+            finalType = apiTypeMap[k]
+          } else {
+            // Ancien backend (tout "text") ou absence de métadonnées → scan données
+            finalType = detectColTypeFromData(k)
+          }
+          return { field: k, header: k, visible: true, width: 120, type: finalType }
+        })
+        setColumns(autoCols)
+      }
+
       // Log toujours visible dans la console pour diagnostic
       if (sourceData.length === 0 || dbg.error) {
         console.warn('[OptiBoard] GridView 0 résultats / erreur:', {
@@ -520,6 +583,7 @@ export default function GridViewDisplay() {
         setShowDebug(true)
       }
     } catch (err) {
+      if (isRequestCanceled(err)) return
       console.error('Erreur chargement source:', err)
       dbg.error = err?.response?.data?.detail || err?.message || String(err)
       setError('Erreur lors du chargement des données')
@@ -1630,9 +1694,10 @@ export default function GridViewDisplay() {
           columnDefs={agColumnDefs}
           defaultColDef={defaultColDef}
           localeText={AG_GRID_LOCALE_FR}
-          animateRows={true}
+          animateRows={displayData.length < 5000}
+          rowBuffer={displayData.length > 5000 ? 10 : 20}
           enableCellTextSelection={true}
-          ensureDomOrder={true}
+          ensureDomOrder={displayData.length < 5000}
           // postSortRows uniquement sans groupement (avec groupement, le comparator neutre
           // empêche AG Grid de réordonner — groupedData est déjà pré-trié)
           postSortRows={undefined}

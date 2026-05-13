@@ -3,6 +3,9 @@ from fastapi import APIRouter, Header
 from pydantic import BaseModel
 from typing import Optional
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, execute_client
 
@@ -61,7 +64,7 @@ def init_favorites_tables():
             cur.execute(sql_recents)
         return True
     except Exception as e:
-        print(f"[FAVORITES] Erreur init tables: {e}")
+        logger.error(f"[FAVORITES] Erreur init tables: {e}")
         return False
 
 

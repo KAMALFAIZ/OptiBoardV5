@@ -13,6 +13,7 @@ import {
   UserCheck, UserX, User,
   MapPin, Layers, AlertTriangle, Zap, Clock, GitCompare, Filter, Gauge,
   Link as LinkIcon,
+  Sheet, Sigma,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useDWH } from '../../context/DWHContext'
@@ -29,7 +30,16 @@ const ICON_MAP = {
   UserCheck, UserX, User,
   MapPin, Layers, AlertTriangle, Zap, Clock, GitCompare, Filter, Gauge,
 }
-const getIcon = (name) => ICON_MAP[name] || FolderIcon
+const TYPE_ICONS = {
+  'gridview':   Sheet,
+  'pivot':      Sigma,
+  'pivot-v2':   Sigma,
+  'dashboard':  LayoutDashboard,
+}
+const getIcon = (name, type) => {
+  if (name && ICON_MAP[name]) return ICON_MAP[name]
+  return TYPE_ICONS[type] || FolderIcon
+}
 
 function getUrl(menu) {
   if (menu.type === 'dashboard' && menu.target_id) return `/view/${menu.target_id}`
@@ -43,7 +53,7 @@ function getUrl(menu) {
 function MenuItem({ menu, depth = 0, onNavigate, location }) {
   const [open, setOpen] = useState(false)
   const hasChildren = menu.children && menu.children.length > 0
-  const IconComp = getIcon(menu.icon)
+  const IconComp = getIcon(menu.icon, menu.type)
   const url = getUrl(menu)
   const isActive = !!(url && location?.pathname === url)
 

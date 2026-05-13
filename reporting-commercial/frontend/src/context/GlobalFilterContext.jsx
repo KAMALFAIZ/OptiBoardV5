@@ -15,7 +15,7 @@ const getDefaultFilters = () => {
   const year = today.getFullYear()
 
   return {
-    dateDebut: `${year - 2}-01-01`,
+    dateDebut: `${year - 10}-01-01`,
     dateFin: today.toISOString().split('T')[0],
     annee: year,
     societe: null,

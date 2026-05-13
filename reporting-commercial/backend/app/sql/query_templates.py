@@ -118,7 +118,7 @@ SELECT
     [N° Pièce],
     [CMUP],
     [Prix unitaire],
-    [Prix de revient],
+    [CMUP],
     [Quantité],
     [Sens de mouvement],
     [Montant Stock],

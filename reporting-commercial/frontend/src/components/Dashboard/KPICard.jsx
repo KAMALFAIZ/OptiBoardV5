@@ -33,11 +33,11 @@ export default function KPICard({
     return 'text-gray-500'
   }
 
-  const { formatNumber, settings } = useSettings()
+  const { formatKpiNumber } = useSettings()
 
-  // Utiliser les paramètres pour formater la valeur
+  // Utiliser le format KPI configuré dans les paramètres
   const displayValue = value !== undefined && value !== null
-    ? formatNumber(value, { showCurrency: false })
+    ? formatKpiNumber(value)
     : (formattedValue || '-').replace(/\s*MAD\s*/gi, '')
 
   return (

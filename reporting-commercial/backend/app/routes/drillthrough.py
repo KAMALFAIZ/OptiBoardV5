@@ -3,6 +3,9 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..database_unified import execute_central, central_cursor, execute_client
 
@@ -88,7 +91,7 @@ def init_drillthrough_tables():
             cur.execute(sql)
         return True
     except Exception as e:
-        print(f"[DRILLTHROUGH] Erreur init table: {e}")
+        logger.error(f"[DRILLTHROUGH] Erreur init table: {e}")
         return False
 
 
@@ -290,7 +293,7 @@ async def get_available_reports():
         }
     except Exception as e:
         import traceback
-        print(f"[DRILLTHROUGH] available-reports error: {traceback.format_exc()}")
+        logger.error(f"[DRILLTHROUGH] available-reports error: {traceback.format_exc()}")
         return {"success": False, "error": str(e), "data": {}}
 
 

@@ -18,6 +18,8 @@ import {
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { useToast } from '../components/common/Toast'
+import useSidebarResize from '../hooks/useSidebarResize'
 import { mapColumnsToColDefs, buildTotalsRow } from '../utils/agGridColumnMapper'
 import { AG_GRID_LOCALE_FR } from '../utils/agGridLocaleFr'
 
@@ -57,6 +59,7 @@ const APP_BG = {
 export default function GridViewBuilder() {
   const { user } = useAuth()
   const { darkMode } = useTheme()
+  const toast = useToast()
   const previewGridRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [grids, setGrids] = useState([])
@@ -73,30 +76,7 @@ export default function GridViewBuilder() {
   const [editingSourceId, setEditingSourceId] = useState(null) // null = nouvelle source, id = modifier source existante
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [sidebarAppFilter, setSidebarAppFilter] = useState('')
-  const [sidebarWidth, setSidebarWidth] = useState(256)
-  const sidebarDragging = useRef(false)
-
-  const handleSidebarResizeStart = useCallback((e) => {
-    e.preventDefault()
-    sidebarDragging.current = true
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-    const onMouseMove = (e) => {
-      if (!sidebarDragging.current) return
-      setSidebarWidth(Math.min(Math.max(startWidth + (e.clientX - startX), 160), 520))
-    }
-    const onMouseUp = () => {
-      sidebarDragging.current = false
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [sidebarWidth])
+  const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(256)
 
   // Gestion des paramètres de la source
   const [sourceParams, setSourceParams] = useState([])
@@ -284,11 +264,11 @@ export default function GridViewBuilder() {
       const sourceFields = resp.fields || []
 
       if (!resp.success && resp.error) {
-        alert(`Erreur lors de la lecture des colonnes :\n${resp.error}`)
+        toast.error(resp.error, { title: 'Erreur colonnes' })
         return
       }
       if (sourceFields.length === 0) {
-        alert('Aucune colonne retournée par le DataSource. Vérifiez la requête SQL et la connexion DWH.')
+        toast.warning('Aucune colonne retournée par le DataSource. Vérifiez la requête SQL et la connexion DWH.')
         return
       }
 
@@ -320,10 +300,10 @@ export default function GridViewBuilder() {
       if (added.length) msgs.push(`+ Ajoutées : ${added.join(', ')}`)
       if (removed.length) msgs.push(`- Supprimées : ${removed.join(', ')}`)
       if (!msgs.length) msgs.push('Aucune modification — les colonnes correspondent déjà à la requête.')
-      alert(msgs.join('\n'))
+      toast.info(msgs.join('\n'), { title: 'Synchronisation colonnes' })
     } catch (error) {
       console.error('Erreur resync colonnes:', error)
-      alert(`Erreur réseau : ${error.message}`)
+      toast.error(`Erreur réseau : ${error.message}`)
     } finally {
       setReloadingColumns(false)
     }
@@ -538,14 +518,14 @@ export default function GridViewBuilder() {
       if (user?.id) {
         await saveUserGridPrefs(currentGrid.id, user.id, sanitizedColumns)
       }
-      alert('Grille sauvegardée !')
+      toast.success('Grille sauvegardée !')
     } catch (error) {
       console.error('Erreur sauvegarde:', error)
       const detail = error.response?.data?.detail
       const msg = Array.isArray(detail)
         ? detail.map(d => d.msg || JSON.stringify(d)).join('\n')
         : (typeof detail === 'string' ? detail : error.message)
-      alert('Erreur sauvegarde:\n' + msg)
+      toast.error(msg, { title: 'Erreur sauvegarde' })
     } finally {
       setSaving(false)
     }
@@ -599,7 +579,7 @@ export default function GridViewBuilder() {
       loadData()
     } catch (error) {
       console.error('Erreur suppression datasource:', error)
-      alert('Erreur lors de la suppression de la source de données')
+      toast.error('Erreur lors de la suppression de la source de données')
     }
   }
 
@@ -741,20 +721,9 @@ export default function GridViewBuilder() {
         }
       })
 
-      // DEBUG: Afficher les paramètres envoyés
-      console.log('=== DEBUG APERCU ===')
-      console.log('Source params:', sourceParams)
-      console.log('Param values:', paramValues)
-      console.log('Context envoyé:', context)
-      console.log('DataSource code:', config.data_source_code)
-
-      // Utiliser l'API unifiée si on a un code de template
       let response
       if (config.data_source_code) {
-        // Utiliser previewUnifiedDataSource pour les templates
-        console.log('Appel API: previewUnifiedDataSource(' + config.data_source_code + ', ', context, ')')
         response = await previewUnifiedDataSource(config.data_source_code, context)
-        console.log('Réponse API:', response.data)
         const allData = response.data.data || []
 
         // Stocker TOUTES les données — AG Grid gère la pagination
@@ -1043,10 +1012,7 @@ export default function GridViewBuilder() {
                     value={config.data_source_code || config.data_source_id}
                     onChange={handleDataSourceChange}
                     showPreview={true}
-                    onPreview={(ds) => {
-                      // Preview de la datasource
-                      console.log('Preview datasource:', ds)
-                    }}
+                    onPreview={() => {}}
                     placeholder="Sélectionner un template ou une source..."
                   />
                   {selectedDataSource && (

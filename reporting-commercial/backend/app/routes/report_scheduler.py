@@ -6,6 +6,9 @@ from datetime import datetime, timedelta, date as date_type
 import json
 import os
 import tempfile
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..database_unified import execute_client as execute_query, client_cursor, central_cursor as get_db_cursor
 # Report Scheduler : tables de config en base centrale, données en base client
@@ -196,7 +199,7 @@ def init_scheduler_tables():
                     pass
         return True
     except Exception as e:
-        print(f"Erreur init tables scheduler: {e}")
+        logger.error(f"Erreur init tables scheduler: {e}")
         return False
 
 
@@ -723,7 +726,7 @@ async def execute_schedule(schedule: dict, custom_subject: str = None, custom_me
                 with get_db_cursor() as cursor:
                     cursor.execute("UPDATE APP_ReportSchedules SET is_active=0 WHERE id=?", (schedule.get('id'),))
             except Exception as e:
-                print(f"Erreur desactivation schedule expire: {e}")
+                logger.error(f"Erreur desactivation schedule expire: {e}")
             return
 
     try:
@@ -806,7 +809,7 @@ async def execute_schedule(schedule: dict, custom_subject: str = None, custom_me
                     schedule['id']
                 ))
     except Exception as e:
-        print(f"Erreur enregistrement historique: {e}")
+        logger.error(f"Erreur enregistrement historique: {e}")
 
     # Nettoyer le fichier temporaire
     if file_path and os.path.exists(file_path):
@@ -830,16 +833,16 @@ async def get_users_with_emails():
             ORDER BY nom, prenom
         """, use_cache=False)
 
-        print(f"[USERS-WITH-EMAILS] Utilisateurs trouves: {len(users) if users else 0}")
+        logger.info(f"[USERS-WITH-EMAILS] Utilisateurs trouves: {len(users) if users else 0}")
         if users:
             for u in users:
-                print(f"  - {u.get('nom')} {u.get('prenom')}: {u.get('email')}")
+                logger.info(f"  - {u.get('nom')} {u.get('prenom')}: {u.get('email')}")
 
         return {"success": True, "data": users or []}
     except Exception as e:
         import traceback
-        print(f"[USERS-WITH-EMAILS] Erreur: {e}")
-        print(traceback.format_exc())
+        logger.error(f"[USERS-WITH-EMAILS] Erreur: {e}")
+        logger.error(traceback.format_exc())
         return {"success": False, "error": str(e), "data": []}
 
 

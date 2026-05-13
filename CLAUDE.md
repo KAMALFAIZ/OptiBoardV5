@@ -341,15 +341,15 @@ Sans `..\backend`, `from app.config import ...` échoue au runtime.
 │  Serveur central KASOFT (cloud) │         │  Client (LAN)                │
 │  ┌───────────────────────────┐  │  HTTPS  │  ┌────────────────────────┐  │
 │  │ OptiBoard_SaaS (master)   │◄─┼─────────┤  │ Récupérer base maître  │  │
-│  │   APP_Menus, _Dashboards, │  │         │  └──────────┬─────────────┘  │
+│  │   _Dashboards,            │  │         │  └──────────┬─────────────┘  │
 │  │   _GridViews, _Pivots_V2  │  │         │             │                │
 │  └─────────┬─────────────────┘  │         │  ┌──────────▼─────────────┐  │
 │            │                     │         │  │ update_manager.py      │  │
-│  GET /api/master/menus           │         │  │ (urllib HTTP client)   │  │
-│  GET /api/master/dashboards      │         │  └──────────┬─────────────┘  │
-│  GET /api/master/gridviews       │         │             │                │
-│  GET /api/master/pivots          │         │  ┌──────────▼─────────────┐  │
-│  GET /api/master/datasources     │         │  │ OptiBoard_<CODE>       │  │
+│  GET /api/master/dashboards      │         │  │ (urllib HTTP client)   │  │
+│  GET /api/master/gridviews       │         │  └──────────┬─────────────┘  │
+│  GET /api/master/pivots          │         │             │                │
+│                                  │         │  ┌──────────▼─────────────┐  │
+│                                  │         │  │ OptiBoard_<CODE>       │  │
 │  GET /api/master/all             │         │  │ (is_customized=1       │  │
 │  GET /api/master/info            │         │  │  protège du sync)      │  │
 │  Auth: X-Master-Api-Key          │         │  └────────────────────────┘  │

@@ -16,7 +16,8 @@ import {
 import {
   getAllMenus, getMenusFlat, createMenu, updateMenu, deleteMenu,
   getMenuTargets, getUsers, getUserMenuAccess, setBulkUserMenuAccess,
-  pullBuilderMenus
+  pullBuilderMenus,
+  deleteOrphanReports
 } from '../services/api'
 
 const ICONS = [
@@ -281,6 +282,8 @@ export default function MenuManagement() {
   // Pull depuis base maître
   const [pulling, setPulling] = useState(false)
   const [pullResult, setPullResult] = useState(null)
+  const [showPullConfirm, setShowPullConfirm] = useState(false)
+  const [showEmptyConfirm, setShowEmptyConfirm] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -317,28 +320,49 @@ export default function MenuManagement() {
     }
   }
 
-  const handlePullFromMaster = async () => {
+  const executePullFromMaster = async (withOrphanCleanup = false) => {
+    setShowPullConfirm(false)
+    setShowEmptyConfirm(false)
     setPulling(true)
     setPullResult(null)
     try {
+      // 1. Pull depuis la base maître (menus + rapports)
       const res = await pullBuilderMenus()
       const data = res.data || {}
+
+      // 2. Supprimer les rapports non référencés dans les nouveaux menus
+      let deletedCount = 0
+      if (withOrphanCleanup) {
+        const result = await deleteOrphanReports()
+        deletedCount = result.deleted || 0
+      }
+
       setPullResult({
         success: true,
         applied: data.applied || 0,
+        deleted: deletedCount,
         errors: data.errors || []
       })
-      // Recharger les menus après pull
       await loadData()
     } catch (err) {
-      setPullResult({
-        success: false,
-        message: err?.response?.data?.detail || 'Erreur lors de la récupération'
-      })
+      const detail = err?.response?.data?.detail
+      const message = typeof detail === 'string'
+        ? detail
+        : detail
+          ? JSON.stringify(detail)
+          : err?.message || 'Erreur lors de la récupération'
+      setPullResult({ success: false, message })
     } finally {
       setPulling(false)
-      // Effacer le message après 5 secondes
-      setTimeout(() => setPullResult(null), 5000)
+      setTimeout(() => setPullResult(null), 7000)
+    }
+  }
+
+  const handlePullFromMaster = () => {
+    if (menus.length > 0) {
+      setShowPullConfirm(true)
+    } else {
+      setShowEmptyConfirm(true)
     }
   }
 
@@ -803,6 +827,84 @@ export default function MenuManagement() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-gray-900">
+
+      {/* Modal confirmation — aucun menu, supprimer rapports + récupérer */}
+      {showEmptyConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+                  Réinitialisation complète
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Aucun menu trouvé. La récupération depuis la base maître va également
+                  <strong className="text-gray-700 dark:text-gray-200"> supprimer tous les rapports </strong>
+                  (GridViews, Pivots, Dashboards, Spreadsheets) avant d'importer la configuration centrale.
+                </p>
+                <p className="text-xs text-red-500 dark:text-red-400 mt-2 font-medium">
+                  Cette action est irréversible.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowEmptyConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => executePullFromMaster(true)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+              >
+                Supprimer et récupérer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmation pull maître */}
+      {showPullConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+                  Remplacer les menus existants ?
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {menus.length} menu(s) existent déjà. La récupération depuis la base maître va
+                  les <strong className="text-gray-700 dark:text-gray-200">écraser</strong> avec
+                  la configuration centrale. Cette action est irréversible.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowPullConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={executePullFromMaster}
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors"
+              >
+                Oui, remplacer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -835,7 +937,7 @@ export default function MenuManagement() {
                   : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
               }`}>
                 {pullResult.success
-                  ? `✓ ${pullResult.applied} élément(s) synchronisé(s)`
+                  ? `✓ ${pullResult.applied} élément(s) synchronisé(s)${pullResult.deleted ? ` · ${pullResult.deleted} rapport(s) supprimé(s)` : ''}`
                   : `✗ ${pullResult.message}`
                 }
               </span>

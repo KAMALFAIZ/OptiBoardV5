@@ -122,30 +122,46 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
             </div>
 
             <div className="space-y-4 mb-6">
-              {/* Date Début */}
+              {/* Raccourcis période */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Date début
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateDebut}
-                  onChange={(e) => handleFilterChange('dateDebut', e.target.value)}
-                  className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
-                />
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">Période rapide</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {periodPresets.map(p => (
+                    <button
+                      key={p.label}
+                      onClick={() => handlePeriodPreset(p.action)}
+                      className="px-2 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-primary-50 dark:hover:bg-primary-900/20 hover:border-primary-300 dark:hover:border-primary-600 hover:text-primary-700 dark:hover:text-primary-400 transition-colors"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Date Fin */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Date fin
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateFin}
-                  onChange={(e) => handleFilterChange('dateFin', e.target.value)}
-                  className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
-                />
+              {/* Date Début + Fin côte à côte */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Date début
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateDebut}
+                    onChange={(e) => handleFilterChange('dateDebut', e.target.value)}
+                    className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Date fin
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateFin}
+                    onChange={(e) => handleFilterChange('dateFin', e.target.value)}
+                    className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
               </div>
 
               {/* Société */}

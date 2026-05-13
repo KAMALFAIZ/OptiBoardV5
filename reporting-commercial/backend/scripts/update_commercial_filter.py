@@ -204,10 +204,10 @@ updates.append(("DS_VTE_CA_CLIENT", f"""SELECT
     SUM(li.[Quantité]) AS [Quantite Totale],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Quantité] * li.[Prix de revient]) AS [Cout Revient],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Quantité] * li.[CMUP]) AS [Cout Revient],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -224,10 +224,10 @@ updates.append(("DS_VTE_CA_ARTICLE", f"""SELECT
     SUM(li.[Quantité]) AS [Quantite Vendue],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Quantité] * li.[Prix de revient]) AS [Cout Revient],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Quantité] * li.[CMUP]) AS [Cout Revient],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %],
     AVG(li.[Prix unitaire]) AS [Prix Moyen]
 {BASE_JOIN}
@@ -245,9 +245,9 @@ updates.append(("DS_VTE_CA_COMMERCIAL", f"""SELECT
     SUM(li.[Quantité]) AS [Quantite],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantité] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}

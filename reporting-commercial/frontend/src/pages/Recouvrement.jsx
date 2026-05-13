@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Download, CreditCard, Clock, AlertTriangle, Users } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
+import { Download, CreditCard, Clock, AlertTriangle, Users, Database } from 'lucide-react'
 import KPICard from '../components/Dashboard/KPICard'
 import DataTable from '../components/DrillDown/DataTable'
 import DetailModal from '../components/DrillDown/DetailModal'
@@ -291,10 +291,20 @@ export default function Recouvrement() {
             Analyse des encours clients et indicateurs de recouvrement
           </p>
         </div>
-        <button onClick={handleExport} className="btn-primary flex items-center gap-2">
-          <Download className="w-4 h-4" />
-          Exporter Excel
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/admin/datasources?category=recouvrement"
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition-colors"
+            title="Voir les datasources recouvrement"
+          >
+            <Database className="w-4 h-4" />
+            DataSources
+          </Link>
+          <button onClick={handleExport} className="btn-primary flex items-center gap-2">
+            <Download className="w-4 h-4" />
+            Exporter Excel
+          </button>
+        </div>
       </div>
 
       {/* Filters - toujours visible */}

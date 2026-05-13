@@ -11,9 +11,11 @@ import {
   ArrowLeft, Plus, Trash2, Save, Play, Eye, Loader2,
   Settings2, Rows3, Columns3, BarChart3, Palette,
   ToggleLeft, ToggleRight, Globe, Lock, Search, X, Sparkles,
-  TrendingUp, BookOpen, Users, Landmark, LayoutGrid
+  TrendingUp, BookOpen, Users, Landmark, LayoutGrid, Copy
 } from 'lucide-react'
 import AIBuilderGenerator from '../components/ai/AIBuilderGenerator'
+import { useToast } from '../components/common/Toast'
+import useSidebarResize from '../hooks/useSidebarResize'
 
 const TABS = [
   { id: 'general', label: 'General', icon: Settings2 },
@@ -80,6 +82,7 @@ const safeArray = (val) => {
 export default function PivotBuilderV2() {
   const { user } = useAuth()
   const { filters: globalFilters } = useGlobalFilters()
+  const toast = useToast()
 
   // Liste des pivots
   const [pivots, setPivots] = useState([])
@@ -87,30 +90,7 @@ export default function PivotBuilderV2() {
   const [listLoading, setListLoading] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [sidebarAppFilter, setSidebarAppFilter] = useState('')
-  const [sidebarWidth, setSidebarWidth] = useState(256)
-  const sidebarDragging = useRef(false)
-
-  const handleSidebarResizeStart = useCallback((e) => {
-    e.preventDefault()
-    sidebarDragging.current = true
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-    const onMouseMove = (e) => {
-      if (!sidebarDragging.current) return
-      setSidebarWidth(Math.min(Math.max(startWidth + (e.clientX - startX), 160), 520))
-    }
-    const onMouseUp = () => {
-      sidebarDragging.current = false
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [sidebarWidth])
+  const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(256)
 
   // Config du pivot actif
   const [config, setConfig] = useState({
@@ -119,6 +99,7 @@ export default function PivotBuilderV2() {
     data_source_id: null,
     data_source_code: null,
     drilldown_data_source_code: null,
+    drilldown_field_mapping: {},
     rows_config: [],
     columns_config: [],
     filters_config: [],
@@ -194,6 +175,7 @@ export default function PivotBuilderV2() {
           data_source_id: data.data_source_id,
           data_source_code: data.data_source_code,
           drilldown_data_source_code: data.drilldown_data_source_code || null,
+          drilldown_field_mapping: data.drilldown_field_mapping || {},
           rows_config: ensureUids(data.rows_config),
           columns_config: ensureUids(data.columns_config),
           filters_config: ensureUids(data.filters_config),
@@ -347,6 +329,24 @@ export default function PivotBuilderV2() {
       return
     }
 
+    const fieldNames = new Set(availableFields.map(f => f.name))
+    for (const wc of safeArray(config.window_calculations)) {
+      if (wc.type === 'expression' && wc.expression) {
+        if (/[;`${}\\]|--|\/\*/.test(wc.expression.replace(/\[[^\]]*\]/g, ''))) {
+          setError('Expression contient des caracteres non autorises')
+          setActiveTab('config')
+          return
+        }
+        const refs = [...wc.expression.matchAll(/\[([^\]]+)\]/g)].map(m => m[1])
+        const bad = refs.filter(r => fieldNames.size > 0 && !fieldNames.has(r))
+        if (bad.length) {
+          setError(`Champs inconnus dans l'expression : ${bad.join(', ')}`)
+          setActiveTab('config')
+          return
+        }
+      }
+    }
+
     setSaving(true)
     setError(null)
     try {
@@ -404,6 +404,52 @@ export default function PivotBuilderV2() {
       await loadPivots()
     } catch (err) {
       setError('Erreur suppression')
+    }
+  }
+
+  // Dupliquer un pivot
+  const handleClone = async (pivotId) => {
+    try {
+      const res = await getPivotV2(pivotId)
+      if (!res.data?.success) return
+      const src = res.data.data
+      const clonePayload = {
+        nom: `${src.nom} (copie)`,
+        description: src.description || '',
+        data_source_id: src.data_source_id,
+        data_source_code: src.data_source_code,
+        drilldown_data_source_code: src.drilldown_data_source_code || null,
+        drilldown_field_mapping: src.drilldown_field_mapping || {},
+        rows_config: src.rows_config || [],
+        columns_config: src.columns_config || [],
+        filters_config: src.filters_config || [],
+        values_config: src.values_config || [],
+        show_grand_totals: !!src.show_grand_totals,
+        show_subtotals: !!src.show_subtotals,
+        show_row_percent: !!src.show_row_percent,
+        show_col_percent: !!src.show_col_percent,
+        show_total_percent: !!src.show_total_percent,
+        comparison_mode: src.comparison_mode || '',
+        formatting_rules: src.formatting_rules || [],
+        source_params: src.source_params || [],
+        is_public: false,
+        application: src.application || '',
+        grand_total_position: src.grand_total_position || 'bottom',
+        subtotal_position: src.subtotal_position || 'bottom',
+        show_summary_row: !!src.show_summary_row,
+        summary_functions: safeArray(src.summary_functions),
+        window_calculations: safeArray(src.window_calculations),
+        created_by: user?.id,
+      }
+      const createRes = await createPivotV2(clonePayload)
+      if (createRes.data?.id) {
+        toast.success(`Pivot "${src.nom}" dupliqué`)
+        await loadPivots()
+        loadPivot(createRes.data.id)
+      }
+    } catch (err) {
+      console.error('Erreur duplication:', err)
+      toast.error('Erreur lors de la duplication')
     }
   }
 
@@ -573,8 +619,14 @@ export default function PivotBuilderV2() {
                     <span className={`flex-1 truncate text-[11px] font-semibold ${selectedPivotId === p.id ? 'text-primary-700 dark:text-primary-400' : 'text-gray-800 dark:text-gray-200'}`}>
                       {p.nom}
                     </span>
+                    <button onClick={(e) => { e.stopPropagation(); handleClone(p.id) }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-all flex-shrink-0"
+                      title="Dupliquer">
+                      <Copy className="w-3 h-3 text-blue-400" />
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); handleDelete(p.id) }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-all flex-shrink-0">
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-all flex-shrink-0"
+                      title="Supprimer">
                       <Trash2 className="w-3 h-3 text-red-400" />
                     </button>
                   </div>
@@ -669,14 +721,88 @@ export default function PivotBuilderV2() {
               {/* Card Source */}
               <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
                 <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Source de données</h3>
-                <DataSourceSelector value={config.data_source_code || config.data_source_id} onChange={handleSourceChange} />
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Source drilldown (détail lignes)</label>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Source principale (agrégation pivot)</label>
+                  <DataSourceSelector value={config.data_source_code || config.data_source_id} onChange={handleSourceChange} />
+                </div>
+
+                <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-gray-600 dark:text-gray-400">Source drilldown (detail lignes)</label>
+                    {config.drilldown_data_source_code && (
+                      <button
+                        type="button"
+                        onClick={() => { updateConfig('drilldown_data_source_code', null); updateConfig('drilldown_field_mapping', {}) }}
+                        className="text-[10px] text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        Retirer
+                      </button>
+                    )}
+                  </div>
                   <DataSourceSelector
                     value={config.drilldown_data_source_code}
                     onChange={(src) => updateConfig('drilldown_data_source_code', src?.code || null)}
-                    placeholder="Même source (agrégée par défaut)"
+                    placeholder="Meme source (agregee par defaut)"
+                    showPreview={false}
                   />
+                  {config.drilldown_data_source_code ? (
+                    <>
+                      <div className="mt-2 p-2.5 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
+                        <p className="text-[11px] text-green-700 dark:text-green-400 font-medium">
+                          Drilldown actif : {config.drilldown_data_source_code}
+                        </p>
+                        <p className="text-[10px] text-green-600 dark:text-green-500 mt-0.5">
+                          Le clic sur une cellule chargera les donnees depuis cette source au lieu de la source principale.
+                        </p>
+                      </div>
+
+                      {/* Mapping des champs drilldown */}
+                      {(() => {
+                        const pivotFields = [
+                          ...config.rows_config.map(r => r.field),
+                          ...(config.columns_config?.[0]?.field ? [config.columns_config[0].field] : []),
+                        ].filter(Boolean)
+                        if (pivotFields.length === 0) return null
+                        const mapping = config.drilldown_field_mapping || {}
+                        return (
+                          <div className="mt-3 p-3 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 rounded-lg space-y-2">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                              <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-400">Mapping des filtres</span>
+                            </div>
+                            <p className="text-[10px] text-blue-600/70 dark:text-blue-400/60 leading-tight">
+                              Si les noms de champs different entre la source principale et la source drilldown, indiquez la correspondance.
+                            </p>
+                            <div className="space-y-1.5">
+                              {pivotFields.map(field => (
+                                <div key={field} className="flex items-center gap-2">
+                                  <span className="text-[11px] text-gray-600 dark:text-gray-400 w-28 truncate flex-shrink-0" title={field}>{field}</span>
+                                  <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                  <input
+                                    type="text"
+                                    value={mapping[field] || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value.trim()
+                                      const newMapping = { ...mapping }
+                                      if (val) newMapping[field] = val
+                                      else delete newMapping[field]
+                                      updateConfig('drilldown_field_mapping', newMapping)
+                                    }}
+                                    placeholder={field}
+                                    className="flex-1 px-2 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300 dark:placeholder:text-gray-600"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </>
+                  ) : (
+                    <p className="mt-1.5 text-[10px] text-gray-400 leading-tight">
+                      Source dediee pour le detail (drill-down). Recommande : une source ligne-par-ligne sans GROUP BY pour voir le detail de chaque cellule.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -941,22 +1067,36 @@ export default function PivotBuilderV2() {
                               className="w-full text-xs bg-white dark:bg-gray-700 border border-primary-300 dark:border-primary-600 rounded px-1.5 py-1 focus:ring-1 focus:ring-blue-500 outline-none"
                             />
                           </div>
-                          {wc.type === 'expression' && (
+                          {wc.type === 'expression' && (() => {
+                            const expr = wc.expression || ''
+                            const fieldNames = new Set(availableFields.map(f => f.name))
+                            const referenced = [...expr.matchAll(/\[([^\]]+)\]/g)].map(m => m[1])
+                            const invalid = referenced.filter(r => !fieldNames.has(r))
+                            const hasUnsafe = /[;`${}\\]|--|\/\*/.test(expr.replace(/\[[^\]]*\]/g, ''))
+                            return (
                             <div className="col-span-2">
                               <label className="block text-[10px] text-gray-500 mb-0.5">Expression (ex: [Montant TTC] / [Quantite])</label>
                               <input
                                 type="text"
-                                value={wc.expression || ''}
+                                value={expr}
                                 onChange={(e) => {
                                   const arr = [...safeArray(config.window_calculations)]
                                   arr[wcIdx] = { ...arr[wcIdx], expression: e.target.value }
                                   updateConfig('window_calculations', arr)
                                 }}
                                 placeholder="[Champ1] / [Champ2]"
-                                className="w-full text-xs bg-white dark:bg-gray-700 border border-primary-300 dark:border-primary-600 rounded px-1.5 py-1 focus:ring-1 focus:ring-blue-500 outline-none font-mono"
+                                className={`w-full text-xs bg-white dark:bg-gray-700 border rounded px-1.5 py-1 focus:ring-1 focus:ring-blue-500 outline-none font-mono
+                                  ${(invalid.length > 0 || hasUnsafe) ? 'border-red-400 dark:border-red-600' : 'border-primary-300 dark:border-primary-600'}`}
                               />
+                              {invalid.length > 0 && (
+                                <p className="text-[10px] text-red-500 mt-0.5">Champs inconnus : {invalid.join(', ')}</p>
+                              )}
+                              {hasUnsafe && (
+                                <p className="text-[10px] text-red-500 mt-0.5">Caracteres non autorises detectes</p>
+                              )}
                             </div>
-                          )}
+                            )
+                          })()}
                         </div>
                         <button
                           onClick={() => {

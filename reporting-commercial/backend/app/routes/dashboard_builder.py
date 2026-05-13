@@ -137,7 +137,7 @@ def init_builder_tables():
                         pass
         return True
     except Exception as e:
-        print(f"Erreur init builder tables: {e}")
+        logger.error(f"Erreur init builder tables: {e}")
         return False
 
 
@@ -168,7 +168,7 @@ def init_default_data():
                     )
         return True
     except Exception as e:
-        print(f"Erreur init default data: {e}")
+        logger.error(f"Erreur init default data: {e}")
         return False
 
 

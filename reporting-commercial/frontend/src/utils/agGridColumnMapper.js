@@ -1,12 +1,26 @@
-/**
+﻿/**
  * Mapping columns_config (OptiBoard DB) → AG Grid ColDef[]
  */
 import DateTreeFilter from '../components/filters/DateTreeFilter'
 import SetValueFilter from '../components/filters/SetValueFilter'
 import NumberFilter from '../components/filters/NumberFilter'
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PROTECTION UNIVERSELLE : codes varchar avec zéros de tête ("000172", "007")
+// Ces valeurs sont des identifiants, pas des nombres → jamais convertir en number
+// ═══════════════════════════════════════════════════════════════════════════
+const isLeadingZeroCode = (val) => {
+  if (typeof val !== 'string') return false
+  const s = val.trim()
+  // "000172", "007", "0123" → OUI (code varchar)
+  // "0.5", "0,75" → NON (vrai décimal)
+  // "0" → NON (valeur zéro légitime)
+  return s.length > 1 && s.startsWith('0') && !s.startsWith('0.') && !s.startsWith('0,')
+}
+
 const frNumber = (value, minFrac, maxFrac) => {
   if (value == null) return ''
+  if (isLeadingZeroCode(value)) return value  // protéger les codes varchar
   const n = typeof value === 'number' ? value : parseFloat(value)
   if (isNaN(n)) return ''
   return n.toLocaleString('fr-FR', {
@@ -36,6 +50,7 @@ const formatDateFR = (value) => {
 // Formate un nombre décimal/float en format FR (1 234,56)
 const formatNumberFR = (value) => {
   if (value == null || value === '') return ''
+  if (isLeadingZeroCode(value)) return value  // protéger les codes varchar
   const n = typeof value === 'number' ? value : parseFloat(value)
   if (isNaN(n)) return value
   // Si entier → pas de décimales, sinon 2 décimales
@@ -44,6 +59,15 @@ const formatNumberFR = (value) => {
     minimumFractionDigits: hasDecimals ? 2 : 0,
     maximumFractionDigits: 2
   })
+}
+
+// Noms de mois abrégés en français (1=Jan ... 12=Déc)
+const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+const formatMonthFR = (value) => {
+  if (value == null || value === '') return ''
+  const n = typeof value === 'number' ? value : parseInt(value, 10)
+  if (isNaN(n) || n < 1 || n > 12) return value
+  return MOIS_FR[n - 1]
 }
 
 const VALUE_FORMATTERS = {
@@ -59,22 +83,25 @@ const VALUE_FORMATTERS = {
     }
     return params.value
   },
-  date: (params) => formatDateFR(params.value)
+  date: (params) => formatDateFR(params.value),
+  month: (params) => formatMonthFR(params.value)
 }
 
 // Auto-formatter : détecte le type et applique le bon format
 const autoValueFormatter = (params) => {
   const val = params.value
   if (val == null || val === '') return ''
+  // Codes varchar avec zéros de tête → afficher tel quel, JAMAIS convertir
+  if (isLeadingZeroCode(val)) return val
   // Date ISO
   if (typeof val === 'string' && ISO_DATE_RE.test(val)) {
     return formatDateFR(val)
   }
-  // Nombre (type number)
+  // Nombre (type number JS natif)
   if (typeof val === 'number') {
     return formatNumberFR(val)
   }
-  // String numérique (décimal arrivant comme string, ex: "1234.56")
+  // String numérique sans zéros de tête (ex: "1234.56")
   if (typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) {
     return formatNumberFR(Number(val))
   }
@@ -142,10 +169,12 @@ function mapOneColumn(col, features) {
     colDef.cellStyle = ALIGN_STYLE.right
     colDef.headerClass = 'ag-right-aligned-header'
   } else {
-    // Auto-détection : aligner à droite si la valeur est un nombre ou un décimal (string numérique)
+    // Auto-détection : aligner à droite si la valeur est un nombre
+    // Codes varchar avec zéros de tête ("000172") → toujours à gauche
     colDef.cellStyle = (params) => {
       const v = params.value
       if (v == null || v === '') return { textAlign: 'left' }
+      if (isLeadingZeroCode(v)) return { textAlign: 'left' }
       if (typeof v === 'number') return { textAlign: 'right' }
       if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))) return { textAlign: 'right' }
       return { textAlign: 'left' }

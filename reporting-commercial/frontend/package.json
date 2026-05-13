@@ -18,7 +18,7 @@
     "@headlessui/react": "^1.7.17",
     "@mui/icons-material": "^7.3.6",
     "@mui/material": "^7.3.6",
-    "@webdatarocks/react-webdatarocks": "^1.4.21",
+    "@webdatarocks/react-webdatarocks": "^1.4.23",
     "ag-grid-community": "^35.1.0",
     "ag-grid-react": "^35.1.0",
     "axios": "^1.6.2",

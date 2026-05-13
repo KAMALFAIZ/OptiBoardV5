@@ -5,6 +5,9 @@ from typing import Optional, List
 import pyodbc
 import hashlib
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -320,7 +323,7 @@ async def configure_database(config: DatabaseConfig):
                 cursor.execute(f"CREATE DATABASE [{config.database}]")
                 cursor.close()
                 conn.close()
-                print(f"[SETUP] Base de donnees '{config.database}' creee avec succes")
+                logger.info(f"[SETUP] Base de donnees '{config.database}' creee avec succes")
             except Exception as create_error:
                 raise HTTPException(
                     status_code=400,
@@ -1391,6 +1394,36 @@ async def init_central_database_tables():
                 created_tables.append("APP_ETL_Agent_Tables")
             except Exception as e:
                 errors.append(f"APP_ETL_Agent_Tables: {str(e)}")
+
+            # =====================================================
+            # APP_Sessions — sessions serveur (token, expiry, révocation)
+            # =====================================================
+            try:
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Sessions' AND xtype='U')
+                    CREATE TABLE APP_Sessions (
+                        id            INT IDENTITY(1,1) PRIMARY KEY,
+                        token         VARCHAR(64) NOT NULL,
+                        user_id       INT NOT NULL,
+                        dwh_code      NVARCHAR(50) NULL,
+                        created_at    DATETIME NOT NULL DEFAULT GETDATE(),
+                        expires_at    DATETIME NOT NULL,
+                        last_activity DATETIME NOT NULL DEFAULT GETDATE(),
+                        ip_address    VARCHAR(45) NULL,
+                        is_active     BIT NOT NULL DEFAULT 1
+                    )
+                """)
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_APP_Sessions_token')
+                        CREATE UNIQUE INDEX IX_APP_Sessions_token ON APP_Sessions(token)
+                """)
+                cursor.execute("""
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_APP_Sessions_user')
+                        CREATE INDEX IX_APP_Sessions_user ON APP_Sessions(user_id, is_active)
+                """)
+                created_tables.append("APP_Sessions")
+            except Exception as e:
+                errors.append(f"APP_Sessions: {str(e)}")
 
             # =====================================================
             # SECTION 5: INDEX

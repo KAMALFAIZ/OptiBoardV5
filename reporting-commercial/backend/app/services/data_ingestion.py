@@ -5,7 +5,6 @@ Gere l'insertion/mise a jour des donnees recues des agents
 import json
 import logging
 import traceback
-import sys
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import pandas as pd
@@ -18,19 +17,8 @@ logger = logging.getLogger(__name__)
 logging.getLogger(__name__).setLevel(logging.DEBUG)
 
 def log_ingestion(msg: str):
-    """Log immediat vers stdout, fichier et flush"""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_line = f"[INGESTION] {timestamp} - {msg}"
-    print(log_line, flush=True)
-    sys.stdout.flush()
-    # Aussi ecrire dans un fichier pour debug
-    try:
-        import os
-        log_file = os.path.join(os.path.dirname(__file__), '..', '..', 'ingestion_debug.log')
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write(log_line + '\n')
-    except:
-        pass
+    """Wrapper de log pour l'ingestion ETL."""
+    logger.info(f"[INGESTION] {msg}")
 
 
 class DataIngestionService:
@@ -268,86 +256,108 @@ class DataIngestionService:
         primary_key_columns: List[str]
     ) -> Dict[str, int]:
         """
-        Effectue un UPSERT (MERGE) des donnees.
+        Effectue un UPSERT via MERGE avec staging table (bulk).
+        ~10-50x plus rapide que l'ancien insert ligne par ligne.
         """
         inserted = 0
         updated = 0
         failed = 0
         errors = []
 
-        # Obtenir les colonnes de la table cible
         columns = df.columns.tolist()
-
-        # Normaliser les noms de colonnes des cles primaires pour la comparaison
         pk_normalized = {self._normalize_column_name(pk) for pk in primary_key_columns}
-
-        # Colonnes non-cle pour l'UPDATE (comparaison normalisee)
         non_key_columns = [c for c in columns if self._normalize_column_name(c) not in pk_normalized]
 
-        # Construire la clause MERGE
-        merge_query = self._build_merge_query(table_name, columns, primary_key_columns, non_key_columns)
-
-        # Traiter par lots de 1000 lignes
-        batch_size = 1000
-        first_row_logged = False
-
-        log_ingestion(f"Debut upsert pour table {table_name}")
+        log_ingestion(f"Debut upsert BULK pour table {table_name}")
         log_ingestion(f"Colonnes ({len(columns)}): {columns[:5]}...")
-        log_ingestion(f"PKs: {primary_key_columns}")
-        log_ingestion(f"Non-PKs count: {len(non_key_columns)}")
+        log_ingestion(f"PKs: {primary_key_columns}, Non-PKs count: {len(non_key_columns)}")
 
-        for start_idx in range(0, len(df), batch_size):
-            batch_df = df.iloc[start_idx:start_idx + batch_size]
-            log_ingestion(f"Traitement batch {start_idx} - {start_idx + len(batch_df)}")
+        staging_table = f"##_stg_{table_name}_{datetime.now().strftime('%H%M%S%f')}"
 
-            for row_idx, (_, row) in enumerate(batch_df.iterrows()):
+        try:
+            # Creer la staging table (table temporaire globale pour la session)
+            cols_def = ', '.join([f"[{col}] {self._get_sql_type(col, str(df[col].dtype))}" for col in columns])
+            cursor.execute(f"CREATE TABLE [{staging_table}] ({cols_def})")
+
+            # Bulk insert dans staging via executemany (batches de 1000)
+            cols_str = ', '.join([f"[{col}]" for col in columns])
+            placeholders = ', '.join(['?' for _ in columns])
+            insert_sql = f"INSERT INTO [{staging_table}] ({cols_str}) VALUES ({placeholders})"
+
+            batch_size = 1000
+            # Convertir NaN -> None en vectorise (bien plus rapide que pd.isna par cellule)
+            clean_df = df.where(df.notna(), None)
+
+            for start_idx in range(0, len(clean_df), batch_size):
+                batch = clean_df.iloc[start_idx:start_idx + batch_size]
+                rows = [tuple(row) for row in batch.itertuples(index=False, name=None)]
                 try:
-                    # Preparer les valeurs
-                    values = []
-                    for col in columns:
-                        val = row[col]
-                        if pd.isna(val):
-                            values.append(None)
-                        elif isinstance(val, datetime):
-                            values.append(val)
-                        else:
-                            values.append(val)
-
-                    # Log la premiere ligne pour debug
-                    log_this_row = not first_row_logged
-                    if log_this_row:
-                        log_ingestion(f"=== PREMIERE LIGNE DEBUG ===")
-                        log_ingestion(f"Nombre de colonnes: {len(columns)}")
-                        log_ingestion(f"Nombre de valeurs: {len(values)}")
-                        log_ingestion(f"Colonnes: {columns[:10]}...")
-                        log_ingestion(f"Valeurs: {values[:10]}...")
-                        log_ingestion(f"Types valeurs: {[type(v).__name__ for v in values[:10]]}...")
-                        first_row_logged = True
-
-                    # Construire la requete d'insertion simple avec ON CONFLICT
-                    # Utiliser une approche INSERT/UPDATE separee pour compatibilite
-                    result = await self._insert_or_update_row(
-                        cursor, table_name, columns, values,
-                        primary_key_columns, non_key_columns,
-                        log_first_row=log_this_row
-                    )
-
-                    if result == 'inserted':
-                        inserted += 1
-                    elif result == 'updated':
-                        updated += 1
-
+                    cursor.executemany(insert_sql, rows)
                 except Exception as e:
-                    failed += 1
-                    error_str = str(e)
-                    if len(errors) < 10:  # Limiter le nombre d'erreurs stockees
-                        errors.append(error_str)
-                    # Log plus de details pour les premieres erreurs
-                    if failed <= 5:
-                        log_ingestion(f"ERROR ligne {start_idx + row_idx}: {error_str}")
-                        log_ingestion(f"ERROR Traceback: {traceback.format_exc()}")
+                    # Fallback : insert ligne par ligne pour identifier les lignes en erreur
+                    log_ingestion(f"executemany echoue batch {start_idx}, fallback ligne par ligne: {e}")
+                    for i, row_vals in enumerate(rows):
+                        try:
+                            cursor.execute(insert_sql, row_vals)
+                        except Exception as row_err:
+                            failed += 1
+                            if len(errors) < 10:
+                                errors.append(f"Ligne {start_idx + i}: {row_err}")
+                            if failed <= 5:
+                                log_ingestion(f"ERROR ligne {start_idx + i}: {row_err}")
 
-        log_ingestion(f"Resultat upsert: {inserted} inseres, {updated} mis a jour, {failed} echecs")
+            log_ingestion(f"Staging {staging_table} peuple: {len(df) - failed} lignes")
+
+            # Log premiere ligne pour debug
+            if len(df) > 0:
+                first_row = clean_df.iloc[0]
+                log_ingestion(f"=== PREMIERE LIGNE DEBUG ===")
+                log_ingestion(f"Colonnes: {columns[:10]}...")
+                log_ingestion(f"Valeurs: {list(first_row.values)[:10]}...")
+
+            # MERGE staging -> table cible
+            pk_cols_normalized = [self._normalize_column_name(pk) for pk in primary_key_columns]
+            join_cond = ' AND '.join([f"t.[{pk}] = s.[{pk}]" for pk in pk_cols_normalized])
+
+            update_set = ''
+            if non_key_columns:
+                update_set = f"WHEN MATCHED THEN UPDATE SET {', '.join([f't.[{c}] = s.[{c}]' for c in non_key_columns])}"
+
+            merge_sql = f"""
+                MERGE [{table_name}] AS t
+                USING [{staging_table}] AS s
+                ON ({join_cond})
+                {update_set}
+                WHEN NOT MATCHED THEN
+                    INSERT ({cols_str})
+                    VALUES ({', '.join([f's.[{c}]' for c in columns])})
+                OUTPUT $action;
+            """
+
+            log_ingestion(f"Execution MERGE...")
+            cursor.execute(merge_sql)
+
+            # Compter les INSERT/UPDATE depuis OUTPUT
+            for row in cursor:
+                action = row[0]
+                if action == 'INSERT':
+                    inserted += 1
+                elif action == 'UPDATE':
+                    updated += 1
+
+        except Exception as e:
+            error_str = f"Erreur MERGE bulk: {str(e)}"
+            log_ingestion(f"ERROR: {error_str}")
+            log_ingestion(f"Traceback: {traceback.format_exc()}")
+            errors.append(error_str)
+            failed = len(df) if failed == 0 else failed
+        finally:
+            try:
+                cursor.execute(f"DROP TABLE IF EXISTS [{staging_table}]")
+            except:
+                pass
+
+        log_ingestion(f"Resultat upsert BULK: {inserted} inseres, {updated} mis a jour, {failed} echecs")
 
         return {
             'inserted': inserted,
@@ -566,11 +576,14 @@ class BulkIngestionService:
 
                 insert_query = f"INSERT INTO [{staging_table}] ({cols_str}) VALUES ({placeholders})"
 
+                clean_df = df.where(df.notna(), None)
+                batch_size = 1000
                 rows_inserted = 0
-                for _, row in df.iterrows():
-                    values = [None if pd.isna(v) else v for v in row.tolist()]
-                    cursor.execute(insert_query, values)
-                    rows_inserted += 1
+                for start_idx in range(0, len(clean_df), batch_size):
+                    batch = clean_df.iloc[start_idx:start_idx + batch_size]
+                    rows = [tuple(row) for row in batch.itertuples(index=False, name=None)]
+                    cursor.executemany(insert_query, rows)
+                    rows_inserted += len(rows)
 
                 # Si truncate_first, supprimer les donnees existantes pour cette societe
                 if truncate_first:

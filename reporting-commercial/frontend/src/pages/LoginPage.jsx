@@ -246,6 +246,7 @@ export default function LoginPage({ onLogin, appName }) {
         }
         store('user', JSON.stringify(autoUserToStore))
         store('token', response.data.token)
+        if (response.data.session_token) store('session_token', response.data.session_token)
         if (clientCode) store('currentDWH', JSON.stringify({ code: clientCode, nom: clientInfo?.nom || clientCode }))
         onLogin(autoUserToStore)
       }
@@ -366,6 +367,7 @@ export default function LoginPage({ onLogin, appName }) {
         }
         store('user',  JSON.stringify(userToStore))
         store('token', response.data.token)
+        if (response.data.session_token) store('session_token', response.data.session_token)
 
         // ── C) Toujours écrire currentDWH complet si clientCode présent ──────
         if (clientCode) {

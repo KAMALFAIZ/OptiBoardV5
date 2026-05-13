@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useState, useEffect, useRef } from 'react'
+import { useGridFilter } from 'ag-grid-react'
 
 const OPERATORS = [
   { value: 'equals',   label: 'Égal à',             inputs: 1 },
@@ -71,6 +72,7 @@ const NumberFilter = forwardRef((props, ref) => {
   const val1Ref      = useRef('')
   const val2Ref      = useRef('')
   const hidePopupRef = useRef(null)
+  const prevModelRef = useRef(null)
 
   const [allValues, setAllValues] = useState([])
   const [sel, setSel]             = useState(new Set())
@@ -95,18 +97,23 @@ const NumberFilter = forwardRef((props, ref) => {
     setSel(new Set(vals))
   }, [])
 
-  useImperativeHandle(ref, () => ({
-    afterGuiAttached(params) {
-      if (params?.hidePopup) hidePopupRef.current = params.hidePopup
-    },
-    isFilterActive() {
-      if (modeRef.current === 'condition') {
-        const inputs = OPERATORS.find(o => o.value === opRef.current)?.inputs ?? 1
-        if (inputs === 0) return true
-        return val1Ref.current.trim() !== ''
-      }
-      return allValuesRef.current.some(v => !selRef.current.has(v))
-    },
+  const isActive = () => {
+    if (modeRef.current === 'condition') {
+      const inputs = OPERATORS.find(o => o.value === opRef.current)?.inputs ?? 1
+      if (inputs === 0) return true
+      return val1Ref.current.trim() !== ''
+    }
+    return allValuesRef.current.some(v => !selRef.current.has(v))
+  }
+
+  const buildModel = () => {
+    if (!isActive()) return null
+    return modeRef.current === 'condition'
+      ? { filterType: 'numberCondition', operator: opRef.current, val1: val1Ref.current, val2: val2Ref.current }
+      : { filterType: 'numberSet', values: [...selRef.current] }
+  }
+
+  useGridFilter({
     doesFilterPass(params) {
       const cellNum = toNum(params.data?.[colId])
       if (modeRef.current === 'condition') {
@@ -115,13 +122,16 @@ const NumberFilter = forwardRef((props, ref) => {
         return testOperator(opRef.current, cellNum, toNum(val1Ref.current), toNum(val2Ref.current))
       }
       return selRef.current.has(cellNum)
+    }
+  })
+
+  useImperativeHandle(ref, () => ({
+    afterGuiAttached(params) {
+      if (params?.hidePopup) hidePopupRef.current = params.hidePopup
+      prevModelRef.current = buildModel()
     },
-    getModel() {
-      if (!this.isFilterActive()) return null
-      return modeRef.current === 'condition'
-        ? { filterType: 'numberCondition', operator: opRef.current, val1: val1Ref.current, val2: val2Ref.current }
-        : { filterType: 'numberSet', values: [...selRef.current] }
-    },
+    isFilterActive: isActive,
+    getModel: buildModel,
     setModel(model) {
       if (!model) {
         updateSel(new Set(allValuesRef.current)); updateMode('values')
@@ -160,8 +170,16 @@ const NumberFilter = forwardRef((props, ref) => {
     const next = new Set(sel); checked ? next.add(v) : next.delete(v); updateSel(next)
   }
 
-  const applyFilter  = () => { props.filterChangedCallback?.(); hidePopupRef.current?.() }
-  const cancelFilter = () => { hidePopupRef.current?.() }
+  const applyFilter = () => {
+    const model = buildModel()
+    props.onModelChange?.(model)
+    props.filterChangedCallback?.()
+    hidePopupRef.current?.()
+  }
+  const cancelFilter = () => {
+    props.onModelChange?.(prevModelRef.current ?? null)
+    hidePopupRef.current?.()
+  }
 
   const opDef = OPERATORS.find(o => o.value === operator) || OPERATORS[0]
   const preview = (() => {

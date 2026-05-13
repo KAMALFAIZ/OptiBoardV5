@@ -52,7 +52,7 @@ QUERY = """SELECT
     li.[Quantité]           AS [Quantite],
     li.[Colisage]           AS [Colisage],
     li.[Prix unitaire]      AS [PU HT],
-    li.[Prix de revient]    AS [Prix Revient],
+    li.[CMUP]    AS [Prix Revient],
     li.[Remise 1]           AS [Remise1],
     li.[Remise 2]           AS [Remise2],
     li.[Montant HT Net]     AS [Montant HT],

@@ -148,7 +148,7 @@ function DataTable({ title, data, columns, maxRows = 10 }) {
 function SaisonnaliteChart({ data }) {
   return (
     <div className="card p-3">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Indices de Saisonnalite (base 100)</h3>
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Indices de Saisonnalité (base 100)</h3>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
@@ -572,7 +572,7 @@ export default function PIC2026() {
                   { key: 'region', header: 'Region' },
                   { key: 'nb_commerciaux', header: 'Commerciaux', format: 'number', align: 'right' },
                   { key: 'nb_articles', header: 'Articles', format: 'number', align: 'right' },
-                  { key: 'ca_reference', header: 'CA Reference', format: 'currency', align: 'right' },
+                  { key: 'ca_reference', header: 'CA Référence', format: 'currency', align: 'right' },
                   { key: 'objectif_ca_2026', header: 'Objectif CA 2026', format: 'currency', align: 'right' },
                   { key: 'objectif_qte_2026', header: 'Objectif Qte', format: 'number', align: 'right' },
                   { key: 'objectif_marge_2026', header: 'Objectif Marge', format: 'currency', align: 'right' },
@@ -594,7 +594,7 @@ export default function PIC2026() {
                 columns={[
                   { key: 'representant', header: 'Commercial' },
                   { key: 'region', header: 'Region' },
-                  { key: 'ca_reference', header: 'CA Reference', format: 'currency', align: 'right' },
+                  { key: 'ca_reference', header: 'CA Référence', format: 'currency', align: 'right' },
                   { key: 'objectif_ca_2026', header: 'Objectif CA 2026', format: 'currency', align: 'right' },
                   { key: 'objectif_qte_2026', header: 'Objectif Qte', format: 'number', align: 'right' },
                   { key: 'objectif_marge_2026', header: 'Objectif Marge', format: 'currency', align: 'right' },
@@ -655,7 +655,7 @@ export default function PIC2026() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <MargeRegionChart data={data.regions} />
                 <div className="card p-3">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Zones de Rentabilite par Region</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Zones de Rentabilité par Région</h3>
                   <div className="space-y-2 mt-4 max-h-56 overflow-y-auto">
                     {data.regions?.map((r, idx) => (
                       <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded">
@@ -754,17 +754,17 @@ export default function PIC2026() {
               <div className="grid grid-cols-3 gap-3">
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-red-600">{data.chargeCapacite?.filter(c => c.periode === 'HAUTE').length || 0}</div>
-                  <div className="text-xs text-gray-500">Periodes Hautes</div>
+                  <div className="text-xs text-gray-500">Périodes Hautes</div>
                   <div className="text-xs text-gray-400 mt-1">Renforcer capacite</div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-blue-600">{data.chargeCapacite?.filter(c => c.periode === 'NORMALE').length || 0}</div>
-                  <div className="text-xs text-gray-500">Periodes Normales</div>
+                  <div className="text-xs text-gray-500">Périodes Normales</div>
                   <div className="text-xs text-gray-400 mt-1">Capacite standard</div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-green-600">{data.chargeCapacite?.filter(c => c.periode === 'BASSE').length || 0}</div>
-                  <div className="text-xs text-gray-500">Periodes Basses</div>
+                  <div className="text-xs text-gray-500">Périodes Basses</div>
                   <div className="text-xs text-gray-400 mt-1">Optimiser ressources</div>
                 </div>
               </div>

@@ -110,7 +110,7 @@ DOCUMENTS = [
     li.[Remise 1] AS [Remise],
     li.[Frais d'approche] AS [Frais Approche],
     li.CMUP AS [CMUP],
-    li.[Prix de revient] AS [Prix de Revient],
+    li.[CMUP] AS [Prix de Revient],
     li.[Code dépôt] AS [Code Dépôt],
     li.[Intitulé dépôt] AS [Dépôt],
     en.[Catégorie Comptable] AS [Catégorie Comptable],{HIDDEN_COLUMNS_SQL}

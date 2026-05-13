@@ -577,6 +577,32 @@ export default function Settings() {
                     <option value="large">Grande</option>
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Format des montants KPI
+                  </label>
+                  <select
+                    value={settings.kpiNumberFormat || 'auto'}
+                    onChange={(e) => handleChange('kpiNumberFormat', e.target.value)}
+                    className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="auto">Automatique (K / M / Mrd)</option>
+                    <option value="millier">Millier (ex : 1 250,00 K)</option>
+                    <option value="million">Million (ex : 1,25 M)</option>
+                    <option value="full">Nombre complet (ex : 1 250 000)</option>
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Aperçu : {(() => {
+                      const fmt = settings.kpiNumberFormat || 'auto'
+                      const n = 1250000
+                      if (fmt === 'million') return '1,25 M'
+                      if (fmt === 'millier') return '1 250,00 K'
+                      if (fmt === 'auto') return '1,3 M'
+                      return '1 250 000,00'
+                    })()}
+                  </p>
+                </div>
               </div>
             </div>
           )}

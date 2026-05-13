@@ -4,11 +4,31 @@ const API_BASE_URL = '/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000, // 60 secondes timeout pour les requêtes lentes
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json'
   }
 })
+
+// AbortController registry — annule automatiquement la requête précédente
+// quand une nouvelle est lancée sur la même clé (POST datasource/preview, etc.)
+const _inflightControllers = new Map()
+
+export function cancelableRequest(key, requestFn) {
+  const prev = _inflightControllers.get(key)
+  if (prev) prev.abort()
+  const controller = new AbortController()
+  _inflightControllers.set(key, controller)
+  return requestFn(controller.signal).finally(() => {
+    if (_inflightControllers.get(key) === controller) {
+      _inflightControllers.delete(key)
+    }
+  })
+}
+
+export function isRequestCanceled(error) {
+  return axios.isCancel(error) || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED'
+}
 
 // Intercepteur global : ajouter X-DWH-Code + Authorization a chaque requete
 api.interceptors.request.use((config) => {
@@ -49,6 +69,11 @@ api.interceptors.request.use((config) => {
         }
       }
     } catch (e) { /* ignore */ }
+  }
+  // Session token serveur — invalide côté serveur sur logout/expiry
+  if (!config.headers['X-Session-Token']) {
+    const st = localStorage.getItem('session_token') || sessionStorage.getItem('session_token')
+    if (st) config.headers['X-Session-Token'] = st
   }
   return config
 })
@@ -257,9 +282,10 @@ export const previewDataSource = (id, context = {}, limit = null) => {
   const headers = {}
   const dwh = getDwhCode()
   if (dwh) headers['X-DWH-Code'] = dwh
-  // Si limit est specifie, l'ajouter au context via __limit (0 = pas de limite)
   const ctx = limit !== null ? { ...context, __limit: limit } : context
-  return api.post(`/builder/datasources/${id}/preview`, ctx, { headers })
+  return cancelableRequest(`preview-legacy-${id}`, (signal) =>
+    api.post(`/builder/datasources/${id}/preview`, ctx, { headers, signal })
+  )
 }
 export const executeBuilderQuery = (query, params) => api.post('/builder/execute-query', null, { params: { query, ...params } })
 
@@ -275,14 +301,18 @@ export const testDataSourceQuery = (data) => api.post('/datasources/execute/test
 // DataSources Unifiées (Templates + Sources locales) - Pour les Builders
 export const getUnifiedDataSources = (params = {}) => api.get('/datasources/unified', { params })
 export const getUnifiedDataSource = (identifier) => api.get(`/datasources/unified/${identifier}`)
-export const previewUnifiedDataSource = (identifier, context = {}, dwhCode = null, limit = null) => {
+export const previewUnifiedDataSource = (identifier, context = {}, dwhCode = null, limit = null, extraFilters = null, page = null, pageSize = null) => {
   const headers = {}
   const dwh = dwhCode || getDwhCode()
   if (dwh) headers['X-DWH-Code'] = dwh
-  // limit=0 => pas de limite (viewer mode), limit=100 defaut (builder)
   const body = { context }
   if (limit !== null) body.limit = limit
-  return api.post(`/datasources/unified/${identifier}/preview`, body, { headers, timeout: 120000 })
+  if (extraFilters && extraFilters.length > 0) body.extra_filters = extraFilters
+  if (page) body.page = page
+  if (pageSize) body.page_size = pageSize
+  return cancelableRequest(`preview-${identifier}`, (signal) =>
+    api.post(`/datasources/unified/${identifier}/preview`, body, { headers, timeout: 120000, signal })
+  )
 }
 export const getDwhFilterOptions = (field, dwhCode = null) => {
   const headers = {}
@@ -371,6 +401,42 @@ export const cleanupClientMenus = (clientCode) => api.post(`/master/cleanup-menu
 // Update Manager — Pull menus depuis base maître (portail client)
 export const pullBuilderMenus = () => api.post('/updates/pull/builder', {}, { timeout: 60000 })
 
+// Supprime les rapports NON référencés dans les menus actuels
+export const deleteOrphanReports = async () => {
+  const toArr = (res) => { const d = res?.data; return Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [] }
+
+  // Charger menus + rapports en parallèle
+  const [menuRes, gvRes, pvRes, dbRes, ssRes] = await Promise.all([
+    api.get('/menus/flat'),
+    api.get('/gridview/grids'),
+    api.get('/v2/pivots'),
+    api.get('/builder/dashboards'),
+    api.get('/spreadsheet/sheets'),
+  ])
+
+  const menus      = toArr(menuRes)
+  const gridviews  = toArr(gvRes)
+  const pivots     = toArr(pvRes)
+  const dashboards = toArr(dbRes)
+  const spreadsheets = toArr(ssRes)
+
+  // Construire les sets d'IDs référencés par type
+  const ref = { gridview: new Set(), pivot: new Set(), dashboard: new Set(), spreadsheet: new Set() }
+  for (const m of menus) {
+    if (m.target_id && ref[m.type] !== undefined) ref[m.type].add(m.target_id)
+  }
+
+  // Supprimer les orphelins (non référencés dans aucun menu)
+  const deletes = [
+    ...gridviews.filter(r   => !ref.gridview.has(r.id)).map(r   => api.delete(`/gridview/grids/${r.id}`).catch(() => {})),
+    ...pivots.filter(r      => !ref.pivot.has(r.id)).map(r      => api.delete(`/v2/pivots/${r.id}`).catch(() => {})),
+    ...dashboards.filter(r  => !ref.dashboard.has(r.id)).map(r  => api.delete(`/builder/dashboards/${r.id}`).catch(() => {})),
+    ...spreadsheets.filter(r => !ref.spreadsheet.has(r.id)).map(r => api.delete(`/spreadsheet/sheets/${r.id}`).catch(() => {})),
+  ]
+  await Promise.all(deletes)
+  return { deleted: deletes.length }
+}
+
 // Liste Ventes APIs
 export const getListeVentes = (params = {}) => api.get('/liste-ventes', { params })
 export const getListeVentesFiltres = (params = {}) => api.get('/liste-ventes/filtres', { params })
@@ -409,7 +475,9 @@ export const executePivotV2 = (id, context = {}, raw = false, dwhCode = null, cu
   const headers = dwhCode ? { 'X-DWH-Code': dwhCode } : getDWHHeaders()
   const body = { context, raw }
   if (customConfig) body.custom_config = customConfig
-  return api.post(`/v2/pivots/${id}/execute`, body, { headers })
+  return cancelableRequest(`pivot-${id}`, (signal) =>
+    api.post(`/v2/pivots/${id}/execute`, body, { headers, signal })
+  )
 }
 export const previewPivotV2 = (id, context = {}) => {
   return api.post(`/v2/pivots/${id}/preview`, { context }, { headers: getDWHHeaders() })
@@ -419,6 +487,16 @@ export const drilldownPivotV2 = (id, request) => {
 }
 export const exportDrilldownPivotV2 = (id, request) => {
   return api.post(`/v2/pivots/${id}/drilldown/export`, request, {
+    headers: getDWHHeaders(),
+    responseType: 'blob',
+    timeout: 120000,
+  })
+}
+export const drilldownDataSource = (dsCode, request) => {
+  return api.post(`/datasources/unified/${dsCode}/drilldown`, request, { headers: getDWHHeaders() })
+}
+export const exportDrilldownDataSource = (dsCode, request) => {
+  return api.post(`/datasources/unified/${dsCode}/drilldown/export`, request, {
     headers: getDWHHeaders(),
     responseType: 'blob',
     timeout: 120000,

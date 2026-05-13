@@ -56,7 +56,7 @@ _DEFAULTS: Dict[str, Dict] = {
             "2. Pour tout calcul de CA/ventes/revenus: TOUJOURS ajouter WHERE [Valorise CA] = 'Oui'.\n"
             "3. Pour filtrer par date sur Lignes_des_ventes: utiliser la colonne [Date] "
             "(PAS [Date BL], PAS [Date Facture], PAS [DatePiece]).\n"
-            "4. Formule marge: [Montant HT Net] - [Prix de revient] * [Quantite].\n"
+            "4. Formule marge: [Montant HT Net] - [CMUP] * [Quantite].\n"
             "5. Formule reste a regler: [Montant echeance] - ISNULL([Montant du reglement], 0).\n"
             "6. Utiliser ISNULL() pour les colonnes nullable.\n"
             "7. Noms de tables SANS prefixe: FROM Lignes_des_ventes (JAMAIS [BASE].[dbo].[Table]).\n"

@@ -1,7 +1,10 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pathlib import Path
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 # Chemin absolu vers le fichier .env
 ENV_FILE_PATH = Path(__file__).parent.parent / ".env"
@@ -27,6 +30,7 @@ class Settings(BaseSettings):
 
     # Application settings
     APP_NAME: str = "OptiBoard - Reporting Commercial"
+    APP_ENV: str = "development"   # "development" | "production"
     DEBUG: bool = True
 
     # Cache settings
@@ -41,7 +45,7 @@ class Settings(BaseSettings):
     LICENSE_SERVER_URL: str = "http://kasoft.selfip.net:44100/api"
     LICENSE_CHECK_INTERVAL: int = 86400  # 24h en secondes
     LICENSE_GRACE_DAYS: int = 7  # Jours de grace si serveur injoignable
-    LICENSE_SIGNING_SECRET: str = "optiboard-license-secret-clé-2025-kasoft"  # Overridable via .env
+    LICENSE_SIGNING_SECRET: str = ""  # Obligatoire en production — doit être dans .env
 
     # Master Catalog (sync depuis serveur central distant)
     # Si MASTER_API_URL est configuré, le bouton "Récupérer base maître"
@@ -65,6 +69,24 @@ class Settings(BaseSettings):
     AI_HISTORY_MAX_MESSAGES: int = 50
     AI_SQL_MAX_ROWS: int = 500
 
+    # WhatsApp Business — Provider
+    WA_PROVIDER: str = "360dialog"     # "meta" ou "360dialog"
+
+    # WhatsApp Business Cloud API (Meta direct)
+    WA_PHONE_NUMBER_ID: str = ""       # ID du numéro WhatsApp Business (Meta)
+    WA_ACCESS_TOKEN: str = ""          # Token d'accès permanent (System User)
+    WA_API_VERSION: str = "v21.0"      # Version de l'API Graph
+
+    # WhatsApp Business via 360dialog BSP
+    WA_360DIALOG_API_KEY: str = ""     # Clé API 360dialog (depuis Hub)
+    WA_360DIALOG_PARTNER_ID: str = ""  # Partner ID (optionnel, si revendeur)
+    WA_360DIALOG_SANDBOX: bool = True  # True = sandbox (waba-sandbox), False = production
+
+    # Webhook commun (Meta + 360dialog)
+    WA_VERIFY_TOKEN: str = ""          # Token de vérification webhook
+    WA_APP_SECRET: str = ""            # App Secret (validation signature webhook)
+    WA_BOT_ENABLED: bool = False       # Activer/désactiver le chatbot WhatsApp
+
     @property
     def database_url(self) -> str:
         return (
@@ -85,6 +107,11 @@ class Settings(BaseSettings):
     def is_standalone(self) -> bool:
         """Retourne True si le mode client autonome est activé"""
         return self.STANDALONE_MODE
+
+    @property
+    def is_production(self) -> bool:
+        """Retourne True si l'application tourne en mode production"""
+        return self.APP_ENV.lower() == "production"
 
     @property
     def is_licensed(self) -> bool:
@@ -127,8 +154,7 @@ def save_env_config(config: dict) -> bool:
     """Sauvegarde la configuration dans le fichier .env"""
     env_path = get_env_file_path()
 
-    print(f"[CONFIG] Saving to: {env_path}")
-    print(f"[CONFIG] Config to save: {config}")
+    logger.info(f"[CONFIG] Saving configuration to: {env_path}")
 
     # Lire le fichier existant ou creer un nouveau contenu
     existing_content = {}
@@ -143,8 +169,6 @@ def save_env_config(config: dict) -> bool:
     # Mettre a jour avec les nouvelles valeurs
     existing_content.update(config)
 
-    print(f"[CONFIG] Merged content: {existing_content}")
-
     # Ecrire le fichier
     with open(env_path, 'w', encoding='utf-8') as f:
         f.write("# Database Configuration\n")
@@ -154,6 +178,7 @@ def save_env_config(config: dict) -> bool:
         f.write(f"DB_PASSWORD={existing_content.get('DB_PASSWORD', '')}\n")
         f.write(f"DB_DRIVER={existing_content.get('DB_DRIVER', '{ODBC Driver 17 for SQL Server}')}\n")
         f.write("\n# Application Settings\n")
+        f.write(f"APP_ENV={existing_content.get('APP_ENV', 'development')}\n")
         f.write(f"DEBUG={existing_content.get('DEBUG', 'True')}\n")
         f.write(f"APP_NAME={existing_content.get('APP_NAME', 'OptiBoard - Reporting Commercial')}\n")
         f.write("\n# Cache Settings\n")
@@ -164,6 +189,7 @@ def save_env_config(config: dict) -> bool:
         f.write("\n# License Settings\n")
         f.write(f"LICENSE_KEY={existing_content.get('LICENSE_KEY', '')}\n")
         f.write(f"LICENSE_SERVER_URL={existing_content.get('LICENSE_SERVER_URL', 'http://kasoft.selfip.net:44100/api')}\n")
+        f.write(f"LICENSE_SIGNING_SECRET={existing_content.get('LICENSE_SIGNING_SECRET', '')}\n")
         f.write("\n# Master Catalog Settings\n")
         f.write(f"MASTER_API_URL={existing_content.get('MASTER_API_URL', '')}\n")
         f.write(f"MASTER_API_KEY={existing_content.get('MASTER_API_KEY', '')}\n")
@@ -179,11 +205,23 @@ def save_env_config(config: dict) -> bool:
         f.write(f"AI_RATE_LIMIT_PER_MINUTE={existing_content.get('AI_RATE_LIMIT_PER_MINUTE', '20')}\n")
         f.write(f"AI_HISTORY_MAX_MESSAGES={existing_content.get('AI_HISTORY_MAX_MESSAGES', '50')}\n")
         f.write(f"AI_SQL_MAX_ROWS={existing_content.get('AI_SQL_MAX_ROWS', '500')}\n")
+        f.write("\n# WhatsApp Business\n")
+        f.write(f"WA_PROVIDER={existing_content.get('WA_PROVIDER', '360dialog')}\n")
+        f.write(f"WA_BOT_ENABLED={existing_content.get('WA_BOT_ENABLED', 'False')}\n")
+        f.write(f"WA_VERIFY_TOKEN={existing_content.get('WA_VERIFY_TOKEN', '')}\n")
+        f.write(f"WA_APP_SECRET={existing_content.get('WA_APP_SECRET', '')}\n")
+        f.write("# 360dialog BSP\n")
+        f.write(f"WA_360DIALOG_API_KEY={existing_content.get('WA_360DIALOG_API_KEY', '')}\n")
+        f.write(f"WA_360DIALOG_PARTNER_ID={existing_content.get('WA_360DIALOG_PARTNER_ID', '')}\n")
+        f.write("# Meta Cloud API directe (si WA_PROVIDER=meta)\n")
+        f.write(f"WA_PHONE_NUMBER_ID={existing_content.get('WA_PHONE_NUMBER_ID', '')}\n")
+        f.write(f"WA_ACCESS_TOKEN={existing_content.get('WA_ACCESS_TOKEN', '')}\n")
+        f.write(f"WA_API_VERSION={existing_content.get('WA_API_VERSION', 'v21.0')}\n")
 
-    print(f"[CONFIG] File written successfully")
+    logger.info("[CONFIG] Configuration file written successfully")
 
     # Recharger les settings
     new_settings = reload_settings()
-    print(f"[CONFIG] Reloaded settings - DB_SERVER: {new_settings.DB_SERVER}, DB_NAME: {new_settings.DB_NAME}")
+    logger.info(f"[CONFIG] Settings reloaded — DB_SERVER={new_settings.DB_SERVER}, DB_NAME={new_settings.DB_NAME}")
 
     return True

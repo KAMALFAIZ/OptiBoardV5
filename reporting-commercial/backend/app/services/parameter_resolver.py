@@ -125,7 +125,7 @@ def get_default_context() -> Dict[str, Any]:
     """Retourne un contexte par défaut avec les dates des 2 dernières années"""
     today = date.today()
     return {
-        "dateDebut": f"{today.year - 5}-01-01",
+        "dateDebut": f"{today.year - 10}-01-01",
         "dateFin": today.isoformat(),
         "annee": today.year,
         "societe": None,

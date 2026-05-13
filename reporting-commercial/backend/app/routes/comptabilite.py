@@ -475,9 +475,9 @@ COMPTABILITE_DATASOURCES = [
     # ── Écritures comptables ──────────────────────────────────────────────────
     {
         "code": "DS_ECRITURES_GLOBAL",
-        "nom": "Ecritures Comptables Global",
-        "category": "Comptabilite",
-        "description": "Synthese globale des ecritures comptables par periode",
+        "nom": "Écritures Comptables Global",
+        "category": "Comptabilité",
+        "description": "Synthèse globale des écritures comptables par période",
         "query_template": """
             SELECT
                 [societe] AS [Societe],
@@ -498,9 +498,9 @@ COMPTABILITE_DATASOURCES = [
     },
     {
         "code": "DS_ECRITURES_PAR_JOURNAL",
-        "nom": "Ecritures par Journal",
-        "category": "Comptabilite",
-        "description": "Ecritures comptables agregees par journal",
+        "nom": "Écritures par Journal",
+        "category": "Comptabilité",
+        "description": "Écritures comptables agrégées par journal",
         "query_template": """
             SELECT
                 [Code Journal],
@@ -521,9 +521,9 @@ COMPTABILITE_DATASOURCES = [
     },
     {
         "code": "DS_ECRITURES_PAR_COMPTE",
-        "nom": "Ecritures par Compte",
-        "category": "Comptabilite",
-        "description": "Mouvements par compte general",
+        "nom": "Écritures par Compte",
+        "category": "Comptabilité",
+        "description": "Mouvements par compte général",
         "query_template": """
             SELECT
                 [N° Compte Général] AS [Compte],
@@ -544,8 +544,8 @@ COMPTABILITE_DATASOURCES = [
     },
     {
         "code": "DS_ECRITURES_PAR_TIERS",
-        "nom": "Ecritures par Tiers",
-        "category": "Comptabilite",
+        "nom": "Écritures par Tiers",
+        "category": "Comptabilité",
         "description": "Mouvements par compte tiers (clients/fournisseurs)",
         "query_template": """
             SELECT
@@ -569,9 +569,9 @@ COMPTABILITE_DATASOURCES = [
     },
     {
         "code": "DS_ECRITURES_PAR_MOIS",
-        "nom": "Ecritures par Mois",
-        "category": "Comptabilite",
-        "description": "Evolution mensuelle des ecritures comptables",
+        "nom": "Écritures par Mois",
+        "category": "Comptabilité",
+        "description": "Évolution mensuelle des écritures comptables",
         "query_template": """
             SELECT
                 [Année] AS [Annee],
@@ -592,9 +592,9 @@ COMPTABILITE_DATASOURCES = [
     },
     {
         "code": "DS_ECRITURES_DETAIL",
-        "nom": "Detail Ecritures Comptables",
-        "category": "Comptabilite",
-        "description": "Liste detaillee des ecritures comptables",
+        "nom": "Détail Écritures Comptables",
+        "category": "Comptabilité",
+        "description": "Liste détaillée des écritures comptables",
         "query_template": """
             SELECT
                 [Date d'écriture] AS [Date],
@@ -651,9 +651,9 @@ COMPTABILITE_DATASOURCES = [
     # ── Balance Générale ──────────────────────────────────────────────────────
     {
         "code": "DS_BALANCE_GENERALE",
-        "nom": "Balance Generale",
-        "category": "Comptabilite",
-        "description": "Balance generale des comptes avec soldes",
+        "nom": "Balance Générale",
+        "category": "Comptabilité",
+        "description": "Balance générale des comptes avec soldes",
         "query_template": """
             SELECT
                 [N° Compte Général] AS [Compte],
@@ -681,9 +681,9 @@ COMPTABILITE_DATASOURCES = [
     # ── Trésorerie (classe 5) ─────────────────────────────────────────────────
     {
         "code": "DS_TRESORERIE",
-        "nom": "Tresorerie",
-        "category": "Comptabilite",
-        "description": "Situation de la tresorerie (classe 5)",
+        "nom": "Trésorerie",
+        "category": "Comptabilité",
+        "description": "Situation de la trésorerie (classe 5)",
         "query_template": """
             SELECT
                 [N° Compte Général] AS [Compte],
@@ -704,9 +704,9 @@ COMPTABILITE_DATASOURCES = [
     },
     {
         "code": "DS_TRESORERIE_PAR_MOIS",
-        "nom": "Tresorerie par Mois",
-        "category": "Comptabilite",
-        "description": "Evolution mensuelle de la tresorerie",
+        "nom": "Trésorerie par Mois",
+        "category": "Comptabilité",
+        "description": "Évolution mensuelle de la trésorerie",
         "query_template": """
             SELECT
                 [Année] AS [Annee],
@@ -727,9 +727,9 @@ COMPTABILITE_DATASOURCES = [
     # ── Échéances & Lettrage ──────────────────────────────────────────────────
     {
         "code": "DS_ECHEANCES_COMPTABLES",
-        "nom": "Echeances Comptables",
-        "category": "Comptabilite",
-        "description": "Ecritures avec echeances non lettrees",
+        "nom": "Échéances Comptables",
+        "category": "Comptabilité",
+        "description": "Écritures avec échéances non lettrées",
         "query_template": """
             SELECT
                 [Date d'échéance] AS [Echeance],
@@ -757,8 +757,8 @@ COMPTABILITE_DATASOURCES = [
     {
         "code": "DS_LETTRAGE",
         "nom": "Analyse Lettrage",
-        "category": "Comptabilite",
-        "description": "Analyse des ecritures lettrees et non lettrees",
+        "category": "Comptabilité",
+        "description": "Analyse des écritures lettrées et non lettrées",
         "query_template": """
             SELECT
                 [N° Compte Général] AS [Compte],
@@ -920,7 +920,7 @@ _CPT_DS_TEMPLATES = [
          "GROUP BY ec.[N° Compte Général], ec.[Intitulé compte général], ec.[Nature Compte], ec.societe "
          "ORDER BY ec.[N° Compte Général]"
      )},
-    {"code": "DS_CPT_JOURNAL", "nom": "Journal des Ecritures", "params": _PARAMS_DATE_SOC,
+    {"code": "DS_CPT_JOURNAL", "nom": "Journal des Écritures", "params": _PARAMS_DATE_SOC,
      "query": (
          "SELECT ec.[Date d'écriture] AS [Date], ec.[Code Journal], ec.[Libellé Journal] AS [Journal], "
          "ec.[N° Pièce] AS [Num Piece], ec.[N° Compte Général] AS [Compte], "

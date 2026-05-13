@@ -24,6 +24,8 @@ logging.basicConfig(
     ]
 )
 
+logger = logging.getLogger(__name__)
+
 from app.config import get_settings
 from app.database_unified import test_central_connection as test_connection, DatabaseNotConfiguredError
 from app.middleware.tenant_context import TenantContextMiddleware
@@ -65,6 +67,7 @@ from app.routes.ai_presentation import router as ai_presentation_router         
 from app.routes.ai_deck import router as ai_deck_router, init_deck_tables                        # Deck IA interactif
 from app.routes.sage_config_admin import router as sage_config_admin_router                       # Admin Sage Direct config
 from app.routes.spreadsheet_builder import router as spreadsheet_builder_router, init_spreadsheet_tables  # Spreadsheet Builder (FortuneSheet)
+from app.routes.whatsapp_bot import router as whatsapp_bot_router, init_whatsapp_tables              # WhatsApp Business Cloud API (Meta)
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -173,6 +176,7 @@ app.include_router(ai_presentation_router)    # Générateur IA de documents (PP
 app.include_router(ai_deck_router)            # Deck IA interactif (plan + données DWH + narration)
 app.include_router(sage_config_admin_router)   # Admin Sage Direct mappings
 app.include_router(spreadsheet_builder_router) # Spreadsheet Builder (FortuneSheet)
+app.include_router(whatsapp_bot_router)        # WhatsApp Business Cloud API (Meta)
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -187,6 +191,8 @@ LICENSE_EXEMPT_PATHS = {
     "/api/demo/register",
     # Digest IA : trigger admin (pas besoin de vérif licence côté scheduler)
     "/api/admin/digest/status",
+    # WhatsApp webhook (public — Meta doit pouvoir y accéder)
+    "/api/whatsapp/webhook",
 }
 
 
@@ -194,9 +200,9 @@ LICENSE_EXEMPT_PATHS = {
 @app.middleware("http")
 async def license_check_middleware(request: Request, call_next):
     """Verifie la licence avant chaque requete (sauf routes exemptees)"""
-    # ── DEV MODE: licence desactivee pendant le developpement ──
-    # TODO: Reactiver avant la mise en production
-    if settings.DEBUG:
+    # En mode développement uniquement, la vérification licence est désactivée.
+    # En production (APP_ENV=production), la vérification est TOUJOURS active.
+    if not settings.is_production:
         return await call_next(request)
 
     path = request.url.path
@@ -242,8 +248,8 @@ async def startup_event():
     """Initialize database tables on startup"""
     # Verifier si l'application est configuree
     if not settings.is_configured:
-        print("[STARTUP] Application non configuree - Acces a /api/setup/status pour configurer")
-        print("[STARTUP] Les autres modules seront initialises apres configuration")
+        logger.warning("[STARTUP] Application non configuree — accès à /api/setup/status pour configurer")
+        logger.warning("[STARTUP] Les autres modules seront initialisés après configuration")
         return
 
     # Validation de licence au demarrage
@@ -256,105 +262,110 @@ async def startup_event():
             )
             set_cached_license_status(license_status)
             if license_status.valid:
-                print(f"[STARTUP] Licence valide - {license_status.organization} ({license_status.plan})")
+                logger.info(f"[STARTUP] Licence valide — {license_status.organization} ({license_status.plan})")
                 if license_status.grace_mode:
-                    print(f"[STARTUP] MODE GRACE - {license_status.grace_days_remaining} jours restants")
+                    logger.warning(f"[STARTUP] MODE GRACE — {license_status.grace_days_remaining} jours restants")
                 if license_status.days_remaining <= 30:
-                    print(f"[STARTUP] ATTENTION: Licence expire dans {license_status.days_remaining} jours")
+                    logger.warning(f"[STARTUP] Licence expire dans {license_status.days_remaining} jours")
             else:
-                print(f"[STARTUP] LICENCE INVALIDE: {license_status.message}")
+                logger.error(f"[STARTUP] LICENCE INVALIDE: {license_status.message}")
         else:
-            print("[STARTUP] Aucune licence configuree - Activez une licence via /api/license/activate")
+            logger.warning("[STARTUP] Aucune licence configurée — activez une licence via /api/license/activate")
     except Exception as e:
-        print(f"[STARTUP] Erreur validation licence: {e}")
+        logger.error(f"[STARTUP] Erreur validation licence: {e}")
 
     try:
         init_gridview_tables()
-        print("[STARTUP] GridView tables initialized successfully")
+        logger.info("[STARTUP] GridView tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing gridview tables: {e}")
+        logger.error(f"[STARTUP] GridView tables error: {e}")
 
     try:
         from app.sage_direct.db_store import init_sage_config_table
         init_sage_config_table()
-        print("[STARTUP] Sage View Config table initialized successfully")
+        logger.info("[STARTUP] Sage View Config table OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Sage View Config table: {e}")
+        logger.error(f"[STARTUP] Sage View Config table error: {e}")
 
     try:
         init_pivot_v2_tables()
-        print("[STARTUP] Pivot V2 tables initialized successfully")
+        logger.info("[STARTUP] Pivot V2 tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Pivot V2 tables: {e}")
+        logger.error(f"[STARTUP] Pivot V2 tables error: {e}")
 
     try:
         init_spreadsheet_tables()
-        print("[STARTUP] Spreadsheet tables initialized successfully")
+        logger.info("[STARTUP] Spreadsheet tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Spreadsheet tables: {e}")
+        logger.error(f"[STARTUP] Spreadsheet tables error: {e}")
 
     try:
         init_scheduler_tables()
-        print("[STARTUP] Report scheduler tables initialized successfully")
         start_scheduler()
-        print("[STARTUP] Report scheduler started successfully")
+        logger.info("[STARTUP] Scheduler tables + scheduler OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing scheduler tables: {e}")
+        logger.error(f"[STARTUP] Scheduler error: {e}")
 
     try:
         init_query_library_table()
         init_prompts_table()
-        print("[STARTUP] AI Query Library table initialized successfully")
+        logger.info("[STARTUP] AI Query Library tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing AI Query Library table: {e}")
+        logger.error(f"[STARTUP] AI Query Library tables error: {e}")
 
     try:
         init_alert_tables()
-        print("[STARTUP] KPI Alert tables initialized successfully")
+        logger.info("[STARTUP] KPI Alert tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing KPI Alert tables: {e}")
+        logger.error(f"[STARTUP] KPI Alert tables error: {e}")
 
     try:
         init_subscription_tables()
         init_delivery_logs_table()
-        print("[STARTUP] Subscription tables initialized successfully")
+        logger.info("[STARTUP] Subscription tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Subscription tables: {e}")
+        logger.error(f"[STARTUP] Subscription tables error: {e}")
 
     try:
         init_drillthrough_tables()
-        print("[STARTUP] DrillThrough tables initialized successfully")
+        logger.info("[STARTUP] DrillThrough tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing DrillThrough tables: {e}")
+        logger.error(f"[STARTUP] DrillThrough tables error: {e}")
 
     try:
         init_favorites_tables()
-        print("[STARTUP] Favorites tables initialized successfully")
+        logger.info("[STARTUP] Favorites tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Favorites tables: {e}")
+        logger.error(f"[STARTUP] Favorites tables error: {e}")
 
     try:
         init_deck_tables()
-        print("[STARTUP] AI Deck tables initialized successfully")
+        logger.info("[STARTUP] AI Deck tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing AI Deck tables: {e}")
+        logger.error(f"[STARTUP] AI Deck tables error: {e}")
+
+    try:
+        init_whatsapp_tables()
+        logger.info("[STARTUP] WhatsApp tables OK")
+    except Exception as e:
+        logger.error(f"[STARTUP] WhatsApp tables error: {e}")
 
     # Migration schema ETL_Tables_Config (ajout colonnes manquantes)
     try:
         from etl.config.table_config import _ensure_table_exists
         _ensure_table_exists()
-        print("[STARTUP] ETL schema migration completed")
+        logger.info("[STARTUP] ETL schema migration OK")
     except Exception as e:
-        print(f"[STARTUP] ETL migration error: {e}")
+        logger.error(f"[STARTUP] ETL migration error: {e}")
 
     # Migration APP_DWH : ajout colonne is_demo
     try:
         from app.database_unified import write_central as _wc
         _wc("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='is_demo') ALTER TABLE APP_DWH ADD is_demo BIT NOT NULL DEFAULT 0")
         _wc("UPDATE APP_DWH SET is_demo=1 WHERE code IN ('KA') AND is_demo=0")
-        print("[STARTUP] APP_DWH.is_demo migration OK")
+        logger.info("[STARTUP] APP_DWH.is_demo migration OK")
     except Exception as e:
-        print(f"[STARTUP] APP_DWH migration error: {e}")
+        logger.error(f"[STARTUP] APP_DWH migration error: {e}")
 
     # Migration APP_DWH : colonnes tunnel SSH
     try:
@@ -370,18 +381,18 @@ async def startup_event():
                 f"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='{col}')"
                 f" ALTER TABLE APP_DWH ADD {col} {ddl}"
             )
-        print("[STARTUP] APP_DWH SSH columns migration OK")
+        logger.info("[STARTUP] APP_DWH SSH columns migration OK")
     except Exception as e:
-        print(f"[STARTUP] APP_DWH SSH migration error: {e}")
+        logger.error(f"[STARTUP] APP_DWH SSH migration error: {e}")
 
     # Migration APP_Users (central + client DBs) : ajout colonnes 2FA
     try:
         from app.database_unified import write_central as _wc2
         _wc2("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_secret') ALTER TABLE APP_Users ADD totp_secret NVARCHAR(64) NULL")
         _wc2("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_enabled') ALTER TABLE APP_Users ADD totp_enabled BIT NOT NULL DEFAULT 0")
-        print("[STARTUP] APP_Users 2FA columns migration OK (central)")
+        logger.info("[STARTUP] APP_Users 2FA columns migration OK (central)")
     except Exception as e:
-        print(f"[STARTUP] 2FA migration central error: {e}")
+        logger.error(f"[STARTUP] 2FA migration central error: {e}")
 
     # Migration APP_Users (client DB) : ajout colonne onboarding_done
     try:
@@ -399,9 +410,9 @@ async def startup_event():
                 )
             except Exception:
                 pass
-        print("[STARTUP] APP_Users.onboarding_done migration OK")
+        logger.info("[STARTUP] APP_Users.onboarding_done migration OK")
     except Exception as e:
-        print(f"[STARTUP] onboarding_done migration error: {e}")
+        logger.error(f"[STARTUP] onboarding_done migration error: {e}")
 
 
 @app.on_event("shutdown")
@@ -414,9 +425,9 @@ async def shutdown_event():
     try:
         from app.services.ssh_tunnel_service import stop_all
         stop_all()
-        print("[SHUTDOWN] Tunnels SSH arrêtés")
+        logger.info("[SHUTDOWN] Tunnels SSH arrêtés")
     except Exception as e:
-        print(f"[SHUTDOWN] Erreur arrêt tunnels SSH: {e}")
+        logger.error(f"[SHUTDOWN] Erreur arrêt tunnels SSH: {e}")
 
 
 @app.get("/api")
@@ -555,9 +566,9 @@ if os.path.isdir(FRONTEND_DIST):
             return FileResponse(index)
         return JSONResponse(status_code=404, content={"detail": "Frontend not built"})
 
-    print(f"[STARTUP] Frontend SPA servi depuis: {FRONTEND_DIST}")
+    logging.getLogger(__name__).info(f"[STARTUP] Frontend SPA servi depuis: {FRONTEND_DIST}")
 else:
-    print(f"[STARTUP] AVERTISSEMENT: dossier frontend introuvable: {FRONTEND_DIST}")
+    logging.getLogger(__name__).warning(f"[STARTUP] Dossier frontend introuvable: {FRONTEND_DIST}")
 
 
 if __name__ == "__main__":

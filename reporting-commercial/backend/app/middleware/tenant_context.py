@@ -10,6 +10,7 @@ et les injecte dans le contexte de la coroutine courante.
 
 import logging
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..database_unified import (
@@ -18,6 +19,7 @@ from ..database_unified import (
     current_dwh_code,
     current_user_id,
     current_societe,
+    validate_session,
     client_manager
 )
 
@@ -68,6 +70,24 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         user_id_str = request.headers.get("x-user-id")
         societe_code = request.headers.get("x-societe-code") or None
         data_source = request.headers.get("x-data-source") or None  # "dwh" | "sage"
+        session_token = request.headers.get("x-session-token") or None
+
+        # Validation du session token (si présent)
+        if session_token:
+            try:
+                session = validate_session(session_token)
+                if session is None:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Session expirée ou invalide — veuillez vous reconnecter"},
+                    )
+                # Priorité au session token sur les headers manuels
+                if not user_id_str:
+                    user_id_str = str(session["user_id"])
+                if not dwh_code:
+                    dwh_code = session.get("dwh_code")
+            except Exception as e:
+                logger.warning(f"validate_session error: {e}")
 
         # Fallback : utiliser DWH_CODE depuis .env si défini (standalone ou démo)
         if dwh_code is None:

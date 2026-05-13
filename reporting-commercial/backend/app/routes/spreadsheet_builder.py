@@ -233,6 +233,10 @@ async def create_spreadsheet(
     user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
 ):
     try:
+        if not (payload.nom or '').strip():
+            raise HTTPException(status_code=422, detail="Le nom du classeur est requis")
+        if not payload.sheets or len(payload.sheets) == 0:
+            raise HTTPException(status_code=422, detail="Au moins une feuille est requise")
         init_spreadsheet_tables()
         code = _generate_code(payload.nom)
         uid = int(user_id_hdr) if user_id_hdr else None
@@ -268,9 +272,17 @@ async def update_spreadsheet(
     sheet_id: int,
     payload: SpreadsheetUpdate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
 ):
     try:
         init_spreadsheet_tables()
+        uid = int(user_id_hdr) if user_id_hdr else None
+        if uid:
+            with get_db_cursor() as cursor:
+                cursor.execute("SELECT created_by FROM APP_Spreadsheets WHERE id = ?", (sheet_id,))
+                row = cursor.fetchone()
+                if row and row[0] and int(row[0]) != uid:
+                    raise HTTPException(status_code=403, detail="Vous ne pouvez modifier que vos propres classeurs")
         sets, params = [], []
         if payload.nom is not None:
             sets.append("nom = ?"); params.append(payload.nom)
@@ -306,9 +318,16 @@ async def update_spreadsheet(
 async def delete_spreadsheet(
     sheet_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
 ):
     try:
+        uid = int(user_id_hdr) if user_id_hdr else None
         with get_db_cursor() as cursor:
+            if uid:
+                cursor.execute("SELECT created_by FROM APP_Spreadsheets WHERE id = ?", (sheet_id,))
+                row = cursor.fetchone()
+                if row and row[0] and int(row[0]) != uid:
+                    raise HTTPException(status_code=403, detail="Vous ne pouvez supprimer que vos propres classeurs")
             cursor.execute("UPDATE APP_Spreadsheets SET actif = 0 WHERE id = ?", (sheet_id,))
         return {"success": True}
     except Exception as e:
@@ -592,22 +611,14 @@ async def save_user_state(
         sheet_data_json = json.dumps(payload.get('sheet_data', {}), ensure_ascii=False)
         with get_db_cursor() as cursor:
             cursor.execute(
-                "SELECT id FROM APP_Spreadsheet_User_State WHERE spreadsheet_id = ? AND user_id = ?",
-                (sheet_id, user_id),
+                "MERGE APP_Spreadsheet_User_State AS target "
+                "USING (SELECT ? AS spreadsheet_id, ? AS user_id) AS source "
+                "ON target.spreadsheet_id = source.spreadsheet_id AND target.user_id = source.user_id "
+                "WHEN MATCHED THEN UPDATE SET sheet_data = ?, updated_at = GETDATE() "
+                "WHEN NOT MATCHED THEN INSERT (spreadsheet_id, user_id, sheet_data, updated_at) "
+                "VALUES (?, ?, ?, GETDATE());",
+                (sheet_id, user_id, sheet_data_json, sheet_id, user_id, sheet_data_json),
             )
-            existing = cursor.fetchone()
-            if existing:
-                cursor.execute(
-                    "UPDATE APP_Spreadsheet_User_State SET sheet_data = ?, updated_at = GETDATE() "
-                    "WHERE spreadsheet_id = ? AND user_id = ?",
-                    (sheet_data_json, sheet_id, user_id),
-                )
-            else:
-                cursor.execute(
-                    "INSERT INTO APP_Spreadsheet_User_State (spreadsheet_id, user_id, sheet_data, updated_at) "
-                    "VALUES (?, ?, ?, GETDATE())",
-                    (sheet_id, user_id, sheet_data_json),
-                )
         return {"success": True}
     except Exception as e:
         logger.error(f"save_user_state: {e}")

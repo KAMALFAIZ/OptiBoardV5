@@ -28,9 +28,10 @@ function getThresholdColor(value, levels) {
   return null
 }
 
-function ColumnFilterDropdown({ values, selected, onChange, onClose }) {
+function ColumnFilterDropdown({ values, selected, onChange, onClose, formatLabel }) {
   const [search, setSearch] = useState('')
-  const filtered = search ? values.filter(v => v.toLowerCase().includes(search.toLowerCase())) : values
+  const getLabel = (v) => formatLabel ? formatLabel(v) : v
+  const filtered = search ? values.filter(v => getLabel(v).toLowerCase().includes(search.toLowerCase())) : values
   const activeSet = selected || new Set()
   const allShown = activeSet.size === 0
 
@@ -79,7 +80,7 @@ function ColumnFilterDropdown({ values, selected, onChange, onClose }) {
               onChange={() => toggle(val)}
               className="rounded text-blue-500"
             />
-            <span className="truncate">{val}</span>
+            <span className="truncate">{getLabel(val)}</span>
           </label>
         ))}
         {filtered.length === 0 && <div className="px-2 py-2 text-xs text-gray-400">Aucun resultat</div>}
@@ -96,6 +97,7 @@ export default function PivotTable({
   pivotColumns = [],
   rowFields = [],
   columnField,
+  columnHierarchy,
   valueFields = [],
   formattingRules = [],
   comparison,
@@ -106,6 +108,36 @@ export default function PivotTable({
   className = '',
 }) {
   const { formatNumber } = useSettings()
+
+  // Colonnes hierarchiques (multi-niveaux)
+  const hierGroups = useMemo(() => {
+    if (!columnHierarchy || !pivotColumns.length) return null
+    const sep = columnHierarchy.separator || ' | '
+    const ordered = []
+    const map = {}
+    pivotColumns.forEach(col => {
+      const idx = col.indexOf(sep)
+      const level0 = idx >= 0 ? col.substring(0, idx) : col
+      if (!map[level0]) {
+        map[level0] = []
+        ordered.push(level0)
+      }
+      map[level0].push(col)
+    })
+    return { ordered, map, sep, levels: columnHierarchy.levels || [] }
+  }, [columnHierarchy, pivotColumns])
+
+  // Formater les valeurs de lignes (Mois 1-12 → Jan-Déc)
+  const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+  const formatRowValue = (fieldName, value) => {
+    if (value == null || value === '') return value
+    if (fieldName.toLowerCase() === 'mois') {
+      const n = typeof value === 'number' ? value : parseInt(value, 10)
+      if (!isNaN(n) && n >= 1 && n <= 12) return MOIS_FR[n - 1]
+    }
+    return value
+  }
+
   const [expandedGroups, setExpandedGroups] = useState(new Set())
   const [allExpanded, setAllExpanded] = useState(true)
   const [sortConfig, setSortConfig] = useState(null)
@@ -327,7 +359,14 @@ export default function PivotTable({
           if (v !== undefined && v !== null && v !== '') vals.add(String(v))
         }
       }
-      result[fname] = Array.from(vals).sort()
+      // Tri numérique pour Mois (1-12) au lieu d'alphabétique
+      const arr = Array.from(vals)
+      if (fname.toLowerCase() === 'mois') {
+        arr.sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+      } else {
+        arr.sort()
+      }
+      result[fname] = arr
     }
     return result
   }, [data, rowFieldNames])
@@ -374,6 +413,22 @@ export default function PivotTable({
 
   // Appliquer le tri
   const sortedRows = useMemo(() => {
+    // Tri par défaut : si Mois est un champ ligne, trier numériquement
+    if (!sortConfig && rowFieldNames.some(f => f.toLowerCase() === 'mois')) {
+      return [...visibleRows].sort((a, b) => {
+        if (a.__isSummary__ || a.__isGrandTotal__) return 1
+        if (b.__isSummary__ || b.__isGrandTotal__) return -1
+        if (a.__isSubtotal__ && !b.__isSubtotal__) return 1
+        if (!a.__isSubtotal__ && b.__isSubtotal__) return -1
+        // Trier par tous les champs de lignes, numériquement quand possible
+        for (const f of rowFieldNames) {
+          const aV = parseFloat(a[f]) || 0
+          const bV = parseFloat(b[f]) || 0
+          if (aV !== bV) return aV - bV
+        }
+        return 0
+      })
+    }
     if (!sortConfig) return visibleRows
     const { key, direction } = sortConfig
     return [...visibleRows].sort((a, b) => {
@@ -490,31 +545,45 @@ export default function PivotTable({
       <div className="overflow-auto flex-1" style={{ minHeight: 0 }}>
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10">
-            {/* En-tete colonnes pivot */}
-            {columnField && pivotColumns.length > 0 && (
+            {/* En-tete colonnes pivot — niveau 0 (groupes) si hierarchique */}
+            {columnField && pivotColumns.length > 0 && hierGroups && (
               <tr>
-                {/* Espace pour les colonnes de lignes */}
-                <th
-                  colSpan={rowFieldNames.length}
-                  className="pivot-col-header"
-                />
-                {pivotColumns.map(col => (
+                <th colSpan={rowFieldNames.length} className="pivot-col-header" />
+                {hierGroups.ordered.map(g => (
                   <th
-                    key={col}
-                    colSpan={valueFields.length}
-                    className="pivot-col-header text-center"
+                    key={g}
+                    colSpan={hierGroups.map[g].length * valueFields.length}
+                    className="pivot-col-header text-center font-bold"
                   >
-                    {col}
+                    {g}
                   </th>
                 ))}
-                {/* Totaux */}
                 {options.showGrandTotals !== false && (
-                  <th
-                    colSpan={valueFields.length}
-                    className="pivot-total-header text-center"
-                  >
-                    Total
-                  </th>
+                  <th colSpan={valueFields.length} className="pivot-total-header text-center">Total</th>
+                )}
+              </tr>
+            )}
+
+            {/* En-tete colonnes pivot — niveau simple ou niveau 1 (sous-groupes) */}
+            {columnField && pivotColumns.length > 0 && (
+              <tr>
+                <th colSpan={rowFieldNames.length} className="pivot-col-header" />
+                {pivotColumns.map(col => {
+                  const label = hierGroups
+                    ? col.substring(col.indexOf(hierGroups.sep) + hierGroups.sep.length)
+                    : col
+                  return (
+                    <th
+                      key={col}
+                      colSpan={valueFields.length}
+                      className="pivot-col-header text-center"
+                    >
+                      {label}
+                    </th>
+                  )
+                })}
+                {options.showGrandTotals !== false && !hierGroups && (
+                  <th colSpan={valueFields.length} className="pivot-total-header text-center">Total</th>
                 )}
               </tr>
             )}
@@ -552,6 +621,7 @@ export default function PivotTable({
                           values={uniqueValuesPerField[fname] || []}
                           selected={columnFilters[fname]}
                           onChange={(newSet) => setColumnFilters(prev => ({ ...prev, [fname]: newSet }))}
+                          formatLabel={(v) => formatRowValue(fname, v)}
                           onClose={() => setFilterDropdown(null)}
                         />
                       </div>
@@ -684,9 +754,9 @@ export default function PivotTable({
                     const isExpanded = expandedGroups.has(groupKeyForChevron) || allExpanded
                     const hideGroupVal = isGroupCol && isDetailRow && !isSubtotal
 
-                    let displayVal = cellVal
+                    let displayVal = formatRowValue(fname, cellVal)
                     if (isCollapsedSubtotal && isGroupCol) {
-                      displayVal = subtotalGroupVal || cellVal
+                      displayVal = formatRowValue(fname, subtotalGroupVal) || displayVal
                     }
 
                     return (

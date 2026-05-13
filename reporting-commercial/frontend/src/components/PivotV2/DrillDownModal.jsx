@@ -1,7 +1,87 @@
-import { useState, useEffect } from 'react'
-import { X, ChevronLeft, ChevronRight, ArrowUpDown, FileSpreadsheet, Loader2 } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { X, ChevronLeft, ChevronRight, ArrowUpDown, FileSpreadsheet, Loader2, Database, Search, Filter, ChevronDown } from 'lucide-react'
 import { useSettings } from '../../context/SettingsContext'
 import { exportDrilldownPivotV2 } from '../../services/api'
+
+function ColumnFilterDropdown({ column, data, activeFilter, onFilter, formatCellValue }) {
+  const [open, setOpen] = useState(false)
+  const [filterSearch, setFilterSearch] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    if (open) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const uniqueValues = useMemo(() => {
+    const vals = new Map()
+    data.forEach(row => {
+      const v = row[column.field]
+      const key = v === null || v === undefined ? '__null__' : String(v)
+      if (!vals.has(key)) vals.set(key, { raw: v, display: formatCellValue(v, column.format), count: 1 })
+      else vals.get(key).count++
+    })
+    return Array.from(vals.values()).sort((a, b) => a.display.localeCompare(b.display, 'fr'))
+  }, [data, column.field])
+
+  const filtered = filterSearch
+    ? uniqueValues.filter(v => v.display.toLowerCase().includes(filterSearch.toLowerCase()))
+    : uniqueValues
+
+  const isActive = activeFilter !== undefined
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); setFilterSearch('') }}
+        className={`p-0.5 rounded transition-colors ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100'}`}
+      >
+        <Filter size={10} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50" onClick={e => e.stopPropagation()}>
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+            <input
+              value={filterSearch}
+              onChange={e => setFilterSearch(e.target.value)}
+              placeholder="Filtrer..."
+              className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {isActive && (
+              <button
+                onClick={() => { onFilter(column.field, undefined); setOpen(false) }}
+                className="w-full px-3 py-1.5 text-xs text-left text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                Effacer le filtre
+              </button>
+            )}
+            {filtered.map((v, i) => (
+              <button
+                key={i}
+                onClick={() => { onFilter(column.field, v.raw); setOpen(false) }}
+                className={`w-full px-3 py-1.5 text-xs text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex justify-between items-center ${
+                  isActive && String(activeFilter) === String(v.raw) ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                <span className="truncate mr-2">{v.display === '-' ? '(vide)' : v.display}</span>
+                <span className="text-gray-400 text-[10px] flex-shrink-0">{v.count}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-xs text-gray-400 text-center">Aucun resultat</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PAGE_SIZES = [25, 50, 100, 200]
 
 export default function DrillDownModal({
   isOpen,
@@ -10,6 +90,10 @@ export default function DrillDownModal({
   cellInfo,
   context,
   fetchDrilldown,
+  exportDrilldown,
+  drilldownDsCode = null,
+  mainDsCode = null,
+  title = null,
   className = '',
 }) {
   const { formatNumber, formatDate } = useSettings()
@@ -18,34 +102,47 @@ export default function DrillDownModal({
   const [totals, setTotals] = useState({})
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [pageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(50)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState(null)
   const [sortField, setSortField] = useState(null)
   const [sortDirection, setSortDirection] = useState('asc')
+  const [search, setSearch] = useState('')
+  const [columnFilters, setColumnFilters] = useState({})
+
+  // Escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
 
   useEffect(() => {
-    if (isOpen && cellInfo && pivotId) {
+    if (isOpen && fetchDrilldown) {
       setPage(1)
       setSortField(null)
       setSortDirection('asc')
-      loadData(1, null, 'asc')
+      setSearch('')
+      setColumnFilters({})
+      loadData(1, null, 'asc', pageSize)
     }
   }, [isOpen, cellInfo, pivotId])
 
-  const loadData = async (newPage, sf, sd) => {
+  const loadData = async (newPage, sf, sd, ps) => {
+    if (!fetchDrilldown) return
     setLoading(true)
     setError(null)
     try {
       const result = await fetchDrilldown(pivotId, {
-        rowValues: cellInfo.rowValues || {},
-        columnValue: cellInfo.columnValue || null,
-        valueField: cellInfo.valueField,
+        rowValues: cellInfo?.rowValues || {},
+        columnValue: cellInfo?.columnValue || null,
+        valueField: cellInfo?.valueField,
         context: context || {},
         page: newPage,
-        pageSize,
+        pageSize: ps !== undefined ? ps : pageSize,
         sortField: sf !== undefined ? sf : sortField,
         sortDirection: sd !== undefined ? sd : sortDirection,
       })
@@ -71,27 +168,42 @@ export default function DrillDownModal({
     const newDir = sortField === field && sortDirection === 'asc' ? 'desc' : 'asc'
     setSortField(field)
     setSortDirection(newDir)
-    loadData(1, field, newDir)
+    loadData(1, field, newDir, pageSize)
+  }
+
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize)
+    setPage(1)
+    loadData(1, sortField, sortDirection, newSize)
   }
 
   const handleExportExcel = async () => {
     setExporting(true)
     try {
       const request = {
-        rowValues: cellInfo.rowValues || {},
-        columnValue: cellInfo.columnValue || null,
-        valueField: cellInfo.valueField,
+        rowValues: cellInfo?.rowValues || {},
+        columnValue: cellInfo?.columnValue || null,
+        valueField: cellInfo?.valueField,
         context: context || {},
         page: 1,
         pageSize: 999999,
         sortField,
         sortDirection,
       }
-      const res = await exportDrilldownPivotV2(pivotId, request)
+
+      let res
+      if (exportDrilldown) {
+        res = await exportDrilldown(request)
+      } else if (pivotId) {
+        res = await exportDrilldownPivotV2(pivotId, request)
+      } else {
+        return
+      }
+
       const url = URL.createObjectURL(res.data)
       const a = document.createElement('a')
       a.href = url
-      a.download = res.headers?.['content-disposition']?.split('filename=')[1] || `drilldown_${pivotId}.xlsx`
+      a.download = res.headers?.['content-disposition']?.split('filename=')[1] || `drilldown.xlsx`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -109,6 +221,38 @@ export default function DrillDownModal({
     return String(value)
   }
 
+  const filteredData = useMemo(() => {
+    let result = data
+    if (search) {
+      const q = search.toLowerCase()
+      result = result.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(q)))
+    }
+    const activeFilters = Object.entries(columnFilters).filter(([, v]) => v !== undefined)
+    if (activeFilters.length > 0) {
+      result = result.filter(r =>
+        activeFilters.every(([field, val]) => {
+          const rv = r[field]
+          if (val === null || val === undefined) return rv === null || rv === undefined
+          return String(rv ?? '') === String(val)
+        })
+      )
+    }
+    return result
+  }, [data, search, columnFilters])
+
+  const handleColumnFilter = (field, value) => {
+    setColumnFilters(prev => {
+      if (value === undefined) {
+        const next = { ...prev }
+        delete next[field]
+        return next
+      }
+      return { ...prev, [field]: value }
+    })
+  }
+
+  const activeFilterCount = Object.keys(columnFilters).length
+
   // Breadcrumb
   const breadcrumb = []
   if (cellInfo?.rowValues) {
@@ -123,6 +267,7 @@ export default function DrillDownModal({
   if (cellInfo?.valueField) breadcrumb.push(cellInfo.valueField)
 
   const hasTotals = Object.keys(totals).length > 0
+  const modalTitle = title || 'Detail des donnees'
 
   if (!isOpen) return null
 
@@ -132,19 +277,27 @@ export default function DrillDownModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Detail des donnees</h3>
-            <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-              {breadcrumb.map((item, i) => (
-                <span key={i} className="flex items-center gap-1">
-                  {i > 0 && <ChevronRight size={12} />}
-                  <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{item}</span>
-                </span>
-              ))}
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">{modalTitle}</h3>
             </div>
+            {breadcrumb.length > 0 && (
+              <div className="flex items-center gap-1 text-xs text-gray-500 mt-1 flex-wrap">
+                {breadcrumb.map((item, i) => (
+                  <span key={i} className="flex items-center gap-1">
+                    {i > 0 && <ChevronRight size={12} />}
+                    <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{item}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">{total.toLocaleString('fr-FR')} lignes</span>
-            {/* Bouton Export Excel */}
+            <span className="text-sm text-gray-500">
+              {filteredData.length !== data.length
+                ? `${filteredData.length.toLocaleString('fr-FR')} / ${total.toLocaleString('fr-FR')}`
+                : total.toLocaleString('fr-FR')
+              } lignes
+            </span>
             <button
               onClick={handleExportExcel}
               disabled={exporting || loading || total === 0}
@@ -166,6 +319,38 @@ export default function DrillDownModal({
           </div>
         </div>
 
+        {/* Search + Filter chips */}
+        <div className="px-6 py-3 border-b border-gray-100 dark:border-gray-800 space-y-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Rechercher dans la page courante…"
+              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          {activeFilterCount > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Filter size={12} className="text-blue-500" />
+              {Object.entries(columnFilters).map(([field, val]) => {
+                const col = columns.find(c => c.field === field)
+                return (
+                  <span key={field} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
+                    {col?.header || field}: {val === null || val === undefined ? '(vide)' : formatCellValue(val, col?.format)}
+                    <button onClick={() => handleColumnFilter(field, undefined)} className="hover:text-red-500 ml-0.5">
+                      <X size={10} />
+                    </button>
+                  </span>
+                )
+              })}
+              <button onClick={() => setColumnFilters({})} className="text-[10px] text-red-500 hover:text-red-700 ml-1">
+                Tout effacer
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Content — scroll vertical + horizontal, thead et tfoot sticky */}
         <div className="flex-1 overflow-auto drilldown-quartz" style={{ position: 'relative' }}>
           {loading ? (
@@ -176,20 +361,28 @@ export default function DrillDownModal({
             <div className="flex items-center justify-center h-48 text-red-500 text-sm">{error}</div>
           ) : (
             <table className="w-full border-collapse" style={{ borderSpacing: 0 }}>
-              {/* En-tête : sticky en haut */}
+              {/* En-tete : sticky en haut */}
               <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                 <tr>
                   {columns.map(col => (
                     <th
                       key={col.field}
-                      onClick={() => handleSort(col.field)}
-                      className="text-left cursor-pointer hover:opacity-80 whitespace-nowrap"
+                      className="text-left whitespace-nowrap group"
                     >
                       <span className="flex items-center gap-1">
-                        {col.header || col.field}
+                        <span className="cursor-pointer hover:opacity-80" onClick={() => handleSort(col.field)}>
+                          {col.header || col.field}
+                        </span>
                         {sortField === col.field && (
                           <ArrowUpDown size={12} style={{ color: 'var(--color-primary-500, #3b82f6)' }} />
                         )}
+                        <ColumnFilterDropdown
+                          column={col}
+                          data={data}
+                          activeFilter={columnFilters[col.field]}
+                          onFilter={handleColumnFilter}
+                          formatCellValue={formatCellValue}
+                        />
                       </span>
                     </th>
                   ))}
@@ -229,7 +422,7 @@ export default function DrillDownModal({
               )}
 
               <tbody>
-                {data.map((row, i) => (
+                {filteredData.map((row, i) => (
                   <tr key={i}>
                     {columns.map(col => (
                       <td
@@ -242,16 +435,30 @@ export default function DrillDownModal({
                     ))}
                   </tr>
                 ))}
+                {filteredData.length === 0 && !loading && (
+                  <tr><td colSpan={columns.length || 1} className="text-center py-8 text-gray-400 text-sm">Aucun resultat</td></tr>
+                )}
               </tbody>
             </table>
           )}
         </div>
 
-        {/* Footer - Pagination */}
+        {/* Footer - Pagination + Page size */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-          <span className="text-sm text-gray-500">
-            Page {page} sur {totalPages} ({total.toLocaleString('fr-FR')} resultats)
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-500">
+              Page {page} sur {totalPages} — {filteredData.length !== data.length ? `${filteredData.length} affiche(s) / ` : ''}{total.toLocaleString('fr-FR')} resultats
+            </span>
+            <select
+              value={pageSize}
+              onChange={e => handlePageSizeChange(Number(e.target.value))}
+              className="text-xs border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {PAGE_SIZES.map(s => (
+                <option key={s} value={s}>{s} / page</option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => { const p = page - 1; setPage(p); loadData(p) }}

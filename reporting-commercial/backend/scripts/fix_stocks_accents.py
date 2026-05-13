@@ -17,7 +17,7 @@ queries["DS_STK_MOUVEMENTS"] = """SELECT
     mv.[Code D\u00e9p\u00f4t] AS [Code Depot], mv.[D\u00e9p\u00f4t] AS [Depot],
     mv.[Quantit\u00e9] AS [Quantite], mv.CMUP AS [CMUP], mv.[Montant Stock] AS [Montant Stock],
     mv.[N\u00b0 Pi\u00e8ce] AS [Num Piece], mv.[Code tiers] AS [Code tiers], mv.[Intitul\u00e9 tiers] AS [Tiers],
-    mv.[Prix unitaire] AS [Prix unitaire], mv.[Prix de revient] AS [Prix de revient], mv.[DPA-P\u00e9riode] AS [DPA Periode],
+    mv.[Prix unitaire] AS [Prix unitaire], mv.[CMUP] AS [CMUP], mv.[DPA-P\u00e9riode] AS [DPA Periode],
     mv.[DPA-Vente] AS [DPA Vente], mv.[Co\u00fbt standard] AS [Cout standard], mv.[DPR-Vente] AS [DPR Vente],
     mv.[N\u00b0 S\u00e9rie / Lot] AS [Num Serie Lot], mv.[Suivi Stock] AS [Suivi Stock], mv.[Gamme 1] AS [Gamme 1], mv.[Gamme 2] AS [Gamme 2],
     mv.[Date P\u00e9remption] AS [Date Peremption], mv.[Date Fabrication] AS [Date Fabrication],

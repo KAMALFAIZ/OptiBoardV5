@@ -4,6 +4,9 @@ from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 import json
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
 _scheduler_started = False
@@ -15,7 +18,7 @@ def start_scheduler():
     if not _scheduler_started:
         scheduler.start()
         _scheduler_started = True
-        print("[SCHEDULER] Demarrage du scheduler")
+        logger.info("[SCHEDULER] Demarrage du scheduler")
         # Charger les taches programmees existantes
         asyncio.create_task(load_scheduled_tasks())
 
@@ -27,7 +30,7 @@ def start_scheduler():
         name="Évaluation Alertes KPI",
         replace_existing=True
     )
-    print("[SCHEDULER] Job alertes KPI enregistré (toutes les heures)")
+    logger.info("[SCHEDULER] Job alertes KPI enregistré (toutes les heures)")
 
     # Job de livraison des abonnements chaque matin à 7h00
     scheduler.add_job(
@@ -37,7 +40,7 @@ def start_scheduler():
         name="Livraison Abonnements Rapports",
         replace_existing=True
     )
-    print("[SCHEDULER] Job abonnements enregistré (quotidien à 07h00)")
+    logger.info("[SCHEDULER] Job abonnements enregistré (quotidien à 07h00)")
 
     # Digest IA hebdomadaire chaque lundi à 8h00
     scheduler.add_job(
@@ -47,7 +50,7 @@ def start_scheduler():
         name="Digest IA Hebdomadaire (Direction)",
         replace_existing=True
     )
-    print("[SCHEDULER] Job digest IA hebdomadaire enregistré (lundi à 08h00)")
+    logger.info("[SCHEDULER] Job digest IA hebdomadaire enregistré (lundi à 08h00)")
 
 
 def stop_scheduler():
@@ -56,7 +59,7 @@ def stop_scheduler():
     if _scheduler_started:
         scheduler.shutdown()
         _scheduler_started = False
-        print("[SCHEDULER] Arret du scheduler")
+        logger.info("[SCHEDULER] Arret du scheduler")
 
 
 async def load_scheduled_tasks():
@@ -72,9 +75,9 @@ async def load_scheduled_tasks():
         for schedule in schedules:
             add_schedule_job(schedule)
 
-        print(f"[SCHEDULER] {len(schedules)} tache(s) programmee(s) chargee(s)")
+        logger.info(f"[SCHEDULER] {len(schedules)} tache(s) programmee(s) chargee(s)")
     except Exception as e:
-        print(f"[SCHEDULER] Erreur chargement taches: {e}")
+        logger.error(f"[SCHEDULER] Erreur chargement taches: {e}")
 
 
 def add_schedule_job(schedule: dict):
@@ -113,7 +116,7 @@ def add_schedule_job(schedule: dict):
         replace_existing=True
     )
 
-    print(f"[SCHEDULER] Job ajoute: {job_id} ({frequency} a {hour:02d}:{minute:02d})")
+    logger.info(f"[SCHEDULER] Job ajoute: {job_id} ({frequency} a {hour:02d}:{minute:02d})")
 
 
 def remove_schedule_job(schedule_id: int):
@@ -121,7 +124,7 @@ def remove_schedule_job(schedule_id: int):
     job_id = f"report_schedule_{schedule_id}"
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
-        print(f"[SCHEDULER] Job supprime: {job_id}")
+        logger.info(f"[SCHEDULER] Job supprime: {job_id}")
 
 
 async def execute_scheduled_report(schedule_id: int):
@@ -129,7 +132,7 @@ async def execute_scheduled_report(schedule_id: int):
     from ..database_unified import execute_app as execute_query, app_cursor as get_db_cursor
     from ..routes.report_scheduler import execute_schedule
 
-    print(f"[SCHEDULER] Execution du rapport schedule_id={schedule_id}")
+    logger.info(f"[SCHEDULER] Execution du rapport schedule_id={schedule_id}")
 
     try:
         schedule = execute_query(
@@ -139,7 +142,7 @@ async def execute_scheduled_report(schedule_id: int):
         )
 
         if not schedule:
-            print(f"[SCHEDULER] Schedule {schedule_id} non trouve ou inactif")
+            logger.info(f"[SCHEDULER] Schedule {schedule_id} non trouve ou inactif")
             return
 
         schedule = schedule[0]
@@ -150,10 +153,10 @@ async def execute_scheduled_report(schedule_id: int):
         # Executer le rapport
         await execute_schedule(schedule)
 
-        print(f"[SCHEDULER] Rapport {schedule_id} execute avec succes")
+        logger.info(f"[SCHEDULER] Rapport {schedule_id} execute avec succes")
 
     except Exception as e:
-        print(f"[SCHEDULER] Erreur execution rapport {schedule_id}: {e}")
+        logger.error(f"[SCHEDULER] Erreur execution rapport {schedule_id}: {e}")
 
 
 async def send_weekly_digests():
@@ -161,9 +164,9 @@ async def send_weekly_digests():
     from .weekly_digest_service import send_all_digests
     try:
         result = await send_all_digests()
-        print(f"[SCHEDULER] Digest IA: {result['success']}/{result['total_dwh']} DWH envoyés")
+        logger.info(f"[SCHEDULER] Digest IA: {result['success']}/{result['total_dwh']} DWH envoyés")
     except Exception as e:
-        print(f"[SCHEDULER] Erreur digest IA hebdomadaire: {e}")
+        logger.error(f"[SCHEDULER] Erreur digest IA hebdomadaire: {e}")
 
 
 async def deliver_subscriptions():
@@ -172,7 +175,7 @@ async def deliver_subscriptions():
     try:
         await deliver_due_subscriptions()
     except Exception as e:
-        print(f"[SCHEDULER] Erreur livraison abonnements: {e}")
+        logger.error(f"[SCHEDULER] Erreur livraison abonnements: {e}")
 
 
 async def evaluate_kpi_alerts():
@@ -181,9 +184,9 @@ async def evaluate_kpi_alerts():
     from .alert_service import evaluate_all_alerts
     try:
         result = evaluate_all_alerts(execute_client, execute_dwh)
-        print(f"[SCHEDULER] Alertes KPI: {result['triggered']} déclenchée(s)")
+        logger.info(f"[SCHEDULER] Alertes KPI: {result['triggered']} déclenchée(s)")
     except Exception as e:
-        print(f"[SCHEDULER] Erreur évaluation alertes KPI: {e}")
+        logger.error(f"[SCHEDULER] Erreur évaluation alertes KPI: {e}")
 
 
 def get_scheduler_status():

@@ -517,7 +517,7 @@ def create_sql_view():
         l.[Montant HT Net] AS [Montant_HT],
         l.[Montant TTC Net] AS [Montant_TTC],
         l.CMUP,
-        l.[Prix de revient] AS [Prix_Revient],
+        l.[CMUP] AS [Prix_Revient],
         ISNULL(ms.[DPA-Période], 0) AS [DPA_Periode],
         ISNULL(ms.[DPA-Vente], 0) AS [DPA_Vente],
         ISNULL(ms.[DPR-Vente], 0) AS [DPR_Vente],

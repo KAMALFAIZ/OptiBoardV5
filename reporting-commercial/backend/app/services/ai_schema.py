@@ -25,14 +25,14 @@ TABLE_DESCRIPTIONS = {
         "Detail des lignes de ventes (factures, BL, avoirs). "
         "Colonnes cles: [Date] (date du document, type date — UTILISER POUR FILTRER PAR PERIODE), "
         "[Montant HT Net] (CA hors taxe), [Montant TTC Net] (CA TTC), "
-        "[Prix de revient] (cout unitaire), [Quantité] (quantite vendue), "
+        "[CMUP] (cout unitaire), [Quantité] (quantite vendue), "
         "[Code client], [Intitulé client], [Code article], [Désignation ligne], "
         "[N° Pièce] (numero de document), [Type Document] (Facture, BL, Avoir...), "
         "[Valorise CA] (varchar 'Oui'/'Non' — indique si la ligne compte dans le CA), "
         "[Catalogue 1] (gamme/famille produit), [Catalogue 2], [Gamme 1], [Gamme 2], "
         "[societe], [Code collaborateur], [Nom collaborateur], [Prénom collaborateur]. "
-        "FORMULE MARGE: [Montant HT Net] - [Prix de revient] * [Quantité]. "
-        "FORMULE TAUX MARGE: ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / NULLIF(SUM([Montant HT Net]), 0), 2). "
+        "FORMULE MARGE: [Montant HT Net] - [CMUP] * [Quantité]. "
+        "FORMULE TAUX MARGE: ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / NULLIF(SUM([Montant HT Net]), 0), 2). "
         "REGLE CA OBLIGATOIRE: TOUJOURS filtrer WHERE [Valorise CA] = 'Oui' pour tout calcul de CA/ventes/revenus. "
         "REGLE DATE: Utiliser [Date] (PAS [Date BL]) pour filtrer par periode. Ex: [Date] BETWEEN '2025-01-01' AND '2025-12-31'. "
         "FONCTIONS DATE UTILES: GETDATE() (aujourd'hui), DATEADD(MONTH, -1, GETDATE()), YEAR([Date]), MONTH([Date]), FORMAT([Date], 'yyyy-MM')."
@@ -43,7 +43,7 @@ TABLE_DESCRIPTIONS = {
         "[Date Mouvement] (date du mouvement), [Type Mouvement], "
         "[Sens de mouvement] (varchar 'Entrée' ou 'Sortie'), "
         "[Quantité], [CMUP] (cout moyen unitaire pondere), "
-        "[Prix unitaire], [Prix de revient], [Montant Stock], "
+        "[Prix unitaire], [CMUP], [Montant Stock], "
         "[Code Dépôt], [Dépôt], [N° Pièce], [Domaine mouvement], [societe]. "
         "FORMULE STOCK CALCULE: SUM(CASE WHEN [Sens de mouvement] = 'Entrée' THEN [Quantité] ELSE -[Quantité] END). "
         "FORMULE VALEUR STOCK: stock_qte * [CMUP]. "
@@ -63,7 +63,7 @@ TABLE_DESCRIPTIONS = {
         "[Date d'échéance] (date echeance), [Date document], "
         "[Montant échéance] (montant initial de l'echeance), "
         "[Montant du règlement] (montant deja regle, peut etre NULL ou absent — verifier dans le schema), "
-        "[Mode de réglement], [Code mode règlement], "
+        "[Mode de règlement], [Code mode règlement], "
         "[N° Pièce], [Type Document], [societe]. "
         "IMPORTANT: Verifier les colonnes exactes dans le schema ci-dessus avant d'ecrire le SQL. "
         "Si la colonne [Régler] n'existe pas, utiliser [Montant du règlement]. "
@@ -185,10 +185,10 @@ SELECT TOP 10
     [Code client],
     [Intitulé client] AS [Client],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
-        ELSE 0 END AS [Taux Marge %],
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        ELSE 0 END AS [Marge %],
     COUNT(DISTINCT [N° Pièce]) AS [Nb Factures]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
@@ -202,7 +202,7 @@ SQL:
 SELECT
     FORMAT([Date], 'yyyy-MM') AS [Periode],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     COUNT(DISTINCT [Code client]) AS [Nb Clients]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
@@ -220,10 +220,10 @@ SELECT TOP 20
     [Catalogue 1] AS [Catalogue],
     SUM([Quantité]) AS [Qte Vendue],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
-        ELSE 0 END AS [Taux Marge %]
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        ELSE 0 END AS [Marge %]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
   AND YEAR([Date]) = YEAR(GETDATE())
@@ -281,12 +281,12 @@ SELECT TOP 50
     [Code client],
     [Intitulé client] AS [Client],
     [N° Pièce] AS [Piece],
-    [Date d'échéance] AS [Echeance],
+    [Date d'échéance] AS [Échéance],
     [Montant échéance] AS [Montant],
-    ISNULL([Montant du règlement], 0) AS [Regle],
-    [Montant échéance] - ISNULL([Montant du règlement], 0) AS [Reste A Regler],
-    DATEDIFF(DAY, [Date d'échéance], GETDATE()) AS [Jours Retard],
-    [Mode de réglement] AS [Mode Reglement]
+    ISNULL([Montant du règlement], 0) AS [Réglé],
+    [Montant échéance] - ISNULL([Montant du règlement], 0) AS [Reste à Régler],
+    DATEDIFF(DAY, [Date d'échéance], GETDATE()) AS [Jours de Retard],
+    [Mode de règlement] AS [Mode de Règlement]
 FROM Echéances_Ventes
 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
 ORDER BY [Montant échéance] - ISNULL([Montant du règlement], 0) DESC
@@ -299,7 +299,7 @@ SELECT
     [Code client],
     [Intitulé client] AS [Client],
     SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [Non Echu],
+        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [Non Échu],
     SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 1 AND 30
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [0-30j],
     SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 31 AND 60
@@ -308,7 +308,7 @@ SELECT
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [61-90j],
     SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 90
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [+90j],
-    SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Total Creance]
+    SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Total Créance]
 FROM Echéances_Ventes
 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
 GROUP BY [Code client], [Intitulé client]
@@ -352,10 +352,10 @@ SELECT
     COUNT(DISTINCT [Code article]) AS [Nb Articles],
     SUM([Quantité]) AS [Qte Vendue],
     SUM([Montant HT Net]) AS [CA HT],
-    SUM([Montant HT Net] - [Prix de revient] * [Quantité]) AS [Marge],
+    SUM([Montant HT Net] - [CMUP] * [Quantité]) AS [Marge],
     CASE WHEN SUM([Montant HT Net]) > 0
-        THEN ROUND(SUM([Montant HT Net] - [Prix de revient] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
-        ELSE 0 END AS [Taux Marge %]
+        THEN ROUND(SUM([Montant HT Net] - [CMUP] * [Quantité]) * 100.0 / SUM([Montant HT Net]), 2)
+        ELSE 0 END AS [Marge %]
 FROM Lignes_des_ventes
 WHERE [Valorise CA] = 'Oui'
   AND YEAR([Date]) = YEAR(GETDATE())

@@ -228,10 +228,10 @@ templates.append(("DS_VTE_CA_CLIENT", "CA par Client", f"""SELECT
     SUM(li.[Quantit\u00e9]) AS [Quantite Totale],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Cout Revient],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Cout Revient],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -248,10 +248,10 @@ templates.append(("DS_VTE_CA_ARTICLE", "CA par Article", f"""SELECT
     SUM(li.[Quantit\u00e9]) AS [Quantite Vendue],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Cout Revient],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Cout Revient],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %],
     AVG(li.[Prix unitaire]) AS [Prix Moyen]
 {BASE_JOIN}
@@ -269,9 +269,9 @@ templates.append(("DS_VTE_CA_COMMERCIAL", "CA par Commercial", f"""SELECT
     SUM(li.[Quantit\u00e9]) AS [Quantite],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -286,9 +286,9 @@ templates.append(("DS_VTE_CA_REGION", "CA par Region / Ville", f"""SELECT
     COUNT(DISTINCT li.[Code client]) AS [Nb Clients],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 LEFT JOIN [Clients] cl ON li.[Code client] = cl.[Code client] AND li.[societe] = cl.[societe]
@@ -306,9 +306,9 @@ templates.append(("DS_VTE_CA_FAMILLE", "CA par Famille Article", f"""SELECT
     SUM(li.[Quantit\u00e9]) AS [Quantite],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -326,10 +326,12 @@ templates.append(("DS_VTE_CA_MENSUEL", "Evolution CA Mensuelle", f"""SELECT
     SUM(li.[Quantit\u00e9]) AS [Quantite],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(ISNULL(li.[CMUP], 0) * li.[Quantit\u00e9]) AS [Cout Revient],
+    SUM(li.[Montant HT Net]) - SUM(ISNULL(li.[CMUP], 0) * li.[Quantit\u00e9]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
-        ELSE 0 END AS [Taux Marge %]
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(ISNULL(li.[CMUP], 0) * li.[Quantit\u00e9])) / SUM(li.[Montant HT Net]), 2)
+        ELSE 0 END AS [Taux Marge %],
+    COUNT(DISTINCT li.[Code article]) AS [Nb Articles]
 {BASE_JOIN}
 {WHERE_CA}
 GROUP BY YEAR(li.[Date BL]), MONTH(li.[Date BL]), FORMAT(li.[Date BL], 'yyyy-MM'), li.[societe]
@@ -344,9 +346,9 @@ templates.append(("DS_VTE_TOP_CLIENTS", "Top 20 Clients", f"""SELECT TOP 20
     COUNT(DISTINCT li.[N\u00b0 Pi\u00e8ce]) AS [Nb Documents],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -362,9 +364,9 @@ templates.append(("DS_VTE_TOP_ARTICLES", "Top 20 Articles", f"""SELECT TOP 20
     COUNT(DISTINCT li.[Code client]) AS [Nb Clients],
     SUM(li.[Quantit\u00e9]) AS [Quantite Vendue],
     SUM(li.[Montant HT Net]) AS [CA HT],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -382,13 +384,13 @@ templates.append(("DS_VTE_MARGES", "Analyse Marges", f"""SELECT
     li.[societe] AS [Societe],
     SUM(li.[Quantit\u00e9]) AS [Quantite],
     SUM(li.[Montant HT Net]) AS [CA HT],
-    SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Cout Revient],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Cout Revient],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %],
     AVG(li.[Prix unitaire]) AS [Prix Moyen Vente],
-    AVG(li.[Prix de revient]) AS [Prix Moyen Revient]
+    AVG(li.[CMUP]) AS [Prix Moyen Revient]
 {BASE_JOIN}
 {WHERE_CA}
 GROUP BY li.[Code client], li.[Intitul\u00e9 client], li.[Code article], li.[D\u00e9signation ligne],
@@ -431,8 +433,8 @@ templates.append(("DS_VTE_COMPARATIF", "Comparatif Annuel N vs N-1", f"""SELECT
             - SUM(CASE WHEN YEAR(li.[Date BL]) = YEAR(GETDATE()) - 1 THEN li.[Montant HT Net] ELSE 0 END))
             / ABS(SUM(CASE WHEN YEAR(li.[Date BL]) = YEAR(GETDATE()) - 1 THEN li.[Montant HT Net] ELSE 0 END)), 2)
         ELSE 0 END AS [Evolution %],
-    SUM(CASE WHEN YEAR(li.[Date BL]) = YEAR(GETDATE()) THEN li.[Montant HT Net] - li.[Quantit\u00e9] * li.[Prix de revient] ELSE 0 END) AS [Marge N],
-    SUM(CASE WHEN YEAR(li.[Date BL]) = YEAR(GETDATE()) - 1 THEN li.[Montant HT Net] - li.[Quantit\u00e9] * li.[Prix de revient] ELSE 0 END) AS [Marge N-1]
+    SUM(CASE WHEN YEAR(li.[Date BL]) = YEAR(GETDATE()) THEN li.[Montant HT Net] - li.[Quantit\u00e9] * li.[CMUP] ELSE 0 END) AS [Marge N],
+    SUM(CASE WHEN YEAR(li.[Date BL]) = YEAR(GETDATE()) - 1 THEN li.[Montant HT Net] - li.[Quantit\u00e9] * li.[CMUP] ELSE 0 END) AS [Marge N-1]
 {BASE_JOIN}
 WHERE {CA_FILTER}
   AND YEAR(li.[Date BL]) IN (YEAR(GETDATE()), YEAR(GETDATE()) - 1)
@@ -493,7 +495,7 @@ templates.append(("DS_VTE_CA_DEPOT", "CA par Depot", f"""SELECT
     SUM(li.[Poids net]) AS [Poids Net Total],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute]
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute]
 {BASE_JOIN}
 {WHERE_CA}
 GROUP BY li.[Code d\u00e9p\u00f4t], li.[Intitul\u00e9 d\u00e9p\u00f4t], li.[societe]
@@ -508,9 +510,9 @@ templates.append(("DS_VTE_CA_AFFAIRE", "CA par Affaire", f"""SELECT
     COUNT(DISTINCT li.[N\u00b0 Pi\u00e8ce]) AS [Nb Documents],
     SUM(li.[Montant HT Net]) AS [CA HT],
     SUM(li.[Montant TTC Net]) AS [CA TTC],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -652,10 +654,10 @@ templates.append(("DS_VTE_ANALYSE_PRIX", "Analyse des Prix de Vente", f"""SELECT
     MAX(li.[Prix unitaire]) AS [Prix Max],
     AVG(li.[Prix unitaire]) AS [Prix Moyen],
     STDEV(li.[Prix unitaire]) AS [Ecart Type Prix],
-    AVG(li.[Prix de revient]) AS [Cout Revient Moyen],
-    AVG(li.[Prix unitaire]) - AVG(li.[Prix de revient]) AS [Marge Unitaire Moy],
+    AVG(li.[CMUP]) AS [Cout Revient Moyen],
+    AVG(li.[Prix unitaire]) - AVG(li.[CMUP]) AS [Marge Unitaire Moy],
     CASE WHEN AVG(li.[Prix unitaire]) > 0
-        THEN ROUND(100.0 * (AVG(li.[Prix unitaire]) - AVG(li.[Prix de revient])) / AVG(li.[Prix unitaire]), 2)
+        THEN ROUND(100.0 * (AVG(li.[Prix unitaire]) - AVG(li.[CMUP])) / AVG(li.[Prix unitaire]), 2)
         ELSE 0 END AS [Taux Marge Moy %]
 {BASE_JOIN}
 {WHERE_CA}
@@ -710,10 +712,10 @@ templates.append(("DS_VTE_RENTABILITE_CLIENT", "Rentabilite par Client", f"""SEL
     li.[societe] AS [Societe],
     en.[Nom repr\u00e9sentant] AS [Commercial],
     SUM(li.[Montant HT Net]) AS [CA HT],
-    SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Cout Revient Total],
-    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient]) AS [Marge Brute],
+    SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Cout Revient Total],
+    SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP]) AS [Marge Brute],
     CASE WHEN SUM(li.[Montant HT Net]) <> 0
-        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[Prix de revient])) / SUM(li.[Montant HT Net]), 2)
+        THEN ROUND(100.0 * (SUM(li.[Montant HT Net]) - SUM(li.[Quantit\u00e9] * li.[CMUP])) / SUM(li.[Montant HT Net]), 2)
         ELSE 0 END AS [Taux Marge %],
     COUNT(DISTINCT li.[N\u00b0 Pi\u00e8ce]) AS [Nb Transactions],
     COUNT(DISTINCT li.[Code article]) AS [Nb Articles],
@@ -808,8 +810,8 @@ templates.append(("DS_VTE_DETAIL_COMPLET", "Ventes Detail Complet", f"""SELECT
     li.[Prix unitaire] AS [Prix Unitaire],
     li.[Montant HT Net] AS [Montant HT],
     li.[Montant TTC Net] AS [Montant TTC],
-    li.[Prix de revient] AS [Prix Revient],
-    li.[Montant HT Net] - li.Quantité * li.[Prix de revient] AS Marge,
+    li.[CMUP] AS [Prix Revient],
+    li.[Montant HT Net] - li.Quantité * li.[CMUP] AS Marge,
     li.[Poids net] AS [Poids Net],
     li.[Code dépôt] AS [Code Depot],
     li.[Intitulé dépôt] AS Depot,
@@ -910,17 +912,33 @@ for _code, _nom, _sql in templates:
 print(f"Creation de {len(templates)} DataSource Templates Ventes...\n")
 
 template_ids = {}
+created = 0
+updated = 0
 for code, nom, query in templates:
-    cursor.execute("""
-        INSERT INTO APP_DataSources_Templates (code, nom, query_template, type, actif)
-        OUTPUT INSERTED.id
-        VALUES (?, ?, ?, 'SQL', 1)
-    """, (code, nom, query))
-    tid = cursor.fetchone()[0]
-    template_ids[code] = tid
-    print(f"  Template {tid:3d}: {code}")
+    cursor.execute("SELECT id FROM APP_DataSources_Templates WHERE code = ?", (code,))
+    row = cursor.fetchone()
+    if row:
+        tid = row[0]
+        cursor.execute("""
+            UPDATE APP_DataSources_Templates
+            SET nom = ?, query_template = ?, type = 'SQL', actif = 1
+            WHERE code = ?
+        """, (nom, query, code))
+        template_ids[code] = tid
+        updated += 1
+        print(f"  MAJ     {tid:3d}: {code}")
+    else:
+        cursor.execute("""
+            INSERT INTO APP_DataSources_Templates (code, nom, query_template, type, actif)
+            OUTPUT INSERTED.id
+            VALUES (?, ?, ?, 'SQL', 1)
+        """, (code, nom, query))
+        tid = cursor.fetchone()[0]
+        template_ids[code] = tid
+        created += 1
+        print(f"  CREE    {tid:3d}: {code}")
 
-print(f"\n{len(template_ids)} templates crees.")
+print(f"\n{created} templates crees, {updated} templates mis a jour.")
 
 # =============================================================================
 #  GRIDVIEW DEFINITIONS
@@ -1102,9 +1120,11 @@ gridviews = [
         {"field": "Societe", "header": "Societe", "width": 90},
         {"field": "Nb Clients", "header": "Nb Clients", "width": 90, "type": "number"},
         {"field": "Nb Documents", "header": "Nb Docs", "width": 80, "type": "number"},
+        {"field": "Nb Articles", "header": "Nb Articles", "width": 90, "type": "number"},
         {"field": "Quantite", "header": "Quantite", "width": 100, "type": "number"},
         {"field": "CA HT", "header": "CA HT", "width": 130, "type": "number", "format": "#,##0.00"},
         {"field": "CA TTC", "header": "CA TTC", "width": 130, "type": "number", "format": "#,##0.00"},
+        {"field": "Cout Revient", "header": "Cout Revient", "width": 130, "type": "number", "format": "#,##0.00"},
         {"field": "Marge Brute", "header": "Marge Brute", "width": 120, "type": "number", "format": "#,##0.00"},
         {"field": "Taux Marge %", "header": "Marge %", "width": 90, "type": "number", "format": "#,##0.00"},
     ]),
@@ -1386,68 +1406,90 @@ gridviews = [
 print(f"\nCreation de {len(gridviews)} GridViews...\n")
 
 gv_ids = []
+gv_created = 0
+gv_updated = 0
 for nom, ds_code, columns in gridviews:
     cols_json = json.dumps(columns, ensure_ascii=False)
-    cursor.execute("""
-        INSERT INTO APP_GridViews (nom, description, columns_config, data_source_code, page_size, actif, is_public, show_totals)
-        OUTPUT INSERTED.id
-        VALUES (?, ?, ?, ?, 50, 1, 0, 1)
-    """, (nom, f"Ventes - {nom}", cols_json, ds_code))
-    gv_id = cursor.fetchone()[0]
-    gv_ids.append((gv_id, nom, ds_code))
-    print(f"  GV {gv_id:3d}: {nom}")
+    cursor.execute("SELECT id FROM APP_GridViews WHERE data_source_code = ?", (ds_code,))
+    row = cursor.fetchone()
+    if row:
+        gv_id = row[0]
+        cursor.execute("""
+            UPDATE APP_GridViews
+            SET nom = ?, description = ?, columns_config = ?, page_size = 50, actif = 1, show_totals = 1
+            WHERE id = ?
+        """, (nom, f"Ventes - {nom}", cols_json, gv_id))
+        gv_ids.append((gv_id, nom, ds_code))
+        gv_updated += 1
+        print(f"  MAJ  GV {gv_id:3d}: {nom}")
+    else:
+        cursor.execute("""
+            INSERT INTO APP_GridViews (nom, description, columns_config, data_source_code, page_size, actif, is_public, show_totals)
+            OUTPUT INSERTED.id
+            VALUES (?, ?, ?, ?, 50, 1, 0, 1)
+        """, (nom, f"Ventes - {nom}", cols_json, ds_code))
+        gv_id = cursor.fetchone()[0]
+        gv_ids.append((gv_id, nom, ds_code))
+        gv_created += 1
+        print(f"  CREE GV {gv_id:3d}: {nom}")
+
+print(f"\n{gv_created} GridViews crees, {gv_updated} GridViews mis a jour.")
 
 # =============================================================================
-#  CREATE MENU TREE
+#  CREATE MENU TREE (skip if already exists)
 # =============================================================================
-print(f"\nCreation de l'arborescence de menus...\n")
+cursor.execute("SELECT id FROM APP_Menus WHERE nom = 'Ventes' AND type = 'folder' AND parent_id IS NULL")
+existing_root = cursor.fetchone()
 
-# Root: Ventes
-cursor.execute("""
-    INSERT INTO APP_Menus (nom, type, parent_id, ordre, actif)
-    OUTPUT INSERTED.id
-    VALUES ('Ventes', 'folder', NULL, 1, 1)
-""")
-root_id = cursor.fetchone()[0]
-print(f"  Root: Ventes (id={root_id})")
+if existing_root:
+    root_id = existing_root[0]
+    print(f"\nMenus Ventes deja existants (root id={root_id}) — skip creation.")
+else:
+    print(f"\nCreation de l'arborescence de menus...\n")
 
-# Sub-folders
-folders = [
-    ("Documents Ventes", 1, 7),        # items 0-6
-    ("Analyses Ventes", 2, 13),         # items 7-19
-    ("Rapports Avances", 3, 15),        # items 20-34
-]
-
-folder_ids = {}
-for folder_name, ordre, count in folders:
     cursor.execute("""
         INSERT INTO APP_Menus (nom, type, parent_id, ordre, actif)
         OUTPUT INSERTED.id
-        VALUES (?, 'folder', ?, ?, 1)
-    """, (folder_name, root_id, ordre))
-    fid = cursor.fetchone()[0]
-    folder_ids[folder_name] = fid
-    print(f"  Folder: {folder_name} (id={fid})")
+        VALUES ('Ventes', 'folder', NULL, 1, 1)
+    """)
+    root_id = cursor.fetchone()[0]
+    print(f"  Root: Ventes (id={root_id})")
 
-# Menu items
-item_index = 0
-menu_mapping = [
-    ("Documents Ventes", 7),
-    ("Analyses Ventes", 13),
-    ("Rapports Avances", 15),
-]
+    folders = [
+        ("Documents Ventes", 1, 7),
+        ("Analyses Ventes", 2, 13),
+        ("Rapports Avances", 3, 15),
+    ]
 
-for folder_name, count in menu_mapping:
-    fid = folder_ids[folder_name]
-    for i in range(count):
-        gv_id, nom, ds_code = gv_ids[item_index]
+    folder_ids = {}
+    for folder_name, ordre, count in folders:
         cursor.execute("""
-            INSERT INTO APP_Menus (nom, type, target_id, parent_id, ordre, actif)
-            VALUES (?, 'gridview', ?, ?, ?, 1)
-        """, (nom, gv_id, fid, i + 1))
-        item_index += 1
+            INSERT INTO APP_Menus (nom, type, parent_id, ordre, actif)
+            OUTPUT INSERTED.id
+            VALUES (?, 'folder', ?, ?, 1)
+        """, (folder_name, root_id, ordre))
+        fid = cursor.fetchone()[0]
+        folder_ids[folder_name] = fid
+        print(f"  Folder: {folder_name} (id={fid})")
 
-print(f"\n  {item_index} menu items crees")
+    item_index = 0
+    menu_mapping = [
+        ("Documents Ventes", 7),
+        ("Analyses Ventes", 13),
+        ("Rapports Avances", 15),
+    ]
+
+    for folder_name, count in menu_mapping:
+        fid = folder_ids[folder_name]
+        for i in range(count):
+            gv_id, nom, ds_code = gv_ids[item_index]
+            cursor.execute("""
+                INSERT INTO APP_Menus (nom, type, target_id, parent_id, ordre, actif)
+                VALUES (?, 'gridview', ?, ?, ?, 1)
+            """, (nom, gv_id, fid, i + 1))
+            item_index += 1
+
+    print(f"\n  {item_index} menu items crees")
 
 # =============================================================================
 #  SUMMARY

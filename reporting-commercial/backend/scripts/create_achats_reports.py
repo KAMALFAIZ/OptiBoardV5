@@ -39,7 +39,7 @@ DS_TEMPLATES = [
     li.[N° Pièce], li.[Date], li.[Code fournisseur], li.[Intitulé fournisseur],
     li.[Code article], li.[Désignation], li.[Catalogue 1] AS [Famille],
     li.[Quantité], li.[Prix unitaire], li.[Montant HT Net], li.[Montant TTC Net],
-    li.[Remise 1], li.[Frais d'approche], li.CMUP, li.[Prix de revient],
+    li.[Remise 1], li.[Frais d'approche], li.CMUP, li.[CMUP],
     li.[Code dépôt], li.[Intitulé dépôt], en.Souche, en.Statut,
     en.[Catégorie Comptable], li.societe
 FROM Lignes_des_achats li

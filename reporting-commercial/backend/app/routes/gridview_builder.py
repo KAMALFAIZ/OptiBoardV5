@@ -215,7 +215,7 @@ def init_gridview_tables():
         _gridview_tables_initialized = True
         return True
     except Exception as e:
-        print(f"Erreur init gridview tables: {e}")
+        logger.error(f"Erreur init gridview tables: {e}")
         return False
 
 
@@ -307,10 +307,12 @@ async def get_gridview(
 async def create_gridview(grid: Dict[str, Any], user_id: int = 1):
     """Cree une nouvelle grille"""
     try:
-        nom = grid.get('nom', 'Sans nom')
+        nom = (grid.get('nom') or '').strip()
+        if not nom:
+            raise HTTPException(status_code=422, detail="Le nom de la grille est requis")
         description = grid.get('description', '')
         data_source_id = grid.get('data_source_id')
-        data_source_code = grid.get('data_source_code')  # Nouveau: code du template
+        data_source_code = grid.get('data_source_code')
         columns = grid.get('columns', [])
         default_sort = grid.get('default_sort')
         page_size = grid.get('page_size', 25)
@@ -353,7 +355,7 @@ async def create_gridview(grid: Dict[str, Any], user_id: int = 1):
 
         return {"success": True, "message": "Grille creee", "id": new_id}
     except Exception as e:
-        print(f"Erreur creation gridview: {e}")
+        logger.error(f"Erreur creation gridview: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -598,7 +600,10 @@ async def get_grid_data(
                 total_count = cnt_res[0]["total"] if cnt_res else total_count
 
                 # Trier + paginer en SQL
-                safe_sort = re.sub(r'[^a-zA-Z0-9_ \[\]éèàùâêîôûäëïöüç]', '', sort) if sort else None
+                known_cols = {c.get('field') for c in columns if c.get('field')} if columns else set()
+                safe_sort = re.sub(r'[^a-zA-Z0-9_ éèàùâêîôûäëïöüç]', '', sort) if sort else None
+                if safe_sort and known_cols and safe_sort not in known_cols:
+                    safe_sort = None
                 order_clause = f'ORDER BY [{safe_sort}] {"DESC" if direction.lower()=="desc" else "ASC"}' if safe_sort else "ORDER BY (SELECT NULL)"
                 offset_val = (request.page - 1) * grid_page_size
                 paginated_query = (
@@ -989,7 +994,7 @@ async def save_user_prefs(grid_id: int, user_id: int, body: Dict[str, Any]):
 
         return {"success": True, "message": "Preferences sauvegardees"}
     except Exception as e:
-        print(f"[ERROR] save_user_prefs: {e}")
+        logger.error(f"[ERROR] save_user_prefs: {e}")
         return {"success": False, "error": str(e)}
 
 

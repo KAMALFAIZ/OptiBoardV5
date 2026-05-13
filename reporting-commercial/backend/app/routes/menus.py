@@ -452,6 +452,28 @@ async def update_menu(menu_id: int, menu: MenuUpdate):
         return {"success": False, "error": str(e)}
 
 
+@router.delete("/all-reports")
+async def delete_all_reports():
+    """Supprime tous les rapports (GridViews, Pivots V2, Dashboards, Spreadsheets) de la base centrale"""
+    try:
+        counts = {}
+        with get_central_cursor() as cursor:
+            for table in ["APP_GridViews", "APP_Pivots_V2", "APP_Dashboards", "APP_Spreadsheets"]:
+                cursor.execute(f"SELECT COUNT(*) AS cnt FROM {table}")
+                row = cursor.fetchone()
+                counts[table] = row[0] if row else 0
+            for table in ["APP_GridViews", "APP_Pivots_V2", "APP_Dashboards", "APP_Spreadsheets"]:
+                cursor.execute(f"DELETE FROM {table}")
+        return {
+            "success": True,
+            "deleted": counts,
+            "message": f"Rapports supprimés : {sum(counts.values())} au total"
+        }
+    except Exception as e:
+        logger.error(f"Erreur delete_all_reports: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @router.delete("/{menu_id}")
 async def delete_menu(menu_id: int):
     """Supprime un menu"""
@@ -789,4 +811,62 @@ async def delete_master_menu(menu_id: int):
 
         return {"success": True, "message": "Menu maitre supprime"}
     except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# Corrections d'accents manquants dans les noms de menus déjà en base
+_ACCENT_FIXES = {
+    "CA par Periode":               "CA par Période",
+    "CA par Zone Geo":              "CA par Zone Géo",
+    "CA par Depot":                 "CA par Dépôt",
+    "CA par Categorie Tarifaire":   "CA par Catégorie Tarifaire",
+    "Delais par Etape":             "Délais par Étape",
+    "Marges & Rentabilite":         "Marges & Rentabilité",
+    "Echeances par Commercial":     "Échéances par Commercial",
+    "Tendances & Saisonnalite":     "Tendances & Saisonnalité",
+    "Recouvrement & Tresorerie":    "Recouvrement & Trésorerie",
+    "Balance Agee":                 "Balance Âgée",
+    "Creances Douteuses":           "Créances Douteuses",
+    "Echeances Non Reglees":        "Échéances Non Réglées",
+    "Reglements par Periode":       "Règlements par Période",
+    "Reglements par Mode":          "Règlements par Mode",
+    "Factures Non Reglees":         "Factures Non Réglées",
+    "Prevision Encaissements":      "Prévision Encaissements",
+    "Stock par Depot":              "Stock par Dépôt",
+    "Valorisation Multi-methodes":  "Valorisation Multi-méthodes",
+    "Articles Proches Peremption":  "Articles Proches Péremption",
+    "Transferts Inter-Depots":      "Transferts Inter-Dépôts",
+    "Echeances Achats":             "Échéances Achats",
+    "Preparations Livraison":       "Préparations Livraison",
+    "BL Non Factures":              "BL Non Facturés",
+}
+
+
+@router.post("/fix-accents")
+async def fix_menu_accents():
+    """Corrige les accents manquants dans les noms de menus existants en base"""
+    try:
+        updated = 0
+        skipped = 0
+        with get_db_cursor() as cursor:
+            for old_nom, new_nom in _ACCENT_FIXES.items():
+                cursor.execute(
+                    "UPDATE APP_Menus SET nom = ? WHERE nom = ?",
+                    (new_nom, old_nom)
+                )
+                rows = cursor.rowcount
+                if rows > 0:
+                    updated += rows
+                    logger.info(f"  fix-accents: '{old_nom}' → '{new_nom}' ({rows} ligne(s))")
+                else:
+                    skipped += 1
+
+        return {
+            "success": True,
+            "updated": updated,
+            "skipped": skipped,
+            "message": f"{updated} menu(s) mis à jour, {skipped} déjà corrects ou absents"
+        }
+    except Exception as e:
+        logger.error(f"fix-accents error: {e}")
         return {"success": False, "error": str(e)}

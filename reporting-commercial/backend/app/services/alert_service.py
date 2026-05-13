@@ -1,7 +1,10 @@
 """Service d'évaluation des alertes KPI et envoi de notifications"""
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 # KPIs supportés et leur méthode de récupération
 SUPPORTED_METRICS = {
@@ -151,7 +154,7 @@ def _fetch_kpi_value(metric_type: str, execute_dwh) -> Optional[float]:
             return float(rows[0]["total"]) if rows and rows[0]["total"] is not None else None
 
     except Exception as e:
-        print(f"[ALERT_SERVICE] Erreur fetch KPI '{metric_type}': {e}")
+        logger.error(f"[ALERT_SERVICE] Erreur fetch KPI '{metric_type}': {e}")
         return None
 
 
@@ -228,7 +231,7 @@ def _send_alert_email(rule: Dict, value: float, execute_client):
             body_html=html
         )
     except Exception as e:
-        print(f"[ALERT_SERVICE] Erreur envoi email alerte: {e}")
+        logger.error(f"[ALERT_SERVICE] Erreur envoi email alerte: {e}")
 
 
 def evaluate_all_alerts(execute_client, execute_dwh):
@@ -244,7 +247,7 @@ def evaluate_all_alerts(execute_client, execute_dwh):
             use_cache=False
         )
     except Exception as e:
-        print(f"[ALERT_SERVICE] Impossible de charger les règles: {e}")
+        logger.error(f"[ALERT_SERVICE] Impossible de charger les règles: {e}")
         return {"triggered": 0, "errors": 1}
 
     triggered = 0
@@ -295,7 +298,7 @@ def evaluate_all_alerts(execute_client, execute_dwh):
                         (rule["id"],)
                     )
             except Exception as e:
-                print(f"[ALERT_SERVICE] Erreur enregistrement historique règle {rule['id']}: {e}")
+                logger.error(f"[ALERT_SERVICE] Erreur enregistrement historique règle {rule['id']}: {e}")
                 errors += 1
                 continue
 
@@ -303,13 +306,13 @@ def evaluate_all_alerts(execute_client, execute_dwh):
             _send_alert_email(rule, value, execute_client)
 
             triggered += 1
-            print(f"[ALERT_SERVICE] Alerte déclenchée: '{rule['nom']}' — {message}")
+            logger.info(f"[ALERT_SERVICE] Alerte déclenchée: '{rule['nom']}' — {message}")
 
         except Exception as e:
-            print(f"[ALERT_SERVICE] Erreur évaluation règle {rule.get('id')}: {e}")
+            logger.error(f"[ALERT_SERVICE] Erreur évaluation règle {rule.get('id')}: {e}")
             errors += 1
 
-    print(f"[ALERT_SERVICE] Évaluation terminée: {triggered} déclenchée(s), {errors} erreur(s)")
+    logger.info(f"[ALERT_SERVICE] Évaluation terminée: {triggered} déclenchée(s), {errors} erreur(s)")
     return {"triggered": triggered, "errors": errors}
 
 

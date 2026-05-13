@@ -41,7 +41,7 @@ DS_TEMPLATES = [
     mv.[Code Dépôt] AS [Code Depot], mv.[Dépôt] AS [Depot],
     mv.[Quantité] AS [Quantite], mv.CMUP AS [CMUP], mv.[Montant Stock] AS [Montant Stock],
     mv.[N° Pièce] AS [Num Piece], mv.[Code tiers] AS [Code tiers], mv.[Intitulé tiers] AS [Tiers],
-    mv.[Prix unitaire] AS [Prix unitaire], mv.[Prix de revient] AS [Prix de revient], mv.[DPA-Période] AS [DPA Periode],
+    mv.[Prix unitaire] AS [Prix unitaire], mv.[CMUP] AS [CMUP], mv.[DPA-Période] AS [DPA Periode],
     mv.[DPA-Vente] AS [DPA Vente], mv.[Coût standard] AS [Cout standard], mv.[DPR-Vente] AS [DPR Vente],
     mv.[N° Série / Lot] AS [Num Serie Lot], mv.[Suivi Stock] AS [Suivi Stock], mv.[Gamme 1] AS [Gamme 1], mv.[Gamme 2] AS [Gamme 2],
     mv.[Date Péremption] AS [Date Peremption], mv.[Date Fabrication] AS [Date Fabrication],
