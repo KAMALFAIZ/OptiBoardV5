@@ -1,16 +1,25 @@
-"""Service WhatsApp Business — Meta Cloud API + 360dialog BSP.
+"""Service WhatsApp Business — Meta Cloud API + 360dialog BSP + LLM.
 
 Supporte deux providers :
   - "meta"      : Meta Cloud API directe (graph.facebook.com)
   - "360dialog" : 360dialog BSP (waba-v2.360dialog.io) — 1 seule clé API
 
+Intégration LLM :
+  - Les commandes rapides (ca, top5, stock...) restent en NLP local (instantané)
+  - Les questions complexes ou non reconnues passent par le LLM (Claude/GPT/Ollama)
+  - Le LLM génère du SQL, le bot l'exécute et formate la réponse pour WhatsApp
+  - Historique de conversation par numéro de téléphone (in-memory, TTL 1h)
+
 La sélection se fait via la variable WA_PROVIDER dans .env.
 """
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
 import re
+import threading
+import time
 import unicodedata
 import urllib.request
 import urllib.parse
@@ -461,6 +470,11 @@ _STOP_WORDS = {
     "voir", "affiche", "afficher", "montre", "montrer",
     "mois", "annee", "dernier", "derniere", "precedent", "actuel",
     "courant", "cours",
+    # Termes métier IA
+    "marge", "marges", "dso", "kpi", "roi", "tva", "rentabilite",
+    "benefice", "perte", "pertes", "croissance", "baisse", "hausse",
+    "evolution", "tendance", "moyen", "moyenne", "median",
+    "famille", "catalogue", "categorie",
 }
 
 
@@ -476,7 +490,8 @@ def _extract_client_name(original_text: str) -> Optional[str]:
     # ── Stratégie 1 : mots tout en majuscules (ex: "BENTAYEB", "GOULAMI") ──
     upper_words = re.findall(r'\b([A-ZÀ-Ü]{2,})\b', original_text)
     upper_stop = {"CA", "TTC", "HT", "MAD", "TOP", "FAC", "BL", "DWH",
-                  "VS", "PDF", "OK", "KO", "SMS"}
+                  "VS", "PDF", "OK", "KO", "SMS", "DSO", "KPI", "ROI",
+                  "TVA", "CRM", "ETL", "SQL", "API"}
     upper_candidates = [w for w in upper_words if w not in upper_stop]
     if upper_candidates:
         return " ".join(upper_candidates)
@@ -515,12 +530,69 @@ def _extract_client_name(original_text: str) -> Optional[str]:
     return None
 
 
+def _looks_like_client_name(candidate: str, original_text: str) -> bool:
+    """Vérifie si le candidat extrait ressemble vraiment à un nom de client.
+
+    Rejette les faux positifs du NLP : mots analytiques, verbes, adjectifs
+    qui ne sont pas des noms de personnes/entreprises.
+    """
+    # Si c'est un mot en MAJUSCULES trouvé dans le texte original → très probable
+    if candidate.isupper() and len(candidate) >= 3:
+        return True
+    # Si c'est capitalisé dans le texte original → probable
+    if candidate[0].isupper() and candidate in original_text:
+        return True
+    # Si le candidat est trop court (< 3 chars) → douteux
+    if len(candidate) < 3:
+        return False
+    # Mots analytiques qui ne sont jamais des noms de clients
+    noise_words = {
+        "ont", "est", "sont", "fait", "avoir", "etre", "avec",
+        "meilleur", "meilleure", "meilleurs", "pire", "pires",
+        "moyen", "moyenne", "median", "mediane",
+        "global", "globale", "annuel", "mensuel",
+        "marge", "marges", "taux", "pourcentage",
+        "nouveau", "nouveaux", "ancien", "anciens",
+        "chaque", "tous", "toutes", "entre",
+        "plus", "moins", "bon", "bonne", "mauvais",
+        "quel", "quelle", "quels", "combien",
+    }
+    parts = candidate.lower().split()
+    # Si tous les mots du candidat sont des noise words ou courts → pas un client
+    if all(p in noise_words or len(p) <= 2 for p in parts):
+        return False
+    # Si le candidat contient plus de 3 mots → probablement pas un nom
+    if len(parts) > 4:
+        return False
+    # Si le texte original est une question analytique (quel, combien, comment...)
+    t_lower = original_text.lower()
+    question_starters = ["quel", "quels", "quelle", "combien", "comment",
+                         "pourquoi", "donne moi", "montre moi", "analyse",
+                         "compare", "liste des", "evolution", "tendance"]
+    analytical_words = ["marge", "rentab", "benefice", "perte", "croissance",
+                        "baisse", "hausse", "dso", "kpi", "rotation",
+                        "par famille", "par catalogue", "par mois",
+                        "par commercial", "par collaborateur"]
+    is_analytical = (any(t_lower.startswith(q) or f" {q}" in t_lower for q in question_starters)
+                     and any(a in t_lower for a in analytical_words))
+    if is_analytical:
+        return False
+    return True
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # NLP — Détection d'intent
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _intent_ca(t: str) -> bool:
+    """Intent CA simple — pas pour les analyses complexes."""
     kw = ["ca ", " ca", "chiffre", "vente", "ventes", "chiff", "c.a", "revenue", "revenu"]
+    # Si analyse complexe, laisser l'IA
+    deep_analysis = ["marge", "rentab", "tendance", "evolution mensuelle",
+                     "par commercial", "par collaborateur", "par mois",
+                     "par famille", "par catalogue", "par region"]
+    if any(a in t for a in deep_analysis):
+        return False
     return any(k in t for k in kw) or t.strip() == "ca"
 
 
@@ -530,7 +602,13 @@ def _intent_factures(t: str) -> bool:
 
 
 def _intent_top(t: str) -> bool:
+    """Intent top clients — uniquement pour les classements simples."""
     kw = ["top", "meilleur", "classement", "palmar", "premier"]
+    # Si question analytique complexe (marge, article, famille...), laisser l'IA
+    analytical = ["marge", "article", "produit", "famille", "catalogue",
+                  "rentab", "par commercial", "par collaborateur"]
+    if any(a in t for a in analytical):
+        return False
     return any(k in t for k in kw)
 
 
@@ -546,7 +624,13 @@ def _intent_impayes(t: str) -> bool:
 
 
 def _intent_article(t: str) -> bool:
+    """Intent recherche article — uniquement pour la recherche simple, pas l'analyse."""
     kw = ["article", "produit", "reference", "ref "]
+    # Si la question est analytique (marge, meilleur, classement...), laisser l'IA gérer
+    analytical = ["marge", "marges", "rentab", "meilleur", "pire", "classement",
+                  "evolution", "tendance", "croissance", "baisse", "analyse"]
+    if any(a in t for a in analytical):
+        return False
     return any(k in t for k in kw)
 
 
@@ -577,26 +661,419 @@ def _is_non_text_msg(t: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# LLM — Intégration Claude / GPT / Ollama
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Historique de conversation in-memory par numéro WhatsApp
+# Structure : { phone: { "messages": [...], "last_activity": timestamp } }
+_wa_conversations: Dict[str, dict] = {}
+_wa_conv_lock = threading.Lock()
+_WA_CONV_TTL = 3600       # 1 heure
+_WA_CONV_MAX_MSGS = 20    # 20 derniers échanges
+
+
+def _get_wa_conversation(phone: str) -> List[dict]:
+    """Récupère l'historique de conversation WhatsApp d'un numéro."""
+    with _wa_conv_lock:
+        conv = _wa_conversations.get(phone)
+        if not conv:
+            return []
+        # Vérifier TTL
+        if time.time() - conv["last_activity"] > _WA_CONV_TTL:
+            del _wa_conversations[phone]
+            return []
+        return conv["messages"][-_WA_CONV_MAX_MSGS:]
+
+
+def _add_wa_message(phone: str, role: str, content: str):
+    """Ajoute un message à l'historique de conversation WhatsApp."""
+    with _wa_conv_lock:
+        if phone not in _wa_conversations:
+            _wa_conversations[phone] = {"messages": [], "last_activity": 0}
+        conv = _wa_conversations[phone]
+        conv["messages"].append({"role": role, "content": content})
+        conv["last_activity"] = time.time()
+        # Garder seulement les N derniers messages
+        if len(conv["messages"]) > _WA_CONV_MAX_MSGS * 2:
+            conv["messages"] = conv["messages"][-_WA_CONV_MAX_MSGS:]
+
+
+def _cleanup_wa_conversations():
+    """Supprime les conversations expirées."""
+    with _wa_conv_lock:
+        now = time.time()
+        expired = [p for p, c in _wa_conversations.items()
+                   if now - c["last_activity"] > _WA_CONV_TTL]
+        for p in expired:
+            del _wa_conversations[p]
+
+
+def _is_ai_enabled() -> bool:
+    """Vérifie si le module IA est activé et configuré."""
+    try:
+        from app.config import get_settings
+        s = get_settings()
+        return s.AI_ENABLED and bool(s.AI_PROVIDER) and bool(s.AI_API_KEY)
+    except Exception:
+        return False
+
+
+def _build_wa_system_prompt(dwh_code: str) -> str:
+    """Construit le prompt système pour le LLM en contexte WhatsApp."""
+    try:
+        from app.services.ai_schema import get_schema_for_ai, get_business_context, get_sql_examples
+    except ImportError:
+        return ""
+
+    schema = get_schema_for_ai(dwh_code)
+    business = get_business_context()
+    examples = get_sql_examples()
+
+    # Prompt dynamique (RAG) si disponible
+    dynamic = ""
+    try:
+        from app.services.ai_schema import get_dynamic_examples
+        dynamic = get_dynamic_examples("", dwh_code)
+    except Exception:
+        pass
+
+    return f"""Tu es *OptiBoard Bot*, un assistant d'analyse commerciale intelligent accessible via WhatsApp.
+Tu aides les directeurs commerciaux à consulter leurs données de ventes, stocks et créances.
+
+{business}
+
+REGLES DE REPONSE WHATSAPP :
+1. Réponses COURTES et LISIBLES (max 800 caractères) — c'est WhatsApp, pas un rapport
+2. Utilise le formatage WhatsApp : *gras*, _italique_, ~barré~
+3. Utilise des emojis pour la lisibilité : 📊💵📈📉🏆👤📦💰⚠️✅🔴🟢
+4. Formate les nombres à la française : 1 234 567 MAD (espaces comme séparateur)
+5. Ne JAMAIS afficher le SQL brut dans la réponse
+6. Si tu génères du SQL, encadre-le dans ```sql ... ``` (il sera extrait et exécuté automatiquement)
+7. Si les résultats sont vides, dis-le clairement avec une suggestion
+8. Toujours conclure par une suggestion de question suivante en _italique_
+9. IMPORTANT : utilise [Date BL] (pas [Date]) pour filtrer par date dans Lignes_des_ventes
+10. Pour le CA, TOUJOURS ajouter WHERE [Valorise CA] = 'oui'
+11. Quand tu affiches des classements, utilise des médailles : 🥇🥈🥉
+12. Pour les pourcentages de variation, utilise : 📈 si positif, 📉 si négatif
+
+{schema}
+
+{examples}
+
+{dynamic}
+
+IMPORTANT :
+- Tu génères une requête SQL T-SQL qui sera exécutée automatiquement sur la base DWH client
+- Le résultat SQL sera fourni, tu devras le formater en réponse WhatsApp lisible
+- Limite les résultats avec TOP 10-20 pour ne pas surcharger WhatsApp
+- Si la question n'est PAS liée aux données commerciales, réponds poliment que tu es spécialisé dans l'analyse commerciale
+- Date du jour : {datetime.now().strftime('%Y-%m-%d')} ({datetime.now().strftime('%A %d %B %Y')})
+"""
+
+
+def _extract_sql_from_response(response: str) -> Optional[str]:
+    """Extrait le bloc SQL depuis la réponse du LLM."""
+    # Cherche ```sql ... ```
+    m = re.search(r'```sql\s*(.*?)\s*```', response, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    # Cherche ``` ... ``` si ça contient SELECT
+    m = re.search(r'```\s*(SELECT.*?)\s*```', response, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r'```\s*(WITH.*?)\s*```', response, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _format_sql_results_for_wa(rows: List[dict], max_rows: int = 15) -> str:
+    """Formate les résultats SQL en texte lisible pour WhatsApp."""
+    if not rows:
+        return "_Aucun résultat trouvé._"
+
+    # Déterminer les colonnes
+    columns = list(rows[0].keys())
+    display_rows = rows[:max_rows]
+
+    # Si une seule ligne avec peu de colonnes → format carte
+    if len(display_rows) == 1 and len(columns) <= 8:
+        lines = []
+        for col, val in display_rows[0].items():
+            formatted_val = _format_cell_value(val)
+            lines.append(f"  *{col}* : {formatted_val}")
+        return "\n".join(lines)
+
+    # Sinon → format liste
+    lines = []
+    for i, row in enumerate(display_rows):
+        parts = []
+        for col in columns:
+            val = row.get(col)
+            parts.append(f"{col}: {_format_cell_value(val)}")
+        # Première colonne en gras comme identifiant
+        first_val = _format_cell_value(row.get(columns[0]))
+        rest = " · ".join(f"{_format_cell_value(row.get(c))}" for c in columns[1:])
+        lines.append(f"  *{first_val}* — {rest}")
+
+    result = "\n".join(lines)
+    if len(rows) > max_rows:
+        result += f"\n\n_⚠️ {len(rows) - max_rows} lignes supplémentaires non affichées_"
+    return result
+
+
+def _format_cell_value(val) -> str:
+    """Formate une valeur de cellule SQL pour WhatsApp."""
+    if val is None:
+        return "—"
+    if isinstance(val, float):
+        if abs(val) >= 1000:
+            return _fmt_mad(val) if abs(val) >= 10000 else _fmt(val)
+        return f"{val:,.2f}".replace(",", " ").replace(".", ",")
+    if isinstance(val, int) and abs(val) >= 1000:
+        return _fmt(val)
+    if hasattr(val, 'strftime'):
+        return val.strftime("%d/%m/%Y")
+    return str(val)
+
+
+def _cmd_ai_query(question: str, dwh_code: str, phone: str = "", contact_name: str = "") -> str:
+    """Traite une question via le LLM : génère SQL → exécute → formate la réponse.
+
+    Pipeline :
+    1. Construire le prompt système avec schéma + exemples
+    2. Inclure l'historique de conversation WhatsApp
+    3. Appeler le LLM (Anthropic/OpenAI/Ollama)
+    4. Extraire le SQL de la réponse
+    5. Valider + exécuter le SQL
+    6. Reformater la réponse avec les vrais résultats
+    """
+    try:
+        from app.services.ai_provider import get_ai_provider, AIMessage, AIProviderError
+        from app.services.ai_sql_validator import validate_ai_sql
+        from app.database_unified import execute_dwh
+
+        provider = get_ai_provider()
+        if not provider:
+            return (
+                "🤖 Le module IA n'est pas activé.\n\n"
+                "Utilisez les commandes rapides :\n"
+                "  📊 *ca* — 🏆 *top5* — 📦 *stock* — 💰 *impayes*\n\n"
+                "Envoyez *aide* pour le menu complet."
+            )
+
+        # ── 1. Construire les messages ──
+        system_prompt = _build_wa_system_prompt(dwh_code)
+        messages = [AIMessage(role="system", content=system_prompt)]
+
+        # Ajouter l'historique de conversation
+        if phone:
+            history = _get_wa_conversation(phone)
+            for msg in history[-10:]:  # 10 derniers messages
+                messages.append(AIMessage(role=msg["role"], content=msg["content"]))
+
+        # Message utilisateur
+        user_msg = question
+        if contact_name:
+            user_msg = f"[{contact_name}] {question}"
+        messages.append(AIMessage(role="user", content=user_msg))
+
+        # ── 2. Appeler le LLM (synchrone via asyncio) ──
+        logger.info(f"[WA-AI] LLM call for DWH={dwh_code}: {question[:80]}...")
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # On est dans un contexte async (FastAPI) → créer une tâche
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    llm_response = pool.submit(
+                        lambda: asyncio.run(provider.chat(messages))
+                    ).result(timeout=45)
+            else:
+                llm_response = asyncio.run(provider.chat(messages))
+        except Exception as e:
+            logger.error(f"[WA-AI] LLM call failed: {e}")
+            return (
+                "⚠️ L'IA est temporairement indisponible.\n\n"
+                "Utilisez les commandes rapides :\n"
+                "  📊 *ca* — 🏆 *top5* — 📦 *stock* — 💰 *impayes*"
+            )
+
+        logger.info(f"[WA-AI] LLM response length: {len(llm_response)} chars")
+
+        # ── 3. Extraire et exécuter le SQL ──
+        sql = _extract_sql_from_response(llm_response)
+
+        if sql:
+            # Valider le SQL
+            is_valid, sanitized_sql, error_msg = validate_ai_sql(sql, max_rows=20)
+
+            if not is_valid:
+                logger.warning(f"[WA-AI] SQL validation failed: {error_msg}")
+                # Le LLM a généré du SQL invalide, retourner sa partie textuelle
+                clean_response = re.sub(r'```sql.*?```', '', llm_response, flags=re.DOTALL).strip()
+                clean_response = re.sub(r'```.*?```', '', clean_response, flags=re.DOTALL).strip()
+                if clean_response:
+                    # Sauvegarder dans l'historique
+                    if phone:
+                        _add_wa_message(phone, "user", question)
+                        _add_wa_message(phone, "assistant", clean_response)
+                    return _truncate_wa(clean_response)
+                return "⚠️ Je n'ai pas pu générer une requête valide. Reformulez votre question."
+
+            # Exécuter le SQL
+            try:
+                rows = execute_dwh(sanitized_sql, dwh_code=dwh_code, use_cache=True)
+                logger.info(f"[WA-AI] SQL executed: {len(rows)} rows returned")
+            except Exception as e:
+                logger.error(f"[WA-AI] SQL execution failed: {e}")
+                # Retry : renvoyer l'erreur au LLM pour correction
+                retry_response = _ai_retry_sql(provider, messages, llm_response, str(e), dwh_code)
+                if retry_response:
+                    if phone:
+                        _add_wa_message(phone, "user", question)
+                        _add_wa_message(phone, "assistant", retry_response)
+                    return _truncate_wa(retry_response)
+                return "⚠️ Erreur lors de l'exécution. Reformulez votre question."
+
+            # ── 4. Demander au LLM de formater les résultats ──
+            if rows:
+                # Limiter les données envoyées au LLM
+                display_rows = rows[:15]
+                results_text = json.dumps(display_rows, default=str, ensure_ascii=False, indent=None)
+
+                format_msg = (
+                    f"Voici les résultats SQL ({len(rows)} lignes, {len(display_rows)} affichées) :\n"
+                    f"{results_text}\n\n"
+                    f"Formate ces résultats en message WhatsApp lisible et synthétique. "
+                    f"Utilise le format français pour les nombres (1 234 567 MAD). "
+                    f"Ajoute des emojis pertinents. Termine par une suggestion en italique."
+                )
+                messages.append(AIMessage(role="assistant", content=llm_response))
+                messages.append(AIMessage(role="user", content=format_msg))
+
+                try:
+                    if loop.is_running() if 'loop' in dir() else False:
+                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                            formatted = pool.submit(
+                                lambda: asyncio.run(provider.chat(messages))
+                            ).result(timeout=30)
+                    else:
+                        formatted = asyncio.run(provider.chat(messages))
+                except Exception:
+                    # Fallback : formatage basique
+                    formatted = _format_sql_results_for_wa(rows)
+            else:
+                formatted = "Aucun résultat trouvé pour votre requête."
+
+            # Nettoyer les blocs SQL de la réponse finale
+            final = re.sub(r'```sql.*?```', '', formatted, flags=re.DOTALL).strip()
+            final = re.sub(r'```.*?```', '', final, flags=re.DOTALL).strip()
+
+            # Sauvegarder dans l'historique
+            if phone:
+                _add_wa_message(phone, "user", question)
+                _add_wa_message(phone, "assistant", final)
+
+            return _truncate_wa(final)
+
+        else:
+            # Pas de SQL dans la réponse — réponse textuelle pure du LLM
+            clean = re.sub(r'```.*?```', '', llm_response, flags=re.DOTALL).strip()
+
+            if phone:
+                _add_wa_message(phone, "user", question)
+                _add_wa_message(phone, "assistant", clean)
+
+            return _truncate_wa(clean)
+
+    except Exception as e:
+        logger.error(f"[WA-AI] Unexpected error: {e}", exc_info=True)
+        return (
+            "⚠️ Erreur inattendue du module IA.\n\n"
+            "Utilisez les commandes rapides :\n"
+            "  📊 *ca* — 🏆 *top5* — 📦 *stock* — 💰 *impayes*"
+        )
+
+
+def _ai_retry_sql(provider, messages: list, first_response: str, error: str, dwh_code: str) -> Optional[str]:
+    """Retente l'exécution SQL après une erreur : renvoie l'erreur au LLM pour correction."""
+    try:
+        from app.services.ai_provider import AIMessage
+        from app.services.ai_sql_validator import validate_ai_sql
+        from app.database_unified import execute_dwh
+
+        messages.append(AIMessage(role="assistant", content=first_response))
+        messages.append(AIMessage(role="user", content=(
+            f"La requête SQL a produit une erreur :\n{error}\n\n"
+            "Corrige la requête SQL et renvoie-la dans un bloc ```sql ... ```. "
+            "Vérifie les noms de colonnes et de tables."
+        )))
+
+        try:
+            retry_resp = asyncio.run(provider.chat(messages))
+        except Exception:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                retry_resp = pool.submit(
+                    lambda: asyncio.run(provider.chat(messages))
+                ).result(timeout=30)
+
+        sql2 = _extract_sql_from_response(retry_resp)
+        if not sql2:
+            return None
+
+        ok, sanitized, err = validate_ai_sql(sql2, max_rows=20)
+        if not ok:
+            return None
+
+        rows = execute_dwh(sanitized, dwh_code=dwh_code, use_cache=True)
+        if rows:
+            return _format_sql_results_for_wa(rows)
+        return "Aucun résultat après correction."
+    except Exception as e:
+        logger.error(f"[WA-AI] Retry failed: {e}")
+        return None
+
+
+def _truncate_wa(text: str, max_len: int = 4000) -> str:
+    """Tronque un message WhatsApp à la limite de l'API (4096 chars max)."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 50] + "\n\n_⚠️ Message tronqué (trop long)_"
+
+
+def _intent_ia(t: str) -> bool:
+    """Détecte si l'utilisateur demande explicitement le mode IA."""
+    kw = ["ia ", "claude ", "gpt ", "chatgpt ", "ai ",
+          "demande a l ia", "demande ia", "intelligence artificielle"]
+    return any(k in t for k in kw) or t.strip() in ("ia", "claude", "gpt", "ai")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # NLP — Routeur principal
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def process_bot_command(text: str, dwh_code: str, contact_name: str = "") -> str:
+def process_bot_command(text: str, dwh_code: str, contact_name: str = "", phone: str = "") -> str:
     """Traite un message en langage naturel et retourne la réponse.
 
     Priorité des intents :
     1. Messages non-texte (audio, image, etc.)
     2. Boutons interactifs (id commence par btn_)
-    3. Aide / salutations
-    4. Fiche client (fiche client X)
-    5. Factures d'un client
-    6. Recherche article
-    7. Comparatif CA
-    8. CA d'un client spécifique
-    9. CA global
-    10. Top clients
-    11. Stock critique
-    12. Impayés
-    13. Nom de client seul → CA du client
+    3. Mode IA explicite (ia ..., claude ...)
+    4. Aide / salutations
+    5. Fiche client (fiche client X)
+    6. Factures d'un client
+    7. Recherche article
+    8. Comparatif CA
+    9. CA d'un client spécifique
+    10. CA global
+    11. Top clients
+    12. Stock critique
+    13. Impayés
+    14. Nom de client seul → CA du client
+    15. FALLBACK → LLM (si activé) pour questions complexes
     """
     # ── Messages non-texte ──
     if _is_non_text_msg(text):
@@ -610,6 +1087,21 @@ def process_bot_command(text: str, dwh_code: str, contact_name: str = "") -> str
     # ── Réponses aux boutons interactifs ──
     if text.startswith("btn_"):
         return _handle_button_reply(text, dwh_code)
+
+    # ── Mode IA explicite (ia ..., claude ...) ──
+    if _intent_ia(t):
+        # Retirer le préfixe "ia ", "claude ", etc.
+        ai_question = re.sub(r'^(ia|claude|gpt|chatgpt|ai)\s+', '', t).strip()
+        if not ai_question:
+            ai_question = text  # Garder le texte original si juste "ia"
+        if _is_ai_enabled():
+            return _cmd_ai_query(ai_question, dwh_code, phone=phone, contact_name=contact_name)
+        else:
+            return (
+                "🤖 Le module IA n'est pas activé.\n\n"
+                "Utilisez les commandes rapides :\n"
+                "  📊 *ca* — 🏆 *top5* — 📦 *stock* — 💰 *impayes*"
+            )
 
     client_name = _extract_client_name(text)
     year, month = _extract_date_from_text(t)
@@ -664,8 +1156,14 @@ def process_bot_command(text: str, dwh_code: str, contact_name: str = "") -> str
         return _cmd_impayes(dwh_code)
 
     # ── Nom de client seul → CA du client ──
-    if client_name:
+    # Seulement si le "nom" ressemble vraiment à un nom de client (pas du bruit NLP)
+    if client_name and _looks_like_client_name(client_name, text):
         return _cmd_ca_client(dwh_code, client_name, year=year, month=month)
+
+    # ── FALLBACK → LLM (si activé) ──
+    if _is_ai_enabled():
+        logger.info(f"[WA-BOT] NLP fallback → LLM for: {text[:60]}...")
+        return _cmd_ai_query(text, dwh_code, phone=phone, contact_name=contact_name)
 
     return (
         f"Je n'ai pas compris *\"{text}\"* 🤔\n\n"
@@ -726,10 +1224,13 @@ def _cmd_aide(contact_name: str = "") -> str:
         "  _stock, rupture_\n\n"
         "💰 *Impayés / Créances*\n"
         "  _impayes, balance agee_\n\n"
-        "💡 _Astuce : utilisez le langage naturel !_\n"
-        "_\"quel est le CA de mai 2025\"_\n"
-        "_\"liste des factures BENTAYEB\"_\n"
-        "_\"cherche article BOIS BLANC\"_"
+        "🤖 *Mode IA (Claude)*\n"
+        "  _ia quelle est la marge par famille ?_\n"
+        "  _ia top clients en baisse vs 2024_\n"
+        "  _ia DSO moyen par client_\n\n"
+        "💡 _Préfixez par *ia* pour poser une question libre à l'IA_\n"
+        "_ou tapez directement — les questions non reconnues_\n"
+        "_passent automatiquement par l'IA !_"
     )
 
 
