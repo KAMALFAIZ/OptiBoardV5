@@ -166,7 +166,7 @@ async def _handle_incoming_messages(messages: list, settings):
                 "Contactez votre administrateur pour activer le service."
             )
         else:
-            reply = process_bot_command(text, dwh_code)
+            reply = process_bot_command(text, dwh_code, contact_name=name)
 
         result = send_text_message(
             settings.WA_PHONE_NUMBER_ID,
