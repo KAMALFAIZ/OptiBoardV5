@@ -399,6 +399,95 @@ curl -X POST -H "X-DWH-Code: SG" http://127.0.0.1:8084/api/updates/pull/builder
 
 ---
 
+## Dashboard Builder — Affichage libellés axe X (charts)
+
+### Problème
+Les charts de type `chart_combo`, `chart_bar`, `chart_stacked_bar`, `chart_line` n'affichaient aucun libellé sur l'axe X. Causes identifiées :
+1. Le champ `x_field="Periode"` contient des valeurs texte SQL Server (`"décembre 2025"`) que recharts ne formate pas nativement
+2. Le champ `Mois` (`"2025-12"`) est plus fiable pour le formatage YYYY-MM
+
+### Solution implémentée (`DashboardView.jsx` + `DashboardBuilder.jsx`)
+
+**`resolvePeriodKey(data, xf)`** — cherche dans la première ligne de données un champ au format `YYYY-MM` ; si trouvé, l'utilise comme `dataKey` de l'XAxis à la place du champ texte (ex: `"Mois"` plutôt que `"Periode"`).
+
+**`formatPeriodLabel(value)`** — convertit tout format de période en `"Mmm AA"` :
+- `"2025-01"` → `"Jan 25"` (YYYY-MM)
+- `"janvier 2025"` → `"Jan 25"` (DATENAME SQL Server français)
+- `"January 2025"` → `"Jan 25"` (DATENAME SQL Server anglais)
+
+**XAxis pattern appliqué** (recharts v2.10) :
+```jsx
+const pk = resolvePeriodKey(data, xf)
+<XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
+```
+- `height={30}` : réserve l'espace pour les labels
+- `fill: '#6b7280'` : couleur explicite (les ticks recharts sans `fill` peuvent être invisibles)
+- `dataKey={pk}` : pointe vers le champ YYYY-MM si disponible
+
+**CustomTooltip** reçoit `xField={xf}` et lit `payload[0].payload[xField]` pour afficher la période dans l'infobulle (indépendant du `label` recharts qui peut être vide).
+
+### Piège recharts
+Ne jamais utiliser `useTheme()` ou tout autre hook React dans une fonction passée comme `tick={...}` — recharts appelle ces fonctions via `cloneElement` dans un contexte qui casse les règles des hooks (crash silencieux, aucun label rendu).
+
+---
+
+## Dashboard Builder — Sélecteurs de champs (FieldSelect)
+
+### Problème
+Tous les contrôles de sélection de champ dans le panneau de configuration (`Axe X`, `Axe Y`, `Champ valeur`, `Trier par`, `Champ filtre`, etc.) restaient vides — aucune option dans les dropdowns. Cause : `loadFields()` dans `WidgetConfigPanel` ne déclenchait le chargement que si `cfg.dataSourceId` était renseigné, ignorant totalement `cfg.dataSourceCode` (datasources template).
+
+### Logique de chargement des champs (priorité décroissante)
+
+**Cas 1 — Template (`dataSourceOrigin === 'template'`, `dataSourceCode` renseigné)**
+1. `GET /api/datasources/unified/{code}/fields` → retourne `[{name, label, type}]` (SELECT TOP 0, très rapide)
+2. Fallback : `POST /api/datasources/unified/{code}/preview` avec `limit=1`
+3. Fallback : extrait les clés du premier objet data
+
+**Cas 2 — Custom avec code seul (`dataSourceCode` renseigné, `dataSourceId` null)**
+Même séquence que le cas 1 via `getUnifiedDataSourceFields(code)`.
+
+**Cas 3 — Custom avec ID (`dataSourceId` renseigné)**
+1. `previewDataSource(id)` → colonnes
+2. Fallback : parse des alias `AS [xxx]` depuis `query_template`
+
+**Normalisation** : les champs retournés par `/fields` sont des objets `{name, label, type}` ; la fonction `toNames()` extrait uniquement le `name` (string) avant de peupler `availableFields`.
+
+### Dépendances useEffect
+```js
+}, [cfg.dataSourceId, cfg.dataSourceCode, cfg.dataSourceOrigin])
+```
+Le rechargement se déclenche dès que l'une des trois propriétés change.
+
+### Composants concernés (tous utilisent `availableFields`)
+`FieldSelect` est une fonction locale dans `WidgetConfigPanel` (`DashboardBuilder.jsx`).
+Elle alimente **tous** les sélecteurs du panneau : Axe X, Axe Y, Axe Y2, Axe Y3, Champ valeur, Champ labels, Trier par, Champ filtre, Champ filtre drilldown.
+
+### Autres builders (non affectés)
+`GridViewBuilder`, `PivotBuilderV2`, `PivotViewerV2`, `SpreadsheetBuilder` utilisent déjà `getUnifiedDataSourceFields(identifier)` qui accepte indifféremment un code ou un ID.
+
+### Datasource manquante → champs vides
+Si la datasource n'existe pas dans `APP_DataSources_Templates`, `/fields` retourne `{success: false, fields: []}` et tous les dropdowns restent vides.
+**Fix** : insérer la datasource manquante via le script correspondant dans `scripts/` ou manuellement :
+```sql
+INSERT INTO APP_DataSources_Templates (code, nom, description, query_template, parameters, category, actif)
+VALUES ('DS_MON_CODE', 'Mon Nom', 'Description', N'SELECT ...', '[]', 'category', 1)
+```
+**Exemple corrigé** : `DS_STK_EVOLUTION_MENSUELLE` (absente → insérée avec la requête de `scripts/fix_stocks_accents.py`).
+
+### Piège encodage requêtes
+Les colonnes Sage ont des accents (`[Quantité]`, `[Entrée]`, `[Désignation]`). Toujours utiliser les bytes UTF-8 corrects dans les scripts Python :
+```python
+# Correct (é = é)
+"mv.[Quantité]"  →  mv.[Quantité]
+"'Entrée'"       →  'Entrée'
+```
+Vérifier les noms exacts avec :
+```python
+cursor.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'Mouvement_stock'")
+```
+
+---
+
 ## Fichiers clés
 
 | Fichier | Rôle |

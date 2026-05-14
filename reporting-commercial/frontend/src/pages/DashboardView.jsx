@@ -63,6 +63,45 @@ const formatNumber = (val) => {
   return n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
 
+const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+const MOIS_LONG = {
+  janvier: 0, février: 1, fevrier: 1, mars: 2, avril: 3, mai: 4, juin: 5,
+  juillet: 6, août: 7, aout: 7, septembre: 8, octobre: 9, novembre: 10, décembre: 11, decembre: 11,
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+}
+
+// Convertit n'importe quel format de période en "Mmm AA" (ex: "Jan 25")
+// Formats supportés : "2025-01", "01-2025", "janvier 2025", "January 2025", "2025 janvier"
+const formatPeriodLabel = (value) => {
+  if (value === null || value === undefined) return ''
+  const s = String(value).trim()
+  if (!s) return ''
+  // YYYY-MM ou YYYY/MM
+  const m1 = s.match(/^(\d{4})[-/](\d{2})$/)
+  if (m1) return `${MOIS_FR[parseInt(m1[2], 10) - 1] ?? m1[2]} ${m1[1].slice(2)}`
+  // MM-YYYY ou MM/YYYY
+  const m2 = s.match(/^(\d{2})[-/](\d{4})$/)
+  if (m2) return `${MOIS_FR[parseInt(m2[1], 10) - 1] ?? m2[1]} ${m2[2].slice(2)}`
+  // "janvier 2025" / "January 2025" — toute combinaison lettres+accents + année
+  const m3 = s.match(/^([^\s\d]+)\s+(\d{4})$/)
+  if (m3) {
+    const idx = MOIS_LONG[m3[1].toLowerCase()]
+    if (idx !== undefined) return `${MOIS_FR[idx]} ${m3[2].slice(2)}`
+  }
+  // "2025 janvier"
+  const m4 = s.match(/^(\d{4})\s+([^\s\d]+)$/)
+  if (m4) {
+    const idx = MOIS_LONG[m4[2].toLowerCase()]
+    if (idx !== undefined) return `${MOIS_FR[idx]} ${m4[1].slice(2)}`
+  }
+  // Nom de mois seul sans année : "January", "janvier", "Février"…
+  const idx = MOIS_LONG[s.toLowerCase()]
+  if (idx !== undefined) return MOIS_FR[idx]
+  return s
+}
+
+
 // Auto-détecte x_field (catégoriel) et y_field (numérique) à partir des données
 function autoDetectFields(data, cfg) {
   const keys = Object.keys(data[0] || {})
@@ -82,6 +121,18 @@ function autoDetectFields(data, cfg) {
   }
   // Fallback: deuxième champ
   return { xf, yf: keys[1] || keys[0] }
+}
+
+// Cherche le meilleur champ de période : préfère YYYY-MM (formatage fiable),
+// sinon retourne xf. Ne change pas les dataKeys des séries Y.
+function resolvePeriodKey(data, xf) {
+  if (!data?.[0]) return xf
+  const row = data[0]
+  // Si xf lui-même est déjà YYYY-MM
+  if (/^\d{4}-\d{2}$/.test(String(row[xf] ?? ''))) return xf
+  // Cherche un autre champ YYYY-MM dans la ligne (ex: "Mois")
+  const found = Object.keys(row).find(k => k !== xf && /^\d{4}-\d{2}$/.test(String(row[k] ?? '')))
+  return found || xf
 }
 
 // ─── Aggregation helper ───
@@ -362,7 +413,6 @@ export default function DashboardView() {
           <LayoutGrid className="w-5 h-5 text-primary-500 flex-shrink-0" />
           <div className="min-w-0">
             <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{dashboard.nom}</h1>
-            {dashboard.description && <p className="text-xs text-gray-500 truncate">{dashboard.description}</p>}
           </div>
           {autoRefreshInterval > 0 && (
             <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-medium flex-shrink-0">
@@ -752,25 +802,26 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
 
     case 'chart_bar': {
       const { xf, yf } = autoDetectFields(data, cfg)
+      const pk = resolvePeriodKey(data, xf)
       const horizontal = cfg.horizontal || false
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
             layout={horizontal ? 'vertical' : 'horizontal'}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
             {horizontal ? (
               <>
-                <YAxis dataKey={xf} type="category" tick={{ fontSize: 11 }} width={80} />
+                <YAxis dataKey={pk} type="category" tick={{ fontSize: 11, fill: '#6b7280' }} width={80} tickFormatter={formatPeriodLabel} />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
               </>
             ) : (
               <>
-                <XAxis dataKey={xf} tick={{ fontSize: 11 }} />
+                <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
               </>
             )}
-            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
+            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
             <Bar dataKey={yf} fill={cfg.color || COLORS[0]} radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
@@ -784,15 +835,16 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
 
     case 'chart_stacked_bar': {
       const { xf, yf } = autoDetectFields(data, cfg)
+      const pk = resolvePeriodKey(data, xf)
       const mode = cfg.stack_mode || 'stacked'
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={xf} tick={{ fontSize: 11 }} />
+            <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
-            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
+            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
             <Bar dataKey={yf} stackId={mode === 'stacked' || mode === 'percent' ? 'stack' : undefined} fill={cfg.color || COLORS[0]} radius={[4, 4, 0, 0]} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="center" fontSize={9} fill="#fff" formatter={formatNumber} />}
@@ -806,15 +858,16 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
 
     case 'chart_combo': {
       const { xf, yf } = autoDetectFields(data, cfg)
+      const pk = resolvePeriodKey(data, xf)
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+          <ComposedChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={xf} tick={{ fontSize: 11 }} />
+            <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
             <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
             {cfg.y_field_2 && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />}
-            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
+            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
             <Bar yAxisId="left" dataKey={yf} fill={cfg.color || COLORS[0]} radius={[4, 4, 0, 0]} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
@@ -828,14 +881,15 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
 
     case 'chart_line': {
       const { xf, yf } = autoDetectFields(data, cfg)
+      const pk = resolvePeriodKey(data, xf)
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <ReLineChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+          <ReLineChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={xf} tick={{ fontSize: 11 }} />
+            <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
-            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip />} />
+            <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
             <Line type={cfg.curve_type || 'monotone'} dataKey={yf} stroke={cfg.color || COLORS[0]} strokeWidth={2} dot={{ r: 4 }} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
@@ -1050,17 +1104,29 @@ function CompareIndicator({ data, valueField, compareField, aggregation = 'SUM' 
 }
 
 // ── Custom Tooltip ──
-function CustomTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label, xField }) {
   if (!active || !payload?.length) return null
+  // Priorité : champ x connu → label recharts → premier champ string du row
+  const row = payload[0]?.payload || {}
+  const raw = (xField && row[xField] != null)
+    ? row[xField]
+    : (label != null && label !== '')
+      ? label
+      : Object.values(row).find(v => typeof v === 'string' && v.trim() !== '') ?? ''
+  const displayLabel = formatPeriodLabel(raw)
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
-      <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">{label}</p>
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[160px]">
+      {displayLabel && (
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
+          {displayLabel}
+        </p>
+      )}
       {payload.map((entry, i) => (
         <p key={i} className="text-sm" style={{ color: entry.color }}>
           {entry.name}: <span className="font-bold">{formatNumber(entry.value)}</span>
         </p>
       ))}
-      <p className="text-[10px] text-primary-500 mt-1.5">Cliquez pour le detail</p>
+      <p className="text-[10px] text-primary-500 mt-1.5">Cliquez pour le détail</p>
     </div>
   )
 }

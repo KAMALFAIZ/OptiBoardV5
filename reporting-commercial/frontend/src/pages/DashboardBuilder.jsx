@@ -31,6 +31,8 @@ import {
   getDataSources,
   getDataSource,
   previewDataSource,
+  previewUnifiedDataSource,
+  getUnifiedDataSourceFields,
   extractErrorMessage
 } from '../services/api'
 import { useTheme } from '../context/ThemeContext'
@@ -81,6 +83,36 @@ function generateThemeColors(theme) {
 const formatNumber = (val) => {
   if (val === null || val === undefined) return '0'
   return Number(val).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+const MOIS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+const MOIS_LONG = {
+  janvier: 0, février: 1, fevrier: 1, mars: 2, avril: 3, mai: 4, juin: 5,
+  juillet: 6, août: 7, aout: 7, septembre: 8, octobre: 9, novembre: 10, décembre: 11, decembre: 11,
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+}
+const formatPeriodLabel = (value) => {
+  if (!value) return value
+  const s = String(value).trim()
+  const m1 = s.match(/^(\d{4})[-/](\d{2})$/)
+  if (m1) return `${MOIS_FR[parseInt(m1[2], 10) - 1] ?? m1[2]} ${m1[1].slice(2)}`
+  const m2 = s.match(/^(\d{2})[-/](\d{4})$/)
+  if (m2) return `${MOIS_FR[parseInt(m2[1], 10) - 1] ?? m2[1]} ${m2[2].slice(2)}`
+  const m3 = s.match(/^([a-zA-Zéûôèàâùîêëïüÿœæ]+)\s+(\d{4})$/)
+  if (m3) {
+    const idx = MOIS_LONG[m3[1].toLowerCase()]
+    if (idx !== undefined) return `${MOIS_FR[idx]} ${m3[2].slice(2)}`
+  }
+  const m4 = s.match(/^(\d{4})\s+([a-zA-Zéûôèàâùîêëïüÿœæ]+)$/)
+  if (m4) {
+    const idx = MOIS_LONG[m4[2].toLowerCase()]
+    if (idx !== undefined) return `${MOIS_FR[idx]} ${m4[1].slice(2)}`
+  }
+  // Nom de mois seul sans année : "January", "janvier"…
+  const idx = MOIS_LONG[s.toLowerCase()]
+  if (idx !== undefined) return MOIS_FR[idx]
+  return value
 }
 
 // ─── Aggregation helper ───
@@ -1011,16 +1043,20 @@ function WidgetContent({ widget, data, onDrillDown }) {
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
             {horizontal ? (
               <>
-                <YAxis dataKey={xf} type="category" tick={{ fontSize: 10 }} width={80} />
+                <YAxis dataKey={xf} type="category" tick={{ fontSize: 10 }} width={80} tickFormatter={formatPeriodLabel} />
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={formatNumber} />
               </>
             ) : (
               <>
-                <XAxis dataKey={xf} tick={{ fontSize: 10 }} />
+                <XAxis dataKey={xf} tick={(p) => {
+  const label = formatPeriodLabel(p.payload?.value)
+  if (!label) return null
+  return <g transform={`translate(${p.x},${p.y})`}><text x={0} y={0} dy={14} textAnchor="middle" fill="#6b7280" fontSize={10} fontFamily="inherit">{label}</text></g>
+}} height={30} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={formatNumber} />
               </>
             )}
-            <Tooltip formatter={v => formatNumber(v)} />
+            <Tooltip labelFormatter={v => formatPeriodLabel(v) || v} formatter={v => formatNumber(v)} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
             <Bar dataKey={yf} fill={color} radius={horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
@@ -1040,9 +1076,13 @@ function WidgetContent({ widget, data, onDrillDown }) {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 5, right: 10, left: 5, bottom: 5 }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={xf} tick={{ fontSize: 10 }} />
+            <XAxis dataKey={xf} tick={(p) => {
+  const label = formatPeriodLabel(p.payload?.value)
+  if (!label) return null
+  return <g transform={`translate(${p.x},${p.y})`}><text x={0} y={0} dy={14} textAnchor="middle" fill="#6b7280" fontSize={10} fontFamily="inherit">{label}</text></g>
+}} height={30} />
             <YAxis tick={{ fontSize: 10 }} tickFormatter={formatNumber} />
-            <Tooltip formatter={v => formatNumber(v)} />
+            <Tooltip labelFormatter={v => formatPeriodLabel(v) || v} formatter={v => formatNumber(v)} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
             <Bar dataKey={yf} stackId={mode === 'stacked' || mode === 'percent' ? 'stack' : undefined} fill={cfg.color || COLORS[0]} radius={[3, 3, 0, 0]} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="center" fontSize={9} fill="#fff" formatter={formatNumber} />}
@@ -1061,10 +1101,14 @@ function WidgetContent({ widget, data, onDrillDown }) {
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 5, right: 10, left: 5, bottom: 5 }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={xf} tick={{ fontSize: 10 }} />
+            <XAxis dataKey={xf} tick={(p) => {
+  const label = formatPeriodLabel(p.payload?.value)
+  if (!label) return null
+  return <g transform={`translate(${p.x},${p.y})`}><text x={0} y={0} dy={14} textAnchor="middle" fill="#6b7280" fontSize={10} fontFamily="inherit">{label}</text></g>
+}} height={30} />
             <YAxis yAxisId="left" tick={{ fontSize: 10 }} tickFormatter={formatNumber} />
             {cfg.y_field_2 && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} tickFormatter={formatNumber} />}
-            <Tooltip formatter={v => formatNumber(v)} />
+            <Tooltip labelFormatter={v => formatPeriodLabel(v) || v} formatter={v => formatNumber(v)} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
             <Bar yAxisId="left" dataKey={yf} fill={cfg.color || COLORS[0]} radius={[3, 3, 0, 0]} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
@@ -1085,9 +1129,13 @@ function WidgetContent({ widget, data, onDrillDown }) {
           <ReLineChart data={data} margin={{ top: 5, right: 10, left: 5, bottom: 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={xf} tick={{ fontSize: 10 }} />
+            <XAxis dataKey={xf} tick={(p) => {
+  const label = formatPeriodLabel(p.payload?.value)
+  if (!label) return null
+  return <g transform={`translate(${p.x},${p.y})`}><text x={0} y={0} dy={14} textAnchor="middle" fill="#6b7280" fontSize={10} fontFamily="inherit">{label}</text></g>
+}} height={30} />
             <YAxis tick={{ fontSize: 10 }} tickFormatter={formatNumber} />
-            <Tooltip formatter={v => formatNumber(v)} />
+            <Tooltip labelFormatter={v => formatPeriodLabel(v) || v} formatter={v => formatNumber(v)} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
             <Line type={cfg.curve_type || 'monotone'} dataKey={yf} stroke={color} strokeWidth={2} dot={{ r: 3 }} name={cfg.y_label || yf}>
               {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
@@ -1285,51 +1333,86 @@ function WidgetConfigPanel({ widget, onUpdate }) {
   const [availableFields, setAvailableFields] = useState([])
   const [configTab, setConfigTab] = useState('general')
 
-  // Load available fields when datasource changes
+  // Load available fields when datasource changes (template code OR custom id)
   useEffect(() => {
     const loadFields = async () => {
-      if (!cfg.dataSourceId) { setAvailableFields([]); return }
+      const dsCode = cfg.dataSourceCode
+      const dsId   = cfg.dataSourceId
+      const isTemplate = cfg.dataSourceOrigin === 'template'
+
+      if (!dsCode && !dsId) { setAvailableFields([]); return }
+
       try {
-        const res = await previewDataSource(cfg.dataSourceId, {})
-        // Try columns array first (always present even if data is empty)
-        const cols = res.data?.columns || []
-        if (cols.length > 0) {
-          setAvailableFields(cols)
+        // ── Template datasource (code) ──
+        if (dsCode && isTemplate) {
+          // Normalise les champs en tableau de strings
+          const toNames = (arr) => arr.map(f => (f && typeof f === 'object' ? f.name : f)).filter(Boolean)
+
+          // 1. Try /fields endpoint (fast, no data query)
+          try {
+            const res = await getUnifiedDataSourceFields(dsCode)
+            const raw = res.data?.fields || res.data?.columns || []
+            const names = toNames(raw)
+            if (names.length > 0) { setAvailableFields(names); return }
+          } catch { /* fallback below */ }
+          // 2. Fallback: preview with limit=1 to get column names
+          try {
+            const res = await previewUnifiedDataSource(dsCode, {}, null, 1)
+            const cols = toNames(res.data?.columns || [])
+            if (cols.length > 0) { setAvailableFields(cols); return }
+            const data = res.data?.data || []
+            if (data.length > 0) { setAvailableFields(Object.keys(data[0])); return }
+          } catch { /* ignore */ }
+          setAvailableFields([])
           return
         }
-        // Fallback: extract from first data row
+
+        // ── Custom datasource (id) ou code sans origin 'template' ──
+        const toNames = (arr) => arr.map(f => (f && typeof f === 'object' ? f.name : f)).filter(Boolean)
+
+        // Si on a un code mais pas d'id (ou origin non définie), essayer /fields en premier
+        if (dsCode && !dsId) {
+          try {
+            const res = await getUnifiedDataSourceFields(dsCode)
+            const names = toNames(res.data?.fields || res.data?.columns || [])
+            if (names.length > 0) { setAvailableFields(names); return }
+          } catch { /* fallback */ }
+          try {
+            const res = await previewUnifiedDataSource(dsCode, {}, null, 1)
+            const cols = toNames(res.data?.columns || [])
+            if (cols.length > 0) { setAvailableFields(cols); return }
+            const data = res.data?.data || []
+            if (data.length > 0) { setAvailableFields(Object.keys(data[0])); return }
+          } catch { /* ignore */ }
+          setAvailableFields([])
+          return
+        }
+
+        if (!dsId) { setAvailableFields([]); return }
+        const res = await previewDataSource(dsId, {})
+        const cols = toNames(res.data?.columns || [])
+        if (cols.length > 0) { setAvailableFields(cols); return }
         const data = res.data?.data || []
-        if (data.length > 0) {
-          setAvailableFields(Object.keys(data[0]))
-          return
-        }
-        // If preview failed but returned error, try to get columns from datasource metadata
+        if (data.length > 0) { setAvailableFields(Object.keys(data[0])); return }
+        // Last resort: parse SELECT aliases from query_template
         if (!res.data?.success) {
           try {
-            const dsRes = await getDataSource(cfg.dataSourceId)
+            const dsRes = await getDataSource(dsId)
             const query = dsRes.data?.data?.query_template || ''
-            // Parse SELECT column names from query
             const selectMatch = query.match(/SELECT\s+(?:TOP\s+\d+\s+)?([\s\S]*?)\s+FROM/i)
             if (selectMatch) {
-              const selectPart = selectMatch[1]
-              const fieldNames = selectPart.split(',').map(col => {
+              const fieldNames = selectMatch[1].split(',').map(col => {
                 col = col.trim()
-                // Extract alias: "... AS [alias]" or "... AS alias"
                 const asMatch = col.match(/\bAS\s+\[?([^\]]+)\]?\s*$/i)
                 if (asMatch) return asMatch[1].trim()
-                // Extract [table].[column] pattern
                 const bracketMatch = col.match(/\[([^\]]+)\]\s*$/)
                 if (bracketMatch) return bracketMatch[1].trim()
-                // Last segment after dot
                 const dotParts = col.split('.')
                 return dotParts[dotParts.length - 1].replace(/[\[\]]/g, '').trim()
               }).filter(f => f && f !== '*')
-              if (fieldNames.length > 0) {
-                setAvailableFields(fieldNames)
-                return
-              }
+              if (fieldNames.length > 0) { setAvailableFields(fieldNames); return }
             }
-          } catch { /* ignore fallback error */ }
+          } catch { /* ignore */ }
         }
         setAvailableFields([])
       } catch (e) {
@@ -1338,7 +1421,7 @@ function WidgetConfigPanel({ widget, onUpdate }) {
       }
     }
     loadFields()
-  }, [cfg.dataSourceId])
+  }, [cfg.dataSourceId, cfg.dataSourceCode, cfg.dataSourceOrigin])
 
   const updateCfg = (key, val) => onUpdate({ config: { ...cfg, [key]: val } })
 
@@ -1520,13 +1603,44 @@ function WidgetConfigPanel({ widget, onUpdate }) {
           {configTab === 'data' && (
             <div className="space-y-4">
               <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Tri des donnees</p>
-              <FieldSelect label="Trier par" cfgKey="sort_field" placeholder="Pas de tri" />
-              {cfg.sort_field && (
-                <SelectInput label="Direction" cfgKey="sort_direction" options={[
-                  { value: 'asc', label: 'Croissant (A-Z, 0-9)' },
-                  { value: 'desc', label: 'Decroissant (Z-A, 9-0)' },
-                ]} />
-              )}
+              {/* Trier par + direction inline */}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Trier par</label>
+                <div className="flex gap-1.5">
+                  <select
+                    value={cfg.sort_field || ''}
+                    onChange={e => updateCfg('sort_field', e.target.value || null)}
+                    className="flex-1 px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Pas de tri</option>
+                    {availableFields.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  {cfg.sort_field && (
+                    <div className="flex rounded-lg overflow-hidden border border-primary-300 dark:border-primary-600 flex-shrink-0">
+                      <button
+                        type="button"
+                        title="Croissant (A→Z, 0→9)"
+                        onClick={() => updateCfg('sort_direction', 'asc')}
+                        className={`px-2 py-1 text-sm transition-colors ${(!cfg.sort_direction || cfg.sort_direction === 'asc') ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'}`}
+                      >↑ A-Z</button>
+                      <button
+                        type="button"
+                        title="Decroissant (Z→A, 9→0)"
+                        onClick={() => updateCfg('sort_direction', 'desc')}
+                        className={`px-2 py-1 text-sm border-l border-primary-300 dark:border-primary-600 transition-colors ${cfg.sort_direction === 'desc' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'}`}
+                      >↓ Z-A</button>
+                    </div>
+                  )}
+                </div>
+                {availableFields.length === 0 && (
+                  <p className="text-[10px] text-amber-500 mt-1">Selectionner une source de donnees pour voir les champs disponibles</p>
+                )}
+                {cfg.sort_field && (
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Tri par <span className="font-semibold text-primary-600">{cfg.sort_field}</span> — {cfg.sort_direction === 'desc' ? 'décroissant (9→0, Z→A)' : 'croissant (0→9, A→Z)'}
+                  </p>
+                )}
+              </div>
               <TextInput label="Limiter a N lignes" cfgKey="limit_rows" placeholder="Toutes" type="number" />
 
               <hr className="border-gray-200 dark:border-gray-700" />

@@ -149,7 +149,7 @@ SELECT
              AND DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [Creances Douteuses 120j],
     COUNT(DISTINCT [Code client]) AS [Nb Clients Debiteurs]
-FROM [Échéances_Ventes]
+FROM [Echéances_Ventes]
 WHERE (@societe IS NULL OR [societe] = @societe)
 """,
     },
@@ -173,7 +173,7 @@ SELECT
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [91-120j],
     SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [+120j]
-FROM [Échéances_Ventes]
+FROM [Echéances_Ventes]
 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
   AND (@societe IS NULL OR [societe] = @societe)
 """,
@@ -192,7 +192,7 @@ SELECT TOP 10
     SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 0
         THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [Echu],
     COUNT(*) AS [Nb Echeances]
-FROM [Échéances_Ventes]
+FROM [Echéances_Ventes]
 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
   AND (@societe IS NULL OR [societe] = @societe)
 GROUP BY [Code client], [Intitulé client]
@@ -455,7 +455,7 @@ SELECT
     SUM([Montant échéance]) AS [Echeances],
     SUM(ISNULL([Montant du règlement], 0)) AS [Encaisse],
     SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Reste]
-FROM [Échéances_Ventes]
+FROM [Echéances_Ventes]
 WHERE [Date d'échéance] BETWEEN @dateDebut AND @dateFin
   AND (@societe IS NULL OR [societe] = @societe)
 GROUP BY FORMAT([Date d'échéance], 'yyyy-MM'), DATENAME(MONTH, [Date d'échéance]) + ' ' + CAST(YEAR([Date d'échéance]) AS VARCHAR)
