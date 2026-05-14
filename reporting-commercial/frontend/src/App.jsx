@@ -70,6 +70,7 @@ const AIDeckBuilder = lazy(() => import('./pages/AIDeckBuilder'))
 const SpreadsheetBuilder = lazy(() => import('./pages/SpreadsheetBuilder'))
 const SpreadsheetViewer = lazy(() => import('./pages/SpreadsheetViewer'))
 const Setup2FAPage = lazy(() => import('./pages/Setup2FAPage'))
+const OrdreFabrication = lazy(() => import('./pages/OrdreFabrication'))
 const DemoRegisterPage = lazy(() => import('./pages/DemoRegisterPage'))
 const DemoStatusPage = lazy(() => import('./pages/DemoStatusPage'))
 const DemoBoardPage = lazy(() => import('./pages/DemoBoardPage'))
@@ -325,6 +326,7 @@ function AppContent() {
       <Route path="/spreadsheet-builder" element={<ProtectedRoute pageCode="admin"><ErrorBoundary title="Erreur dans le Spreadsheet Builder"><SpreadsheetBuilder /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/spreadsheet/:id" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur lors du chargement du tableur"><SpreadsheetViewer /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/setup-2fa" element={<ProtectedRoute><Setup2FAPage /></ProtectedRoute>} />
+      <Route path="/production/ordres-fabrication" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur Ordres de fabrication"><OrdreFabrication /></ErrorBoundary></ProtectedRoute>} />
       </Routes>
       </Suspense>
     </Layout>

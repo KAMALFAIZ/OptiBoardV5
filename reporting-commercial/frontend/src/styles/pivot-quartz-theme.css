@@ -115,6 +115,10 @@
 }
 
 /* ─── Grand Total (tfoot) ─── */
+.pivot-quartz tfoot td {
+  padding: 2px 10px;
+}
+
 .pivot-quartz tfoot .pivot-grandtotal-row td {
   background-color: var(--color-primary-50) !important;
   color: var(--color-primary-800);

@@ -375,18 +375,51 @@ export default function PivotTable({
   const filteredData = useMemo(() => {
     const activeFilters = Object.entries(columnFilters).filter(([, s]) => s.size > 0)
     if (activeFilters.length === 0) return data
-    return data.filter(row => {
-      if (row.__isGrandTotal__ || row.__isSummary__) return true
+
+    const SKIP_KEYS = new Set(['__rowKey__', '__isSubtotal__', '__isGrandTotal__', '__isSummary__'])
+    const recalcTotal = (templateRow, detailRows) => {
+      const result = { ...templateRow }
+      for (const key of Object.keys(templateRow)) {
+        if (SKIP_KEYS.has(key)) continue
+        if (typeof templateRow[key] === 'number') {
+          result[key] = detailRows.reduce((sum, r) => sum + (parseFloat(r[key]) || 0), 0)
+        }
+      }
+      return result
+    }
+
+    const rowPassesFilter = (row) => {
       for (const [field, allowed] of activeFilters) {
         const val = row[field]
-        // Si la ligne (detail ou subtotal) a une valeur pour ce champ, elle doit matcher
         if (val !== undefined && val !== null && val !== '') {
           if (!allowed.has(String(val))) return false
         }
       }
       return true
-    })
-  }, [data, columnFilters])
+    }
+
+    // Lignes détail filtrées (sans totaux ni sous-totaux)
+    const filteredDetails = data.filter(row =>
+      !row.__isGrandTotal__ && !row.__isSummary__ && !row.__isSubtotal__ && rowPassesFilter(row)
+    )
+
+    // Reconstruire dans l'ordre original avec totaux recalculés
+    const result = []
+    for (const row of data) {
+      if (row.__isGrandTotal__ || row.__isSummary__) {
+        result.push(recalcTotal(row, filteredDetails))
+      } else if (row.__isSubtotal__) {
+        const rawVal = row[rowFieldNames[0]] || ''
+        const groupVal = typeof rawVal === 'string' && rawVal.startsWith('Sous-total ')
+          ? rawVal.slice('Sous-total '.length) : rawVal
+        const groupDetails = filteredDetails.filter(r => r[rowFieldNames[0]] === groupVal)
+        if (groupDetails.length > 0) result.push(recalcTotal(row, groupDetails))
+      } else if (rowPassesFilter(row)) {
+        result.push(row)
+      }
+    }
+    return result
+  }, [data, columnFilters, rowFieldNames])
 
   const visibleRows = useMemo(() => {
     if (rowFieldNames.length <= 1) return filteredData
