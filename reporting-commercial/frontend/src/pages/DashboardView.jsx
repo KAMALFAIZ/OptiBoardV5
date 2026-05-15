@@ -804,27 +804,38 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
       const { xf, yf } = autoDetectFields(data, cfg)
       const pk = resolvePeriodKey(data, xf)
       const horizontal = cfg.horizontal || false
+      // Largeur dynamique axe Y (barres horizontales)
+      const yAxisW = horizontal ? calcYAxisWidth(data, pk, 180) : undefined
+      // Labels X longs → inclinaison (barres verticales)
+      const longX = !horizontal && hasLongXLabels(data, pk, 10)
+      const xAxisHeight = longX ? 65 : 30
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+          <BarChart data={data}
+            margin={{ top: 10, right: 10, left: horizontal ? 0 : 10, bottom: longX ? 10 : 5 }}
             layout={horizontal ? 'vertical' : 'horizontal'}
-            onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
+            onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })}
+            style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
             {horizontal ? (
               <>
-                <YAxis dataKey={pk} type="category" tick={{ fontSize: 11, fill: '#6b7280' }} width={80} tickFormatter={formatPeriodLabel} />
+                <YAxis dataKey={pk} type="category"
+                  width={yAxisW}
+                  tick={<TruncatedYTick maxWidth={yAxisW - 8} />} />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
               </>
             ) : (
               <>
-                <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
+                <XAxis dataKey={pk} height={xAxisHeight}
+                  tick={longX ? <AngledXTick maxChars={14} /> : { fontSize: 11, fill: '#6b7280' }}
+                  tickFormatter={longX ? undefined : formatPeriodLabel} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
               </>
             )}
             <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
             <Bar dataKey={yf} fill={cfg.color || COLORS[0]} radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]} name={cfg.y_label || yf}>
-              {cfg.show_labels && <LabelList dataKey={yf} position="top" fontSize={9} formatter={formatNumber} />}
+              {cfg.show_labels && <LabelList dataKey={yf} position={horizontal ? 'right' : 'top'} fontSize={9} formatter={formatNumber} />}
             </Bar>
             {cfg.y_field_2 && <Bar dataKey={cfg.y_field_2} fill={cfg.color_2 || COLORS[1]} radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]} name={cfg.y_label_2 || cfg.y_field_2} />}
             {cfg.y_field_3 && <Bar dataKey={cfg.y_field_3} fill={cfg.color_3 || COLORS[2]} radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]} name={cfg.y_label_3 || cfg.y_field_3} />}
@@ -837,12 +848,16 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
       const { xf, yf } = autoDetectFields(data, cfg)
       const pk = resolvePeriodKey(data, xf)
       const mode = cfg.stack_mode || 'stacked'
+      const longXS = hasLongXLabels(data, pk, 10)
+      const xAxisHeightS = longXS ? 65 : 30
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+          <BarChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: longXS ? 10 : 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
+            <XAxis dataKey={pk} height={xAxisHeightS}
+              tick={longXS ? <AngledXTick maxChars={14} /> : { fontSize: 11, fill: '#6b7280' }}
+              tickFormatter={longXS ? undefined : formatPeriodLabel} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
             <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
@@ -859,12 +874,16 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
     case 'chart_combo': {
       const { xf, yf } = autoDetectFields(data, cfg)
       const pk = resolvePeriodKey(data, xf)
+      const longXC = hasLongXLabels(data, pk, 10)
+      const xAxisHeightC = longXC ? 65 : 30
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+          <ComposedChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: longXC ? 10 : 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
+            <XAxis dataKey={pk} height={xAxisHeightC}
+              tick={longXC ? <AngledXTick maxChars={14} /> : { fontSize: 11, fill: '#6b7280' }}
+              tickFormatter={longXC ? undefined : formatPeriodLabel} />
             <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
             {cfg.y_field_2 && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={formatNumber} />}
             <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
@@ -882,12 +901,16 @@ const WidgetContent = memo(function WidgetContent({ widget, data, onDrillDown })
     case 'chart_line': {
       const { xf, yf } = autoDetectFields(data, cfg)
       const pk = resolvePeriodKey(data, xf)
+      const longXL = hasLongXLabels(data, pk, 10)
+      const xAxisHeightL = longXL ? 65 : 30
       return (
         <ResponsiveContainer width="100%" height="100%">
-          <ReLineChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+          <ReLineChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: longXL ? 10 : 5 }}
             onClick={e => e?.activePayload?.[0] && onDrillDown?.({ field: xf, value: e.activePayload[0].payload[xf] })} style={{ cursor: 'pointer' }}>
             {cfg.show_grid !== false && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
-            <XAxis dataKey={pk} height={30} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatPeriodLabel} />
+            <XAxis dataKey={pk} height={xAxisHeightL}
+              tick={longXL ? <AngledXTick maxChars={14} /> : { fontSize: 11, fill: '#6b7280' }}
+              tickFormatter={longXL ? undefined : formatPeriodLabel} />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
             <Tooltip formatter={v => formatNumber(v)} content={<CustomTooltip xField={xf} />} />
             {cfg.show_legend && <Legend wrapperStyle={{ fontSize: 11 }} />}
@@ -1101,6 +1124,51 @@ function CompareIndicator({ data, valueField, compareField, aggregation = 'SUM' 
       {isUp ? '+' : ''}{pct.toFixed(1)}%
     </span>
   )
+}
+
+// ── Axe Y horizontal : libellé tronqué + tooltip SVG natif ──
+function TruncatedYTick({ x, y, payload, maxWidth = 150 }) {
+  const text = String(payload?.value ?? '')
+  // ~6.5 px par caractère en fontSize 11
+  const maxChars = Math.max(6, Math.floor(maxWidth / 6.5))
+  const display = text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{text}</title>
+      <text x={0} y={0} dy={4} textAnchor="end" fill="#6b7280" fontSize={11}>
+        {display}
+      </text>
+    </g>
+  )
+}
+
+// ── Axe X vertical : libellé incliné + tronqué pour longs textes ──
+function AngledXTick({ x, y, payload, maxChars = 14 }) {
+  const text = String(payload?.value ?? '')
+  const display = text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{text}</title>
+      <text x={0} y={0} dy={8} dx={-4} textAnchor="end" fill="#6b7280" fontSize={10}
+        transform="rotate(-38)">
+        {display}
+      </text>
+    </g>
+  )
+}
+
+// ── Calcule la largeur optimale de l'axe Y selon le libellé le plus long ──
+function calcYAxisWidth(data, field, maxPx = 180) {
+  if (!data || data.length === 0) return 80
+  const longest = Math.max(...data.map(d => String(d[field] ?? '').length))
+  // ~6.5 px/char, min 60, max maxPx
+  return Math.min(Math.max(Math.round(longest * 6.5), 60), maxPx)
+}
+
+// ── Détecte si les libellés X sont "longs" (chart vertical) ──
+function hasLongXLabels(data, field, threshold = 10) {
+  if (!data || data.length === 0) return false
+  return data.some(d => String(d[field] ?? '').length > threshold)
 }
 
 // ── Custom Tooltip ──

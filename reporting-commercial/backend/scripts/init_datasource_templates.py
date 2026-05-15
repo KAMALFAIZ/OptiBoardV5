@@ -3932,10 +3932,11 @@ DATASOURCE_TEMPLATES = [
             WHERE [Valorise CA] = 'Oui'
               AND (@societe IS NULL OR [societe] = @societe)
               AND YEAR([Date]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
+              AND MONTH([Date]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
             GROUP BY YEAR([Date])
             ORDER BY [Annee]
         """,
-        "parameters": '[{"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateDebut", "type": "date", "source": "global"}, {"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
 
     # --- Comparatif Annuel N/N-1 — Pivot (1 ligne) ---
@@ -3961,6 +3962,7 @@ DATASOURCE_TEMPLATES = [
                 WHERE [Valorise CA] = 'Oui'
                   AND (@societe IS NULL OR [societe] = @societe)
                   AND YEAR([Date]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
+                  AND MONTH([Date]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
                 GROUP BY YEAR([Date])
             ),
             N  AS (SELECT * FROM Base WHERE annee = YEAR(@dateFin)),
@@ -4028,7 +4030,7 @@ DATASOURCE_TEMPLATES = [
             LEFT JOIN N  ON 1 = 1
             LEFT JOIN N1 ON 1 = 1
         """,
-        "parameters": '[{"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateDebut", "type": "date", "source": "global"}, {"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
 
     # --- Comparatif Mensuel N/N-1 ---
@@ -4065,6 +4067,7 @@ DATASOURCE_TEMPLATES = [
                 WHERE [Valorise CA] = 'Oui'
                   AND (@societe IS NULL OR [societe] = @societe)
                   AND YEAR([Date]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
+                  AND MONTH([Date]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
                 GROUP BY MONTH([Date])
             )
             SELECT
@@ -4097,7 +4100,7 @@ DATASOURCE_TEMPLATES = [
             FROM Mois
             ORDER BY mois_num
         """,
-        "parameters": '[{"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateDebut", "type": "date", "source": "global"}, {"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
 
     # --- CA par Canal (Categorie tarifaire) ---

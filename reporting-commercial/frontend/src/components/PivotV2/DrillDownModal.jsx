@@ -105,6 +105,7 @@ export default function DrillDownModal({
   const [pageSize, setPageSize] = useState(50)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [loadingSeconds, setLoadingSeconds] = useState(0)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState(null)
   const [sortField, setSortField] = useState(null)
@@ -122,11 +123,18 @@ export default function DrillDownModal({
 
   useEffect(() => {
     if (isOpen && fetchDrilldown) {
+      // Reset complet avant chaque chargement (évite d'afficher l'ancien état)
       setPage(1)
+      setTotal(0)
+      setTotalPages(1)
+      setData([])
+      setColumns([])
+      setTotals({})
       setSortField(null)
       setSortDirection('asc')
       setSearch('')
       setColumnFilters({})
+      setError(null)
       loadData(1, null, 'asc', pageSize)
     }
   }, [isOpen, cellInfo, pivotId])
@@ -134,7 +142,14 @@ export default function DrillDownModal({
   const loadData = async (newPage, sf, sd, ps) => {
     if (!fetchDrilldown) return
     setLoading(true)
+    setLoadingSeconds(0)
     setError(null)
+    // Timer visuel — incrémente chaque seconde pendant le chargement
+    const timerRef = { id: null }
+    const startTime = Date.now()
+    timerRef.id = setInterval(() => {
+      setLoadingSeconds(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
     try {
       const result = await fetchDrilldown(pivotId, {
         rowValues: cellInfo?.rowValues || {},
@@ -148,9 +163,25 @@ export default function DrillDownModal({
       })
 
       if (result.success) {
+        // Normalise les colonnes : le backend peut retourner {name,type} ou {field,header,format,...}
+        // DrillDownModal utilise col.field partout → s'assurer que field, header, format existent.
+        const rawCols = result.columns || []
+        const normCols = rawCols.map(c => ({
+          ...c,
+          field:  c.field  ?? c.name  ?? '',
+          header: c.header ?? c.label ?? c.field ?? c.name ?? '',
+          format: c.format ?? (c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : ''),
+        }))
+        // Normalise les totaux : si indexés par name, les réindexer par field
+        const rawTotals = result.totals || {}
+        const normTotals = {}
+        normCols.forEach(c => {
+          if (rawTotals[c.field] !== undefined) normTotals[c.field] = rawTotals[c.field]
+          else if (rawTotals[c.name] !== undefined) normTotals[c.field] = rawTotals[c.name]
+        })
         setData(result.data || [])
-        setColumns(result.columns || [])
-        setTotals(result.totals || {})
+        setColumns(normCols)
+        setTotals(normTotals)
         setTotal(result.total || 0)
         setPage(result.page || newPage)
         setTotalPages(result.totalPages || 1)
@@ -160,7 +191,9 @@ export default function DrillDownModal({
     } catch (err) {
       setError(err.message || 'Erreur de chargement')
     } finally {
+      clearInterval(timerRef.id)
       setLoading(false)
+      setLoadingSeconds(0)
     }
   }
 
@@ -354,8 +387,19 @@ export default function DrillDownModal({
         {/* Content — scroll vertical + horizontal, thead et tfoot sticky */}
         <div className="flex-1 overflow-auto drilldown-quartz" style={{ position: 'relative' }}>
           {loading ? (
-            <div className="flex items-center justify-center h-48">
+            <div className="flex flex-col items-center justify-center h-48 gap-3">
               <Loader2 size={32} className="animate-spin text-blue-500" />
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Chargement des données…
+                {loadingSeconds >= 3 && (
+                  <span className="ml-2 font-mono text-blue-600 dark:text-blue-400">{loadingSeconds}s</span>
+                )}
+              </div>
+              {loadingSeconds >= 10 && (
+                <div className="text-xs text-amber-600 dark:text-amber-400 max-w-xs text-center px-4">
+                  Requête volumineuse en cours. Merci de patienter…
+                </div>
+              )}
             </div>
           ) : error ? (
             <div className="flex items-center justify-center h-48 text-red-500 text-sm">{error}</div>

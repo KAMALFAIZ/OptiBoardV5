@@ -39,6 +39,7 @@ FROM [Lignes_des_ventes]
 WHERE [Valorise CA] = 'Oui'
   AND (@societe IS NULL OR [societe] = @societe)
   AND YEAR([Date]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
+  AND MONTH([Date]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
 GROUP BY YEAR([Date])
 ORDER BY [Annee]"""
 
@@ -59,6 +60,7 @@ WITH Base AS (
     WHERE [Valorise CA] = 'Oui'
       AND (@societe IS NULL OR [societe] = @societe)
       AND YEAR([Date]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
+      AND MONTH([Date]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
     GROUP BY YEAR([Date])
 ),
 N  AS (SELECT * FROM Base WHERE annee = YEAR(@dateFin)),
@@ -142,6 +144,7 @@ WITH Mois AS (
     WHERE [Valorise CA] = 'Oui'
       AND (@societe IS NULL OR [societe] = @societe)
       AND YEAR([Date]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
+      AND MONTH([Date]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
     GROUP BY MONTH([Date])
 )
 SELECT
@@ -174,7 +177,7 @@ SELECT
 FROM Mois
 ORDER BY mois_num"""
 
-PARAMS_STD = '[{"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+PARAMS_STD = '[{"name": "dateDebut", "type": "date", "source": "global"}, {"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
 
 UPDATES = [
     {
@@ -182,6 +185,7 @@ UPDATES = [
         "nom": "Comparatif Annuel N/N-1",
         "description": "Comparaison du CA, marge, volume, ticket moyen et remise entre l'annee en cours et l'annee precedente (2 lignes)",
         "query": QUERY_COMPARATIF_ANNUEL,
+        "params": PARAMS_STD,
     },
 ]
 
@@ -210,8 +214,8 @@ def run():
 
     for u in UPDATES:
         cur.execute(
-            "UPDATE APP_DataSources_Templates SET nom=?, description=?, query_template=? WHERE code=?",
-            (u["nom"], u["description"], u["query"], u["code"])
+            "UPDATE APP_DataSources_Templates SET nom=?, description=?, query_template=?, parameters=? WHERE code=?",
+            (u["nom"], u["description"], u["query"], u.get("params", PARAMS_STD), u["code"])
         )
         print(f"UPDATE {u['code']} -> {cur.rowcount} ligne(s)")
 
