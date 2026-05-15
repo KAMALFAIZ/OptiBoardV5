@@ -28,20 +28,24 @@ function getThresholdColor(value, levels) {
   return null
 }
 
+const FILTER_NONE_SENTINEL = '__NONE_SELECTED__'
+
 function ColumnFilterDropdown({ values, selected, onChange, onClose, formatLabel }) {
   const [search, setSearch] = useState('')
   const getLabel = (v) => formatLabel ? formatLabel(v) : v
   const filtered = search ? values.filter(v => getLabel(v).toLowerCase().includes(search.toLowerCase())) : values
   const activeSet = selected || new Set()
   const allShown = activeSet.size === 0
+  // "Aucun" état : sentinel seul dans le set (aucune valeur réelle sélectionnée)
+  const noneSelected = activeSet.size === 1 && activeSet.has(FILTER_NONE_SENTINEL)
 
   const toggle = (val) => {
-    if (allShown) {
-      // Depuis "tout sélectionné" : sélectionner uniquement cette valeur
+    if (allShown || noneSelected) {
+      // Depuis "tout affiché" ou "rien sélectionné" : sélectionner uniquement cette valeur
       onChange(new Set([val]))
       return
     }
-    const next = new Set(activeSet)
+    const next = new Set([...activeSet].filter(v => v !== FILTER_NONE_SENTINEL))
     if (next.has(val)) {
       next.delete(val)
     } else {
@@ -51,7 +55,7 @@ function ColumnFilterDropdown({ values, selected, onChange, onClose, formatLabel
     if (next.size === values.length) {
       onChange(new Set())
     } else {
-      onChange(next)
+      onChange(next.size === 0 ? new Set([FILTER_NONE_SENTINEL]) : next)
     }
   }
 
@@ -69,14 +73,14 @@ function ColumnFilterDropdown({ values, selected, onChange, onClose, formatLabel
       </div>
       <div className="px-2 py-1 border-b border-gray-100 dark:border-gray-700 flex gap-3 text-[10px]">
         <button onClick={() => onChange(new Set())} className="text-blue-500 hover:underline">Tous</button>
-        <button onClick={() => onChange(new Set(['__NONE__']))} className="text-blue-500 hover:underline">Aucun</button>
+        <button onClick={() => onChange(new Set([FILTER_NONE_SENTINEL]))} className="text-blue-500 hover:underline">Aucun</button>
       </div>
       <div className="max-h-[220px] overflow-y-auto p-1">
         {filtered.map(val => (
           <label key={val} className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer rounded">
             <input
               type="checkbox"
-              checked={allShown || activeSet.has(val)}
+              checked={allShown || (!noneSelected && activeSet.has(val))}
               onChange={() => toggle(val)}
               className="rounded text-blue-500"
             />
@@ -377,11 +381,12 @@ export default function PivotTable({
     if (activeFilters.length === 0) return data
 
     const SKIP_KEYS = new Set(['__rowKey__', '__isSubtotal__', '__isGrandTotal__', '__isSummary__'])
+    const isNumeric = (v) => typeof v === 'number' || (typeof v === 'string' && v !== '' && !isNaN(parseFloat(v)))
     const recalcTotal = (templateRow, detailRows) => {
       const result = { ...templateRow }
       for (const key of Object.keys(templateRow)) {
         if (SKIP_KEYS.has(key)) continue
-        if (typeof templateRow[key] === 'number') {
+        if (isNumeric(templateRow[key])) {
           result[key] = detailRows.reduce((sum, r) => sum + (parseFloat(r[key]) || 0), 0)
         }
       }
@@ -390,9 +395,13 @@ export default function PivotTable({
 
     const rowPassesFilter = (row) => {
       for (const [field, allowed] of activeFilters) {
+        // Filtre "aucun sélectionné" : aucune ligne ne passe
+        if (allowed.size === 1 && allowed.has(FILTER_NONE_SENTINEL)) return false
         const val = row[field]
         if (val !== undefined && val !== null && val !== '') {
-          if (!allowed.has(String(val))) return false
+          // Ignorer le sentinel dans le Set (ajouté après "Aucun" puis sélection partielle)
+          const realAllowed = new Set([...allowed].filter(v => v !== FILTER_NONE_SENTINEL))
+          if (realAllowed.size > 0 && !realAllowed.has(String(val))) return false
         }
       }
       return true
