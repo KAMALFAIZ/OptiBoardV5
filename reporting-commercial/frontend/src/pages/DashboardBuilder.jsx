@@ -60,6 +60,106 @@ const WIDGET_TYPES = [
 const WIDGET_TYPE_MAP = Object.fromEntries(WIDGET_TYPES.map(t => [t.type, t]))
 const WIDGET_CATEGORIES = [...new Set(WIDGET_TYPES.map(t => t.category))]
 
+// ─── Default documentation per widget type ───
+const WIDGET_DOC_DEFAULTS = {
+  kpi: {
+    doc_description: "Indicateur clé de performance. Affiche une valeur agrégée unique (total, moyenne, comptage) issue de la source de données.",
+    doc_fields: "Champ valeur (ex: CA HT, Quantité, Nb commandes)",
+    doc_formula: "SUM(valeur) / AVG(valeur) / COUNT(*) selon l'agrégation choisie",
+    doc_advantage: "Vue synthétique immédiate d'un KPI métier, avec icône et couleur d'alerte configurable.",
+  },
+  kpi_compare: {
+    doc_description: "KPI avec comparaison N vs N-1. Affiche la valeur courante et l'évolution en % par rapport à la période précédente.",
+    doc_fields: "Champ valeur N (ex: CA HT), Champ valeur N-1 (ex: CA HT N-1)",
+    doc_formula: "Évolution % = (Valeur N − Valeur N-1) / Valeur N-1 × 100",
+    doc_advantage: "Permet de mesurer la progression instantanément avec flèche et couleur (vert/rouge).",
+  },
+  gauge: {
+    doc_description: "Jauge circulaire indiquant la progression vers un objectif. Affiche le % atteint entre un minimum et un maximum.",
+    doc_fields: "Champ valeur (valeur actuelle), Objectif (cible max)",
+    doc_formula: "Taux d'atteinte = Valeur / Objectif × 100",
+    doc_advantage: "Visualisation intuitive du degré de réalisation d'un objectif (quota, budget, stock).",
+  },
+  progress: {
+    doc_description: "Barre de progression linéaire. Indique la proportion atteinte par rapport à une cible.",
+    doc_fields: "Champ valeur (réalisé), Objectif (cible)",
+    doc_formula: "Progression % = Valeur / Objectif × 100",
+    doc_advantage: "Lecture rapide de l'avancement d'un indicateur en format compact (faible hauteur).",
+  },
+  sparkline: {
+    doc_description: "Mini-graphique d'évolution temporelle intégré dans une carte KPI. Idéal pour montrer la tendance sans détail de valeurs.",
+    doc_fields: "Champ période (axe X), Champ valeur (axe Y)",
+    doc_formula: "SUM(valeur) GROUP BY période — courbe ou barres condensées",
+    doc_advantage: "Donne le contexte de tendance en peu d'espace, associé à une valeur KPI principale.",
+  },
+  chart_bar: {
+    doc_description: "Graphique en barres verticales. Compare des valeurs entre différentes catégories ou périodes.",
+    doc_fields: "Axe X : champ catégorie (ex: Client, Mois, Famille)\nAxe Y : champ valeur numérique (ex: CA HT)",
+    doc_formula: "SUM(Valeur Y) GROUP BY Catégorie X",
+    doc_advantage: "Comparaison claire entre catégories. Supporte plusieurs séries (multi-barres groupées).",
+  },
+  chart_stacked_bar: {
+    doc_description: "Barres empilées ou groupées. Décompose chaque barre en sous-catégories pour visualiser la part de chacune.",
+    doc_fields: "Axe X : catégorie principale\nAxe Y : valeur numérique\nSérie : champ de décomposition (ex: Famille, Commercial)",
+    doc_formula: "SUM(Valeur) GROUP BY Catégorie X, Série — empilement ou regroupement",
+    doc_advantage: "Montre simultanément le total et la composition interne de chaque barre.",
+  },
+  chart_line: {
+    doc_description: "Graphique en lignes. Visualise l'évolution d'une ou plusieurs métriques dans le temps.",
+    doc_fields: "Axe X : champ période (ex: Mois, Date)\nAxe Y : champ valeur (ex: CA, Marge)",
+    doc_formula: "SUM(Valeur) GROUP BY Période — une ligne par série",
+    doc_advantage: "Met en évidence les tendances, pics et creux sur une dimension temporelle.",
+  },
+  chart_combo: {
+    doc_description: "Graphique combiné barres + ligne(s). Superpose deux métriques de natures différentes sur un même graphique.",
+    doc_fields: "Axe X : période\nAxe Y (barres) : valeur principale (ex: CA HT)\nAxe Y2 (ligne) : valeur secondaire (ex: Marge %)",
+    doc_formula: "Barres : SUM(Y1) GROUP BY X\nLigne : SUM(Y2) ou AVG(Y2) GROUP BY X",
+    doc_advantage: "Corrèle deux indicateurs sur un seul graphique (volume vs ratio, CA vs marge).",
+  },
+  chart_pie: {
+    doc_description: "Graphique circulaire (camembert). Représente la répartition en % d'un total entre plusieurs catégories.",
+    doc_fields: "Champ catégorie (ex: Famille article, Région)\nChamp valeur (ex: CA HT)",
+    doc_formula: "Part % = SUM(Valeur catégorie) / SUM(Valeur total) × 100",
+    doc_advantage: "Visualisation immédiate des parts de marché et de la composition d'un total.",
+  },
+  chart_area: {
+    doc_description: "Graphique en aire. Visualise le volume cumulé sous une courbe d'évolution temporelle.",
+    doc_fields: "Axe X : période\nAxe Y : valeur numérique",
+    doc_formula: "SUM(Valeur) GROUP BY Période — aire sous la courbe",
+    doc_advantage: "Accentue visuellement l'amplitude des variations et met en valeur la croissance.",
+  },
+  chart_funnel: {
+    doc_description: "Entonnoir de conversion. Visualise les étapes successives d'un processus avec le volume à chaque étape.",
+    doc_fields: "Champ étape (ex: Prospect, Devis, Commande, Livré)\nChamp valeur (ex: Nb documents, CA)",
+    doc_formula: "SUM ou COUNT par étape, trié par ordre de conversion décroissant",
+    doc_advantage: "Identifie les points de déperdition dans un cycle de vente ou de production.",
+  },
+  chart_treemap: {
+    doc_description: "Arborescence proportionnelle (treemap). Représente les poids relatifs de chaque catégorie par surface.",
+    doc_fields: "Champ catégorie (ex: Famille, Client)\nChamp valeur (ex: CA HT)",
+    doc_formula: "Surface ∝ SUM(Valeur) — plus la valeur est grande, plus le rectangle est grand",
+    doc_advantage: "Permet de voir d'un coup d'œil les catégories dominantes dans un portefeuille.",
+  },
+  table: {
+    doc_description: "Tableau de données détaillé. Affiche les lignes brutes ou agrégées de la source de données avec tri et défilement.",
+    doc_fields: "Toutes les colonnes retournées par la requête source",
+    doc_formula: "SELECT colonnes FROM source [WHERE ...] [ORDER BY champ]",
+    doc_advantage: "Permet de consulter le détail ligne par ligne, avec export possible et drill-down.",
+  },
+  text: {
+    doc_description: "Zone de texte libre. Sert à afficher des titres de section, commentaires, instructions ou notes pour les utilisateurs.",
+    doc_fields: "Aucun champ de données — contenu statique saisi manuellement",
+    doc_formula: "Texte statique — aucun calcul",
+    doc_advantage: "Structure visuellement le dashboard et guide l'utilisateur dans la lecture.",
+  },
+  image: {
+    doc_description: "Affiche une image ou un logo depuis une URL externe ou interne. Utile pour les logos, illustrations ou visuels de référence.",
+    doc_fields: "URL de l'image (champ image_url)",
+    doc_formula: "URL statique — aucun calcul",
+    doc_advantage: "Personnalise le dashboard avec la charte graphique de l'entreprise (logo, bannière).",
+  },
+}
+
 // ─── Aggregation functions ───
 const AGGREGATION_FUNCTIONS = [
   { value: 'SUM', label: 'Somme (SUM)' },
@@ -1768,25 +1868,25 @@ function WidgetConfigPanel({ widget, onUpdate }) {
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Description</label>
                 <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={3}
-                  placeholder="Decrivez ce que ce rapport affiche..."
+                  placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_description || 'Decrivez ce que ce rapport affiche...'}
                   className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Champs utilises</label>
                 <textarea value={cfg.doc_fields || ''} onChange={e => updateCfg('doc_fields', e.target.value)} rows={3}
-                  placeholder="Ex: CA HT, Marge, Client, Periode..."
+                  placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_fields || 'Ex: CA HT, Marge, Client, Periode...'}
                   className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Formule / Calcul</label>
                 <textarea value={cfg.doc_formula || ''} onChange={e => updateCfg('doc_formula', e.target.value)} rows={2}
-                  placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+                  placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_formula || 'Ex: SUM(CA HT) - SUM(Achats)...'}
                   className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Avantage / Utilite</label>
                 <textarea value={cfg.doc_advantage || ''} onChange={e => updateCfg('doc_advantage', e.target.value)} rows={2}
-                  placeholder="A quoi sert ce rapport, quel gain pour l'utilisateur..."
+                  placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_advantage || 'A quoi sert ce rapport, quel gain pour l\'utilisateur...'}
                   className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
               </div>
               {/* Auto-generate hint */}
@@ -1825,16 +1925,39 @@ function WidgetConfigPanel({ widget, onUpdate }) {
         </>
       )}
 
-      {/* Documentation section for all widget types */}
+      {/* Documentation section for text/image widgets */}
       {['text', 'image'].includes(widget.type) && (
         <>
           <hr className="border-gray-200 dark:border-gray-700 my-3" />
           <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Documentation</p>
           <div>
             <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Description</label>
-            <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={2}
-              placeholder="Description du widget..."
+            <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={3}
+              placeholder="Decrivez ce que ce widget affiche..."
               className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Champs utilisés</label>
+            <textarea value={cfg.doc_fields || ''} onChange={e => updateCfg('doc_fields', e.target.value)} rows={2}
+              placeholder="Ex: CA HT, Marge, Client, Periode..."
+              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Formule / Calcul</label>
+            <textarea value={cfg.doc_formula || ''} onChange={e => updateCfg('doc_formula', e.target.value)} rows={2}
+              placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Avantage / Utilité</label>
+            <textarea value={cfg.doc_advantage || ''} onChange={e => updateCfg('doc_advantage', e.target.value)} rows={2}
+              placeholder="A quoi sert ce widget, quel gain pour l'utilisateur..."
+              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+          </div>
+          <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <p className="text-[10px] text-blue-600 dark:text-blue-400">
+              Cette documentation sera visible par tous les utilisateurs au clic sur le titre du widget.
+            </p>
           </div>
         </>
       )}
