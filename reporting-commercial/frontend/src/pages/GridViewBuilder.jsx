@@ -365,7 +365,11 @@ export default function GridViewBuilder() {
           show_page_size: true,
           allow_sorting: true,
           display_full_height: true
-        }
+        },
+        doc_description: grid.doc_description || '',
+        doc_fields: grid.doc_fields || '',
+        doc_formula: grid.doc_formula || '',
+        doc_advantage: grid.doc_advantage || '',
       })
 
       // Mettre a jour selectedDataSource si on a un ID
@@ -511,7 +515,11 @@ export default function GridViewBuilder() {
         total_columns: Array.isArray(config.total_columns) ? config.total_columns : [],
         default_sort: config.default_sort || null,
         default_group_by,
-        features: cleanFeatures
+        features: cleanFeatures,
+        doc_description: config.doc_description || null,
+        doc_fields: config.doc_fields || null,
+        doc_formula: config.doc_formula || null,
+        doc_advantage: config.doc_advantage || null,
       })
 
       // Sauvegarder prefs utilisateur avec colonnes nettoyees
@@ -704,7 +712,11 @@ export default function GridViewBuilder() {
         show_totals: !!config.show_totals,
         total_columns: Array.isArray(config.total_columns) ? config.total_columns : [],
         default_sort: config.default_sort || null,
-        features: cleanFeatures
+        features: cleanFeatures,
+        doc_description: config.doc_description || null,
+        doc_fields: config.doc_fields || null,
+        doc_formula: config.doc_formula || null,
+        doc_advantage: config.doc_advantage || null,
       })
 
       // Construire le contexte avec les valeurs des paramètres
@@ -1405,6 +1417,36 @@ export default function GridViewBuilder() {
                   </div>
                 </div>
               )}
+              {/* Documentation */}
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Documentation du rapport</label>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Objectif</label>
+                    <textarea value={config.doc_description || ''} onChange={e => setConfig({ ...config, doc_description: e.target.value })} rows={2}
+                      placeholder="Decrivez ce que ce rapport affiche..."
+                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Descriptif des colonnes</label>
+                    <textarea value={config.doc_fields || ''} onChange={e => setConfig({ ...config, doc_fields: e.target.value })} rows={3}
+                      placeholder="Ex: CA HT = chiffre d'affaires hors taxes&#10;Marge = CA HT - Achats..."
+                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Formule / Logique</label>
+                    <textarea value={config.doc_formula || ''} onChange={e => setConfig({ ...config, doc_formula: e.target.value })} rows={2}
+                      placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Avantage</label>
+                    <textarea value={config.doc_advantage || ''} onChange={e => setConfig({ ...config, doc_advantage: e.target.value })} rows={2}
+                      placeholder="A quoi sert ce rapport..."
+                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  </div>
+                </div>
+              </div>
               </div>{/* fin p-4 content */}
             </div>{/* fin config panel scrollable */}
 

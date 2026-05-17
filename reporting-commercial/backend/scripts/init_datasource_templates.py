@@ -1270,7 +1270,7 @@ DATASOURCE_TEMPLATES = [
               AND li.[Date BL] BETWEEN @dateDebut AND @dateFin
               AND (@commercial IS NULL OR en.[Nom représentant] = @commercial)
         """,
-        "parameters": '[{"name": "dateDebut", "type": "date", "source": "global"}, {"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}, {"name": "commercial", "type": "select", "source": "query", "query": "SELECT DISTINCT [Nom représentant] AS value, [Nom représentant] AS label FROM [Entête_des_ventes] WHERE [Nom représentant] IS NOT NULL AND [Nom représentant] <> \\'\\' ORDER BY [Nom représentant]", "required": false, "allow_null": true, "null_label": "(Tous)"}]'
+        "parameters": '[{"name": "dateDebut", "type": "date", "source": "global"}, {"name": "dateFin", "type": "date", "source": "global"}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}, {"name": "commercial", "type": "select", "source": "query", "query": "SELECT DISTINCT [Nom représentant] AS value, [Nom représentant] AS label FROM [Entête_des_ventes] WHERE [Nom représentant] IS NOT NULL AND [Nom représentant] <> '' ORDER BY [Nom représentant]", "required": false, "allow_null": true, "null_label": "(Tous)"}]'
     },
 
     # ==================== ACHATS ====================
@@ -3128,30 +3128,39 @@ DATASOURCE_TEMPLATES = [
                 e.[Code client] AS [Code Client],
                 e.[Intitulé client] AS [Client],
                 e.[societe] AS [Société],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) <= 0
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [Non Échu],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 1 AND 30
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [0-30j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 31 AND 60
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [31-60j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 61 AND 90
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [61-90j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 91 AND 120
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [91-120j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 120
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [+120j],
-                SUM(e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0)) AS [Total Créance],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 0
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [Total Echu],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 0
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [Non Échu],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 1 AND 30
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [0-30j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 31 AND 60
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [31-60j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 61 AND 90
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [61-90j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 91 AND 120
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [91-120j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [+120j],
+                SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Total Créance],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 0
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [Total Echu],
                 COUNT(*) AS [Nb Échéances],
-                MAX(DATEDIFF(DAY, e.[Date d'échéance], GETDATE())) AS [Max Retard Jours]
+                MAX(DATEDIFF(DAY, e.[Date d'échéance], @dateFin)) AS [Max Retard Jours]
             FROM [Echéances_Ventes] e
-            WHERE e.[Montant échéance] > ISNULL(e.[Montant du règlement], 0)
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
               AND (@societe IS NULL OR e.[societe] = @societe)
             GROUP BY e.[Code client], e.[Intitulé client], e.[societe]
-            ORDER BY [Total Creance] DESC
+            ORDER BY [Total Créance] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     # DSO calcule a partir des reglements reels (Imputation_Factures_Ventes)
     {
@@ -3160,16 +3169,26 @@ DATASOURCE_TEMPLATES = [
         "category": "Recouvrement",
         "description": "Delai moyen de paiement par client calcule depuis Imputation_Factures_Ventes",
         "query_template": """
-            WITH Encours AS (
+            WITH Imputations AS (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ),
+            Encours AS (
                 SELECT
-                    [Code client],
-                    [Intitulé client],
-                    [societe],
-                    SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS Total_Encours
-                FROM [Echéances_Ventes]
-                WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-              AND (@societe IS NULL OR [societe] = @societe)
-                GROUP BY [Code client], [Intitulé client], [societe]
+                    e.[Code client],
+                    e.[Intitulé client],
+                    e.[societe],
+                    SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS Total_Encours
+                FROM [Echéances_Ventes] e
+                LEFT JOIN Imputations ifv ON e.[N° pièce] = ifv.[N° pièce]
+                    AND e.[Code client] = ifv.[Code client]
+                    AND e.[DB_Id] = ifv.[DB_Id]
+                WHERE e.[Date document] <= @dateFin
+                  AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                  AND (@societe IS NULL OR e.[societe] = @societe)
+                GROUP BY e.[Code client], e.[Intitulé client], e.[societe]
             ),
             Reglements AS (
                 SELECT
@@ -3178,7 +3197,7 @@ DATASOURCE_TEMPLATES = [
                     AVG(DATEDIFF(DAY, [Date document], [Date règlement])) AS Delai_Moyen_Paiement,
                     COUNT(DISTINCT [id Règlement]) AS Nb_Reglements
                 FROM [Imputation_Factures_Ventes]
-                WHERE [Date règlement] >= DATEADD(YEAR, -1, GETDATE())
+                WHERE [Date règlement] BETWEEN DATEADD(YEAR, -1, @dateFin) AND @dateFin
                   AND [Date règlement] IS NOT NULL
                 GROUP BY [Code client]
             ),
@@ -3187,7 +3206,7 @@ DATASOURCE_TEMPLATES = [
                     [Code client],
                     SUM([Montant facture TTC]) AS CA_12M
                 FROM [Imputation_Factures_Ventes]
-                WHERE [Date document] >= DATEADD(YEAR, -1, GETDATE())
+                WHERE [Date document] BETWEEN DATEADD(YEAR, -1, @dateFin) AND @dateFin
                 GROUP BY [Code client]
             )
             SELECT
@@ -3209,7 +3228,7 @@ DATASOURCE_TEMPLATES = [
             LEFT JOIN CA ca ON enc.[Code client] = ca.[Code client]
             ORDER BY [DSO Jours] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     # Creances douteuses calculees depuis les echeances reelles
     {
@@ -3222,27 +3241,36 @@ DATASOURCE_TEMPLATES = [
                 e.[Code client] AS [Code Client],
                 e.[Intitulé client] AS [Client],
                 e.[societe] AS [Société],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 120
-                    THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [Montant +120j],
-                SUM(e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0)) AS [Total Créance],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120
+                    THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [Montant +120j],
+                SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Total Créance],
                 CASE
-                    WHEN SUM(e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0)) > 0
-                    THEN ROUND(SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 120
-                        THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) * 100.0
-                        / SUM(e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0)), 2)
+                    WHEN SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) > 0
+                    THEN ROUND(SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120
+                        THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) * 100.0
+                        / SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)), 2)
                     ELSE 0
                 END AS [% Douteux],
-                COUNT(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 120 THEN 1 END) AS [Nb Echeances +120j],
-                MAX(DATEDIFF(DAY, e.[Date d'échéance], GETDATE())) AS [Max Retard Jours]
+                COUNT(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120 THEN 1 END) AS [Nb Echeances +120j],
+                MAX(DATEDIFF(DAY, e.[Date d'échéance], @dateFin)) AS [Max Retard Jours]
             FROM [Echéances_Ventes] e
-            WHERE e.[Montant échéance] > ISNULL(e.[Montant du règlement], 0)
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
               AND (@societe IS NULL OR e.[societe] = @societe)
             GROUP BY e.[Code client], e.[Intitulé client], e.[societe]
-            HAVING SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 120
-                THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) > 0
+            HAVING SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120
+                THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) > 0
             ORDER BY [Montant +120j] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
 
     # ==================== ECHEANCES VENTES ====================
@@ -3253,35 +3281,44 @@ DATASOURCE_TEMPLATES = [
         "description": "Detail des echeances en attente de reglement avec calcul du retard",
         "query_template": """
             SELECT
-                [societe] AS [Société],
-                [Code client] AS [Code Client],
-                [Intitulé client] AS [Client],
-                [Code tiers payeur] AS [Code Tier Payeur],
-                [Intitulé Tiers payeur] AS [Tier Payeur],
-                [Type Document],
-                [N° pièce] AS [Numéro Pièce],
-                [Date document] AS [Date Document],
-                [Date d'échéance] AS [Date Échéance],
-                [Montant échéance] AS [Montant Échéance],
-                [Montant TTC Net] AS [Montant TTC],
-                [Montant du règlement] AS [Montant Regle],
-                [Montant échéance] - ISNULL([Montant du règlement], 0) AS [Reste à Régler],
-                [Mode de règlement] AS [Mode de Règlement],
-                DATEDIFF(DAY, [Date d'échéance], GETDATE()) AS [Jours de Retard],
+                e.[societe] AS [Société],
+                e.[Code client] AS [Code Client],
+                e.[Intitulé client] AS [Client],
+                e.[Code tiers payeur] AS [Code Tier Payeur],
+                e.[Intitulé Tiers payeur] AS [Tier Payeur],
+                e.[Type Document],
+                e.[N° pièce] AS [Numéro Pièce],
+                e.[Date document] AS [Date Document],
+                e.[Date d'échéance] AS [Date Échéance],
+                e.[Montant échéance] AS [Montant Échéance],
+                e.[Montant TTC Net] AS [Montant TTC],
+                ISNULL(ifv.Total_Regle, 0) AS [Montant Regle],
+                e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS [Reste à Régler],
+                e.[Mode de règlement] AS [Mode de Règlement],
+                DATEDIFF(DAY, e.[Date d'échéance], @dateFin) AS [Jours de Retard],
                 CASE
-                    WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0 THEN 'A echoir'
-                    WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 30 THEN '0-30 jours'
-                    WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 60 THEN '31-60 jours'
-                    WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 90 THEN '61-90 jours'
-                    WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 120 THEN '91-120 jours'
+                    WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 0 THEN 'A echoir'
+                    WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 30 THEN '0-30 jours'
+                    WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 60 THEN '31-60 jours'
+                    WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 90 THEN '61-90 jours'
+                    WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 120 THEN '91-120 jours'
                     ELSE '+120 jours'
                 END AS [Tranche Age]
-            FROM [Echéances_Ventes]
-            WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-              AND (@societe IS NULL OR [societe] = @societe)
-            ORDER BY [Reste A Regler] DESC
+            FROM [Echéances_Ventes] e
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+              AND (@societe IS NULL OR e.[societe] = @societe)
+            ORDER BY [Reste à Régler] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     {
         "code": "DS_ECHEANCES_PAR_CLIENT",
@@ -3290,31 +3327,40 @@ DATASOURCE_TEMPLATES = [
         "description": "Balance agee dynamique calculee a partir des echeances reelles",
         "query_template": """
             SELECT
-                [Code client] AS [Code Client],
-                [Intitulé client] AS [Client],
-                [societe] AS [Société],
+                e.[Code client] AS [Code Client],
+                e.[Intitulé client] AS [Client],
+                e.[societe] AS [Société],
                 COUNT(*) AS [Nb Échéances],
-                SUM([Montant échéance]) AS [Total Échéances],
-                SUM(ISNULL([Montant du règlement], 0)) AS [Total Réglé],
-                SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Reste à Régler],
-                SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0 THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [A Echoir],
-                SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 1 AND 30 THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [0-30j],
-                SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 31 AND 60 THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [31-60j],
-                SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 61 AND 90 THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [61-90j],
-                SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 91 AND 120 THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [91-120j],
-                SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120 THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [+120j],
-                CASE WHEN SUM([Montant échéance]) > 0
-                    THEN ROUND(SUM(ISNULL([Montant du règlement], 0)) * 100.0 / SUM([Montant échéance]), 2)
+                SUM(e.[Montant échéance]) AS [Total Échéances],
+                SUM(ISNULL(ifv.Total_Regle, 0)) AS [Total Réglé],
+                SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Reste à Régler],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 0 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [A Echoir],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 1 AND 30 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [0-30j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 31 AND 60 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [31-60j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 61 AND 90 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [61-90j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 91 AND 120 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [91-120j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [+120j],
+                CASE WHEN SUM(e.[Montant échéance]) > 0
+                    THEN ROUND(SUM(ISNULL(ifv.Total_Regle, 0)) * 100.0 / SUM(e.[Montant échéance]), 2)
                     ELSE 0 END AS [Taux Recouvrement %],
-                MAX([Date d'échéance]) AS [Derniere Echeance],
-                MAX(DATEDIFF(DAY, [Date d'échéance], GETDATE())) AS [Max Jours Retard]
-            FROM [Echéances_Ventes]
-            WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-              AND (@societe IS NULL OR [societe] = @societe)
-            GROUP BY [Code client], [Intitulé client], [societe]
-            ORDER BY [Reste A Regler] DESC
+                MAX(e.[Date d'échéance]) AS [Derniere Echeance],
+                MAX(DATEDIFF(DAY, e.[Date d'échéance], @dateFin)) AS [Max Jours Retard]
+            FROM [Echéances_Ventes] e
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+              AND (@societe IS NULL OR e.[societe] = @societe)
+            GROUP BY e.[Code client], e.[Intitulé client], e.[societe]
+            ORDER BY [Reste à Régler] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     {
         "code": "DS_ECHEANCES_PAR_COMMERCIAL",
@@ -3327,23 +3373,32 @@ DATASOURCE_TEMPLATES = [
                 ISNULL(ev.[Nom représentant], 'Non assigné') AS [Commercial],
                 COUNT(DISTINCT e.[Code client]) AS [Nb Clients],
                 COUNT(*) AS [Nb Échéances],
-                SUM(e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0)) AS [Encours Total],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) <= 0 THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [A Echoir],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 1 AND 30 THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [0-30j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 31 AND 60 THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [31-60j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 61 AND 90 THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [61-90j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) BETWEEN 91 AND 120 THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [91-120j],
-                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], GETDATE()) > 120 THEN e.[Montant échéance] - ISNULL(e.[Montant du règlement], 0) ELSE 0 END) AS [+120j]
+                SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Encours Total],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) <= 0 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [A Echoir],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 1 AND 30 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [0-30j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 31 AND 60 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [31-60j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 61 AND 90 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [61-90j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) BETWEEN 91 AND 120 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [91-120j],
+                SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 120 THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [+120j]
             FROM [Echéances_Ventes] e
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
             LEFT JOIN [Entête_des_ventes] ev ON e.[N° Pièce] = ev.[N° pièce]
                 AND e.[Type Document] = ev.[Type Document]
                 AND e.societe = ev.societe
-            WHERE e.[Montant échéance] > ISNULL(e.[Montant du règlement], 0)
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
               AND (@societe IS NULL OR e.societe = @societe)
             GROUP BY ev.[Code représentant], ev.[Nom représentant]
             ORDER BY [Encours Total] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     {
         "code": "DS_ECHEANCES_PAR_MODE",
@@ -3352,22 +3407,31 @@ DATASOURCE_TEMPLATES = [
         "description": "Repartition des echeances par mode de reglement",
         "query_template": """
             SELECT
-                [Mode de règlement] AS [Mode de Règlement],
-                [Code mode règlement] AS [Code Mode],
+                e.[Mode de règlement] AS [Mode de Règlement],
+                e.[Code mode règlement] AS [Code Mode],
                 COUNT(*) AS [Nb Échéances],
-                SUM([Montant échéance]) AS [Total Échéances],
-                SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Reste à Régler],
-                CASE WHEN SUM([Montant échéance]) > 0
-                    THEN ROUND(SUM(ISNULL([Montant du règlement], 0)) * 100.0 / SUM([Montant échéance]), 2)
+                SUM(e.[Montant échéance]) AS [Total Échéances],
+                SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Reste à Régler],
+                CASE WHEN SUM(e.[Montant échéance]) > 0
+                    THEN ROUND(SUM(ISNULL(ifv.Total_Regle, 0)) * 100.0 / SUM(e.[Montant échéance]), 2)
                     ELSE 0 END AS [Taux Recouvrement %],
-                AVG(DATEDIFF(DAY, [Date d'échéance], GETDATE())) AS [Retard Moyen Jours]
-            FROM [Echéances_Ventes]
-            WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-              AND (@societe IS NULL OR [societe] = @societe)
-            GROUP BY [Mode de règlement], [Code mode règlement]
-            ORDER BY [Reste A Regler] DESC
+                AVG(DATEDIFF(DAY, e.[Date d'échéance], @dateFin)) AS [Retard Moyen Jours]
+            FROM [Echéances_Ventes] e
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+              AND (@societe IS NULL OR e.[societe] = @societe)
+            GROUP BY e.[Mode de règlement], e.[Code mode règlement]
+            ORDER BY [Reste à Régler] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     {
         "code": "DS_ECHEANCES_A_ECHOIR",
@@ -3376,29 +3440,38 @@ DATASOURCE_TEMPLATES = [
         "description": "Echeances futures avec niveau d'urgence",
         "query_template": """
             SELECT
-                [societe] AS [Société],
-                [Code client] AS [Code Client],
-                [Intitulé client] AS [Client],
-                [N° pièce] AS [Numéro Pièce],
-                [Date document] AS [Date Document],
-                [Date d'échéance] AS [Date Échéance],
-                [Montant échéance] - ISNULL([Montant du règlement], 0) AS [Montant à Régler],
-                [Mode de règlement] AS [Mode de Règlement],
-                [Nom collaborateur] + ' ' + [Prénom collaborateur] AS [Commercial],
-                DATEDIFF(DAY, GETDATE(), [Date d'échéance]) AS [Jours Avant Echeance],
+                e.[societe] AS [Société],
+                e.[Code client] AS [Code Client],
+                e.[Intitulé client] AS [Client],
+                e.[N° pièce] AS [Numéro Pièce],
+                e.[Date document] AS [Date Document],
+                e.[Date d'échéance] AS [Date Échéance],
+                e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS [Montant à Régler],
+                e.[Mode de règlement] AS [Mode de Règlement],
+                e.[Nom collaborateur] + ' ' + e.[Prénom collaborateur] AS [Commercial],
+                DATEDIFF(DAY, @dateFin, e.[Date d'échéance]) AS [Jours Avant Echeance],
                 CASE
-                    WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 7 THEN 'Cette semaine'
-                    WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 15 THEN 'Sous 15 jours'
-                    WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 30 THEN 'Sous 30 jours'
+                    WHEN DATEDIFF(DAY, @dateFin, e.[Date d'échéance]) <= 7 THEN 'Cette semaine'
+                    WHEN DATEDIFF(DAY, @dateFin, e.[Date d'échéance]) <= 15 THEN 'Sous 15 jours'
+                    WHEN DATEDIFF(DAY, @dateFin, e.[Date d'échéance]) <= 30 THEN 'Sous 30 jours'
                     ELSE 'Plus de 30 jours'
                 END AS [Urgence]
-            FROM [Echéances_Ventes]
-            WHERE [Date d'échéance] >= GETDATE()
-              AND (@societe IS NULL OR [societe] = @societe)
-              AND [Montant échéance] > ISNULL([Montant du règlement], 0)
-            ORDER BY [Date d'échéance] ASC
+            FROM [Echéances_Ventes] e
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date d'échéance] >= @dateFin
+              AND e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+              AND (@societe IS NULL OR e.[societe] = @societe)
+            ORDER BY e.[Date d'échéance] ASC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
 
     # ==================== REGLEMENTS / IMPUTATIONS ====================
@@ -3474,24 +3547,31 @@ DATASOURCE_TEMPLATES = [
         "description": "Liste des factures en attente de reglement complet",
         "query_template": """
             SELECT
-                [societe] AS [Société],
-                [Code client] AS [Code Client],
-                [Intitulé client] AS [Client],
-                [Type Document],
-                [N° pièce] AS [Numéro Pièce],
-                [Date document] AS [Date Document],
-                [Montant facture TTC] AS [Montant TTC],
-                ISNULL([Montant régler], 0) AS [Montant Regle],
-                [Montant facture TTC] - ISNULL([Montant régler], 0) AS [Reste à Régler],
-                DATEDIFF(DAY, [Date document], GETDATE()) AS [Age Jours]
-            FROM [Imputation_Factures_Ventes]
-            WHERE [Montant facture TTC] > ISNULL([Montant régler], 0)
-              AND (@societe IS NULL OR [societe] = @societe)
-            GROUP BY [societe], [Code client], [Intitulé client], [Type Document],
-                     [N° pièce], [Date document], [Montant facture TTC], [Montant régler]
-            ORDER BY [Reste A Regler] DESC
+                e.[societe] AS [Société],
+                e.[Code client] AS [Code Client],
+                e.[Intitulé client] AS [Client],
+                e.[Type Document],
+                e.[N° pièce] AS [Numéro Pièce],
+                e.[Date document] AS [Date Document],
+                e.[Montant échéance] AS [Montant TTC],
+                ISNULL(ifv.Total_Regle, 0) AS [Montant Regle],
+                e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS [Reste à Régler],
+                DATEDIFF(DAY, e.[Date document], @dateFin) AS [Age Jours]
+            FROM [Echéances_Ventes] e
+            LEFT JOIN (
+                SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                FROM [Imputation_Factures_Ventes]
+                WHERE [Date règlement] <= @dateFin
+                GROUP BY [N° pièce], [Code client], [DB_Id]
+            ) ifv ON e.[N° pièce] = ifv.[N° pièce]
+                 AND e.[Code client] = ifv.[Code client]
+                 AND e.[DB_Id] = ifv.[DB_Id]
+            WHERE e.[Date document] <= @dateFin
+              AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+              AND (@societe IS NULL OR e.[societe] = @societe)
+            ORDER BY [Reste à Régler] DESC
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
     {
         "code": "DS_KPI_RECOUVREMENT",
@@ -3500,42 +3580,89 @@ DATASOURCE_TEMPLATES = [
         "description": "Indicateurs cles du recouvrement: encours, echu, a echoir, retard moyen",
         "query_template": """
             SELECT
-                (SELECT SUM([Montant échéance] - ISNULL([Montant du règlement], 0))
-                 FROM [Echéances_Ventes]
-                 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)) AS [Encours Total],
+                (SELECT SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0))
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] <= @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS [Encours Total],
 
-                (SELECT SUM([Montant échéance] - ISNULL([Montant du règlement], 0))
-                 FROM [Echéances_Ventes]
-                 WHERE [Date d'échéance] >= GETDATE()
-              AND (@societe IS NULL OR [societe] = @societe)
-                   AND [Montant échéance] > ISNULL([Montant du règlement], 0)) AS [A Echoir],
+                (SELECT SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0))
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] <= @dateFin
+                   AND e.[Date d'échéance] >= @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS [A Echoir],
 
-                (SELECT SUM([Montant échéance] - ISNULL([Montant du règlement], 0))
-                 FROM [Echéances_Ventes]
-                 WHERE [Date d'échéance] < GETDATE()
-                   AND [Montant échéance] > ISNULL([Montant du règlement], 0)) AS [Echu],
+                (SELECT SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0))
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] <= @dateFin
+                   AND e.[Date d'échéance] < @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS [Echu],
 
                 (SELECT COUNT(*)
-                 FROM [Echéances_Ventes]
-                 WHERE [Date d'échéance] < GETDATE()
-                   AND [Montant échéance] > ISNULL([Montant du règlement], 0)) AS [Nb Echeances Retard],
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] <= @dateFin
+                   AND e.[Date d'échéance] < @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS [Nb Echeances Retard],
 
-                (SELECT COUNT(DISTINCT [Code client])
-                 FROM [Echéances_Ventes]
-                 WHERE [Date d'échéance] < GETDATE()
-                   AND [Montant échéance] > ISNULL([Montant du règlement], 0)) AS [Nb Clients Retard],
+                (SELECT COUNT(DISTINCT e.[Code client])
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] <= @dateFin
+                   AND e.[Date d'échéance] < @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS [Nb Clients Retard],
 
-                (SELECT ISNULL(SUM([Montant règlement]), 0)
+                (SELECT ISNULL(SUM([Montant régler]), 0)
                  FROM [Imputation_Factures_Ventes]
-                 WHERE MONTH([Date règlement]) = MONTH(GETDATE())
-                   AND YEAR([Date règlement]) = YEAR(GETDATE())) AS [Reglements Mois],
+                 WHERE [Date règlement] BETWEEN DATEADD(MONTH, DATEDIFF(MONTH, 0, @dateFin), 0) AND @dateFin
+                   AND (@societe IS NULL OR [societe] = @societe)) AS [Reglements Mois],
 
-                (SELECT AVG(DATEDIFF(DAY, [Date d'échéance], GETDATE()))
-                 FROM [Echéances_Ventes]
-                 WHERE [Date d'échéance] < GETDATE()
-                   AND [Montant échéance] > ISNULL([Montant du règlement], 0)) AS [Retard Moyen Jours]
+                (SELECT AVG(DATEDIFF(DAY, e.[Date d'échéance], @dateFin))
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] <= @dateFin
+                   AND e.[Date d'échéance] < @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS [Retard Moyen Jours]
         """,
-        "parameters": '[{"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
+        "parameters": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]'
     },
 
     # ==================== TABLEAU DE BORD ====================
@@ -3558,20 +3685,36 @@ DATASOURCE_TEMPLATES = [
                    AND [Date BL] BETWEEN @dateDebut AND @dateFin
                    AND (@societe IS NULL OR [societe] = @societe)) AS Marge,
 
-                (SELECT ISNULL(SUM([Valeur du stock (montant)]), 0)
-                 FROM [Etat_Stock]
-                 WHERE (@societe IS NULL OR [societe] = @societe)) AS ValeurStock,
+                (SELECT ISNULL(SUM(CASE WHEN [Sens de mouvement] LIKE N'%ntr%'
+                                        THEN ABS([Montant Stock]) ELSE -ABS([Montant Stock]) END), 0)
+                 FROM [Mouvement_stock]
+                 WHERE [Date Mouvement] <= @dateFin
+                   AND (@societe IS NULL OR [societe] = @societe)) AS ValeurStock,
 
-                (SELECT ISNULL(SUM([Montant échéance] - ISNULL([Montant du règlement], 0)), 0)
-                 FROM [Echéances_Ventes]
-                 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-                   AND (@societe IS NULL OR [societe] = @societe)) AS Encours,
+                (SELECT ISNULL(SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)), 0)
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] BETWEEN @dateDebut AND @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS Encours,
 
-                (SELECT ISNULL(SUM([Montant échéance] - ISNULL([Montant du règlement], 0)), 0)
-                 FROM [Echéances_Ventes]
-                 WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-                   AND DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120
-                   AND (@societe IS NULL OR [societe] = @societe)) AS CreancesDouteuses,
+                (SELECT ISNULL(SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)), 0)
+                 FROM [Echéances_Ventes] e
+                 LEFT JOIN (
+                     SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+                     FROM [Imputation_Factures_Ventes]
+                     WHERE [Date règlement] <= @dateFin
+                     GROUP BY [N° pièce], [Code client], [DB_Id]
+                 ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+                 WHERE e.[Date document] BETWEEN @dateDebut AND @dateFin
+                   AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+                   AND DATEDIFF(DAY, e.[Date d'échéance], CAST(GETDATE() AS DATE)) > 120
+                   AND (@societe IS NULL OR e.[societe] = @societe)) AS CreancesDouteuses,
 
                 (SELECT COUNT(DISTINCT [Code client])
                  FROM [Lignes_des_ventes]

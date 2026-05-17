@@ -1482,6 +1482,7 @@ function WidgetConfigPanel({ widget, onUpdate }) {
     { key: 'general', label: 'General' },
     { key: 'data', label: 'Donnees' },
     { key: 'style', label: 'Style' },
+    { key: 'doc', label: 'Doc' },
   ]
 
   return (
@@ -1759,6 +1760,43 @@ function WidgetConfigPanel({ widget, onUpdate }) {
               )}
             </div>
           )}
+
+          {/* ── DOC TAB ── */}
+          {configTab === 'doc' && (
+            <div className="space-y-4">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Documentation du rapport</p>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Description</label>
+                <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={3}
+                  placeholder="Decrivez ce que ce rapport affiche..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Champs utilises</label>
+                <textarea value={cfg.doc_fields || ''} onChange={e => updateCfg('doc_fields', e.target.value)} rows={3}
+                  placeholder="Ex: CA HT, Marge, Client, Periode..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Formule / Calcul</label>
+                <textarea value={cfg.doc_formula || ''} onChange={e => updateCfg('doc_formula', e.target.value)} rows={2}
+                  placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Avantage / Utilite</label>
+                <textarea value={cfg.doc_advantage || ''} onChange={e => updateCfg('doc_advantage', e.target.value)} rows={2}
+                  placeholder="A quoi sert ce rapport, quel gain pour l'utilisateur..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              {/* Auto-generate hint */}
+              <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <p className="text-[10px] text-blue-600 dark:text-blue-400">
+                  Cette documentation sera visible par tous les utilisateurs au clic sur le titre du rapport.
+                </p>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -1784,6 +1822,20 @@ function WidgetConfigPanel({ widget, onUpdate }) {
             { value: 'cover', label: 'Couvrir (remplir)' },
             { value: 'fill', label: 'Etirer' },
           ]} />
+        </>
+      )}
+
+      {/* Documentation section for all widget types */}
+      {['text', 'image'].includes(widget.type) && (
+        <>
+          <hr className="border-gray-200 dark:border-gray-700 my-3" />
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Documentation</p>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Description</label>
+            <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={2}
+              placeholder="Description du widget..."
+              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+          </div>
         </>
       )}
     </div>

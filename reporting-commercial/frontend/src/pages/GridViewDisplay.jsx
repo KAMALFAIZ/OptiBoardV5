@@ -5,8 +5,9 @@ import { AgGridReact } from 'ag-grid-react'
 import {
   Table, RefreshCw, Edit, AlertCircle, Download, Settings2, Eye, Search, X, Filter,
   Columns, Layers, RotateCcw, ArrowRight, TrendingUp, Presentation, SlidersHorizontal,
-  ChevronDown, FileSpreadsheet, FileText, Monitor
+  ChevronDown, FileSpreadsheet, FileText, Monitor, Info
 } from 'lucide-react'
+import ReportDocModal, { hasDoc } from '../components/common/ReportDocModal'
 import * as XLSX from 'xlsx'
 import Loading from '../components/common/Loading'
 import CheckboxListFilter from '../components/common/CheckboxListFilter'
@@ -97,6 +98,7 @@ export default function GridViewDisplay() {
   const isSuperAdmin = user?.role_global === 'superadmin' || user?.role === 'superadmin'
   const isDebugAllowed = isSuperAdmin
   const [showDebug, setShowDebug] = useState(false)
+  const [showDoc, setShowDoc] = useState(false)
 
   // Recherche globale
   const [globalSearch, setGlobalSearch] = useState('')
@@ -1235,17 +1237,14 @@ export default function GridViewDisplay() {
         <div ref={titleBarRef} className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-3 min-w-0 cursor-context-menu">
             <Table className="w-5 h-5 text-primary-500 flex-shrink-0" />
-            <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{grid.nom}</h1>
-            {grid.description && (
-              <span className="hidden lg:inline text-xs text-gray-400 truncate max-w-[200px]">{grid.description}</span>
+            {hasDoc(grid) ? (
+              <button onClick={() => setShowDoc(true)} className="flex items-center gap-1.5 text-base font-bold text-gray-900 dark:text-white truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+                {grid.nom}
+                <Info className="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
+              </button>
+            ) : (
+              <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{grid.nom}</h1>
             )}
-            {/* Badge nb lignes */}
-            <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 tabular-nums">
-              {dtField && dtValue
-                ? `${displayData.filter(r => !r.__isGroupRow).length.toLocaleString('fr-FR')} / ${allData.length.toLocaleString('fr-FR')} lignes`
-                : `${allData.length.toLocaleString('fr-FR')} lignes`
-              }
-            </span>
             {refreshing && <RefreshCw className="w-3.5 h-3.5 text-primary-500 animate-spin flex-shrink-0" />}
           </div>
 
@@ -2066,6 +2065,8 @@ export default function GridViewDisplay() {
         columns={columns}
         reportName={grid?.nom || 'Rapport'}
       />
+
+      {showDoc && grid && <ReportDocModal title={grid.nom} config={grid} onClose={() => setShowDoc(false)} />}
     </div>
   )
 }

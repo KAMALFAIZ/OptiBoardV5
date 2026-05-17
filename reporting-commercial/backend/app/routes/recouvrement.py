@@ -9,7 +9,6 @@ from ..database_unified import execute_app as execute_query
 from ..sql.query_templates import (
     BALANCE_AGEE,
     CHIFFRE_AFFAIRES_PAR_PERIODE,
-    # Nouvelles sources de données
     ECHEANCES_VENTES,
     ECHEANCES_VENTES_NON_REGLEES,
     ECHEANCES_PAR_CLIENT,
@@ -33,6 +32,13 @@ from ..services.calculs import (
 from ..services.query_logger import query_logger
 
 router = APIRouter(prefix="/api/recouvrement", tags=["Recouvrement"])
+
+
+def get_date_ref(date_ref: Optional[date]) -> str:
+    """Retourne la date de référence formatée (défaut: aujourd'hui)."""
+    if date_ref:
+        return date_ref.strftime("%Y-%m-%d")
+    return date.today().strftime("%Y-%m-%d")
 
 
 def get_parsed_balance_data(societe: Optional[str] = None):
@@ -471,39 +477,43 @@ async def get_echeances(
     client: Optional[str] = Query(None, description="Filtre par code client"),
     commercial: Optional[str] = Query(None, description="Filtre par code collaborateur"),
     tranche: Optional[str] = Query(None, description="Filtre par tranche: a_echoir, 0-30, 31-60, 61-90, 91-120, +120"),
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200)
 ):
     """
     Récupère les échéances non réglées avec détail complet.
-    Source: Echéances_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
+        d = get_date_ref(date_ref)
 
-        # Construire la requête avec filtres
+        # Paramètres de date pour la requête template :
+        # 6x date pour DATEDIFF/CASE + 1x date pour LEFT JOIN + 1x date pour WHERE ev.[Date document]
+        # Total: 8 paramètres date
+        base_params = [d, d, d, d, d, d, d, d]
+
+        # Construire la requête avec filtres additionnels
         query = ECHEANCES_VENTES_NON_REGLEES
         conditions = []
-        params = []
+        extra_params = []
 
         if societe:
-            conditions.append("[DB_Caption] = ?")
-            params.append(societe)
+            conditions.append("ev.[DB_Caption] = ?")
+            extra_params.append(societe)
         if client:
-            conditions.append("[Code client] = ?")
-            params.append(client)
+            conditions.append("ev.[Code client] = ?")
+            extra_params.append(client)
         if commercial:
-            conditions.append("[Code collaborateur] = ?")
-            params.append(commercial)
+            conditions.append("ev.[Code collaborateur] = ?")
+            extra_params.append(commercial)
 
         if conditions:
-            # Insérer les conditions avant ORDER BY ou à la fin
-            query = query.replace(
-                "WHERE [Montant échéance] > ISNULL([Régler], 0)",
-                f"WHERE [Montant échéance] > ISNULL([Régler], 0) AND {' AND '.join(conditions)}"
-            )
+            query = query.rstrip() + f"\n  AND {' AND '.join(conditions)}"
 
-        data = execute_query(query, tuple(params) if params else None)
+        all_params = tuple(base_params + extra_params)
+        data = execute_query(query, all_params)
 
         query_logger.log_query(
             "echeances_non_reglees", "Échéances non réglées",
@@ -539,6 +549,7 @@ async def get_echeances(
             "data": paginated,
             "total": total,
             "total_encours": round(total_encours, 2),
+            "date_reference": d,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size
@@ -551,25 +562,31 @@ async def get_echeances(
 @router.get("/echeances/par-client")
 async def get_echeances_par_client(
     societe: Optional[str] = Query(None, description="Filtre par société"),
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100)
 ):
     """
     Récupère les échéances agrégées par client avec balance âgée dynamique.
-    Source: Echéances_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
+        d = get_date_ref(date_ref)
+
+        # Paramètres: 6x CASE tranches + 1x MAX DATEDIFF + 1x LEFT JOIN + 1x WHERE date_doc
+        # Total: 9 paramètres date
+        base_params = [d, d, d, d, d, d, d, d, d]
 
         query = ECHEANCES_PAR_CLIENT
+        extra_params = []
+
         if societe:
-            query = query.replace(
-                "WHERE [Montant échéance] > ISNULL([Régler], 0)",
-                f"WHERE [Montant échéance] > ISNULL([Régler], 0) AND [DB_Caption] = ?"
-            )
-            data = execute_query(query, (societe,))
-        else:
-            data = execute_query(query)
+            query = query.rstrip() + "\n  AND ev.[DB_Caption] = ?"
+            extra_params.append(societe)
+
+        all_params = tuple(base_params + extra_params)
+        data = execute_query(query, all_params)
 
         query_logger.log_query(
             "echeances_par_client", "Échéances par client",
@@ -586,6 +603,7 @@ async def get_echeances_par_client(
             "success": True,
             "data": paginated,
             "total": total,
+            "date_reference": d,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size
@@ -597,24 +615,29 @@ async def get_echeances_par_client(
 
 @router.get("/echeances/par-commercial")
 async def get_echeances_par_commercial(
-    societe: Optional[str] = Query(None, description="Filtre par société")
+    societe: Optional[str] = Query(None, description="Filtre par société"),
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)")
 ):
     """
     Récupère les échéances agrégées par commercial/chargé de recouvrement.
-    Source: Echéances_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
+        d = get_date_ref(date_ref)
+
+        # Paramètres: 6x CASE tranches + 1x LEFT JOIN + 1x WHERE date_doc = 8
+        base_params = [d, d, d, d, d, d, d, d]
 
         query = ECHEANCES_PAR_COMMERCIAL
+        extra_params = []
+
         if societe:
-            query = query.replace(
-                "WHERE [Montant échéance] > ISNULL([Régler], 0)",
-                f"WHERE [Montant échéance] > ISNULL([Régler], 0) AND [DB_Caption] = ?"
-            )
-            data = execute_query(query, (societe,))
-        else:
-            data = execute_query(query)
+            query = query.rstrip() + "\n  AND ev.[DB_Caption] = ?"
+            extra_params.append(societe)
+
+        all_params = tuple(base_params + extra_params)
+        data = execute_query(query, all_params)
 
         query_logger.log_query(
             "echeances_par_commercial", "Échéances par commercial",
@@ -630,7 +653,8 @@ async def get_echeances_par_commercial(
             "data": data,
             "total_encours": round(total_encours, 2),
             "total_clients": total_clients,
-            "nb_commerciaux": len(data)
+            "nb_commerciaux": len(data),
+            "date_reference": d
         }
 
     except Exception as e:
@@ -638,14 +662,20 @@ async def get_echeances_par_commercial(
 
 
 @router.get("/echeances/par-mode-reglement")
-async def get_echeances_par_mode_reglement():
+async def get_echeances_par_mode_reglement(
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)")
+):
     """
     Récupère les échéances agrégées par mode de règlement.
-    Source: Echéances_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
-        data = execute_query(ECHEANCES_PAR_MODE_REGLEMENT)
+        d = get_date_ref(date_ref)
+
+        # Paramètres: 1x AVG DATEDIFF + 1x LEFT JOIN + 1x WHERE date_doc = 3
+        params = (d, d, d)
+        data = execute_query(ECHEANCES_PAR_MODE_REGLEMENT, params)
 
         query_logger.log_query(
             "echeances_par_mode", "Échéances par mode règlement",
@@ -655,7 +685,8 @@ async def get_echeances_par_mode_reglement():
         return {
             "success": True,
             "data": data,
-            "total": len(data)
+            "total": len(data),
+            "date_reference": d
         }
 
     except Exception as e:
@@ -666,25 +697,30 @@ async def get_echeances_par_mode_reglement():
 async def get_echeances_a_echoir(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     urgence: Optional[str] = Query(None, description="semaine, 15j, 30j, plus30j"),
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200)
 ):
     """
     Récupère les échéances à venir (non encore échues).
-    Source: Echéances_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
+        d = get_date_ref(date_ref)
+
+        # Paramètres: 4x DATEDIFF/CASE + 1x LEFT JOIN + 1x WHERE >= date + 1x WHERE date_doc = 7
+        base_params = [d, d, d, d, d, d, d]
 
         query = ECHEANCES_A_ECHOIR
+        extra_params = []
+
         if societe:
-            query = query.replace(
-                "WHERE [Date d'échéance] >= GETDATE()",
-                f"WHERE [Date d'échéance] >= GETDATE() AND [DB_Caption] = ?"
-            )
-            data = execute_query(query, (societe,))
-        else:
-            data = execute_query(query)
+            query = query.rstrip() + "\n  AND ev.[DB_Caption] = ?"
+            extra_params.append(societe)
+
+        all_params = tuple(base_params + extra_params)
+        data = execute_query(query, all_params)
 
         query_logger.log_query(
             "echeances_a_echoir", "Échéances à échoir",
@@ -717,6 +753,7 @@ async def get_echeances_a_echoir(
             "data": paginated,
             "total": total,
             "total_a_echoir": round(total_a_echoir, 2),
+            "date_reference": d,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size
@@ -847,34 +884,33 @@ async def get_reglements_par_mode(
 async def get_factures_non_reglees(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     client: Optional[str] = Query(None, description="Filtre par code client"),
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200)
 ):
     """
     Récupère les factures non entièrement réglées.
-    Source: Imputation_Factures_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
+        d = get_date_ref(date_ref)
+
+        # Paramètres: 1x DATEDIFF + 1x LEFT JOIN + 1x WHERE date_doc = 3
+        base_params = [d, d, d]
 
         query = FACTURES_NON_REGLEES
-        conditions = []
-        params = []
+        extra_params = []
 
         if societe:
-            conditions.append("[DB_Caption] = ?")
-            params.append(societe)
+            query = query.rstrip() + "\n  AND ev.[DB_Caption] = ?"
+            extra_params.append(societe)
         if client:
-            conditions.append("[Code client] = ?")
-            params.append(client)
+            query = query.rstrip() + "\n  AND ev.[Code client] = ?"
+            extra_params.append(client)
 
-        if conditions:
-            query = query.replace(
-                "WHERE [Montant facture TTC] > ISNULL([Montant régler], 0)",
-                f"WHERE [Montant facture TTC] > ISNULL([Montant régler], 0) AND {' AND '.join(conditions)}"
-            )
-
-        data = execute_query(query, tuple(params) if params else None)
+        all_params = tuple(base_params + extra_params)
+        data = execute_query(query, all_params)
 
         query_logger.log_query(
             "factures_non_reglees", "Factures non réglées",
@@ -895,6 +931,7 @@ async def get_factures_non_reglees(
             "data": paginated,
             "total": total,
             "total_reste_a_regler": round(total_reste, 2),
+            "date_reference": d,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size
@@ -952,14 +989,22 @@ async def get_historique_reglements_client(code_client: str):
 # =====================================================
 
 @router.get("/kpis")
-async def get_kpis_recouvrement():
+async def get_kpis_recouvrement(
+    date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)")
+):
     """
     Récupère les KPIs enrichis du recouvrement.
-    Sources: Echéances_Ventes + Imputation_Factures_Ventes
+    Croise Echéances_Ventes avec Imputation_Factures_Ventes à la date de référence.
     """
     try:
         start_time = time.time()
-        data = execute_query(KPIS_RECOUVREMENT)
+        d = get_date_ref(date_ref)
+
+        # Paramètres CTE: 1x LEFT JOIN + 1x WHERE date_doc
+        # + SELECT: 1x A_Echoir + 1x Echu + 1x Nb_Echeances_Retard + 1x Nb_Clients_Retard
+        # + 2x Reglements_Mois + 1x Retard_Moyen + 1x WHERE retard = 10
+        params = (d, d, d, d, d, d, d, d, d, d)
+        data = execute_query(KPIS_RECOUVREMENT, params)
 
         query_logger.log_query(
             "kpis_recouvrement", "KPIs Recouvrement",
@@ -980,7 +1025,8 @@ async def get_kpis_recouvrement():
                 "nb_echeances_retard": kpis.get('Nb_Echeances_Retard', 0) or 0,
                 "nb_clients_retard": kpis.get('Nb_Clients_Retard', 0) or 0,
                 "reglements_mois": round(kpis.get('Reglements_Mois', 0) or 0, 2),
-                "retard_moyen_jours": round(kpis.get('Retard_Moyen_Jours', 0) or 0, 1)
+                "retard_moyen_jours": round(kpis.get('Retard_Moyen_Jours', 0) or 0, 1),
+                "date_reference": d
             }
 
         return {"success": True, "message": "Aucune donnée disponible"}

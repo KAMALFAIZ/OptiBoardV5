@@ -137,20 +137,28 @@ ORDER BY [CA HT] DESC
         "description": "KPIs recouvrement : encours, échéances, créances douteuses",
         "query": """
 SELECT
-    ISNULL(SUM([Montant échéance]), 0) AS [Total Echeances],
-    ISNULL(SUM(ISNULL([Montant du règlement], 0)), 0) AS [Total Regle],
-    ISNULL(SUM([Montant échéance] - ISNULL([Montant du règlement], 0)), 0) AS [Encours Total],
-    CASE WHEN SUM([Montant échéance]) > 0
-        THEN ROUND(SUM(ISNULL([Montant du règlement], 0)) * 100.0 / SUM([Montant échéance]), 2)
+    ISNULL(SUM(e.[Montant échéance]), 0) AS [Total Echeances],
+    ISNULL(SUM(ISNULL(ifv.Total_Regle, 0)), 0) AS [Total Regle],
+    ISNULL(SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)), 0) AS [Encours Total],
+    CASE WHEN SUM(e.[Montant échéance]) > 0
+        THEN ROUND(SUM(ISNULL(ifv.Total_Regle, 0)) * 100.0 / SUM(e.[Montant échéance]), 2)
         ELSE 0 END AS [Taux Recouvrement],
-    SUM(CASE WHEN [Montant échéance] > ISNULL([Montant du règlement], 0)
-             AND DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 0 THEN 1 ELSE 0 END) AS [Nb Echues],
-    SUM(CASE WHEN [Montant échéance] > ISNULL([Montant du règlement], 0)
-             AND DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [Creances Douteuses 120j],
-    COUNT(DISTINCT [Code client]) AS [Nb Clients Debiteurs]
-FROM [Echéances_Ventes]
-WHERE (@societe IS NULL OR [societe] = @societe)
+    SUM(CASE WHEN e.[Montant échéance] > ISNULL(ifv.Total_Regle, 0)
+             AND DATEDIFF(DAY, e.[Date d'échéance], CAST(GETDATE() AS DATE)) > 0 THEN 1 ELSE 0 END) AS [Nb Echues],
+    SUM(CASE WHEN e.[Montant échéance] > ISNULL(ifv.Total_Regle, 0)
+             AND DATEDIFF(DAY, e.[Date d'échéance], CAST(GETDATE() AS DATE)) > 120
+        THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [Creances Douteuses 120j],
+    COUNT(DISTINCT e.[Code client]) AS [Nb Clients Debiteurs]
+FROM [Echéances_Ventes] e
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= @dateFin
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+WHERE e.[Date document] BETWEEN @dateDebut AND @dateFin
+  AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+  AND (@societe IS NULL OR e.[societe] = @societe)
 """,
     },
 
@@ -158,24 +166,41 @@ WHERE (@societe IS NULL OR [societe] = @societe)
     {
         "code": "DS_TB_BALANCE_AGEE_SYNTH",
         "nom": "TB Balance Âgée Synthèse",
-        "description": "Répartition encours par tranche d'âge pour bar chart",
+        "description": "Répartition encours par tranche d'âge (format long : Tranche + Montant) — âge calculé à aujourd'hui",
         "query": """
-SELECT
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) < 0
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [A Echoir],
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 0 AND 30
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [0-30j],
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 31 AND 60
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [31-60j],
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 61 AND 90
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [61-90j],
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 91 AND 120
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [91-120j],
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [+120j]
-FROM [Echéances_Ventes]
-WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-  AND (@societe IS NULL OR [societe] = @societe)
+WITH Encours AS (
+    SELECT
+        e.[Date d'échéance],
+        e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS [Solde],
+        DATEDIFF(DAY, e.[Date d'échéance], CAST(GETDATE() AS DATE)) AS [Age]
+    FROM [Echéances_Ventes] e
+    LEFT JOIN (
+        SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+        FROM [Imputation_Factures_Ventes]
+        WHERE [Date règlement] <= CAST(GETDATE() AS DATE)
+        GROUP BY [N° pièce], [Code client], [DB_Id]
+    ) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+    WHERE e.[Date document] <= CAST(GETDATE() AS DATE)
+      AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+      AND (@societe IS NULL OR e.[societe] = @societe)
+)
+SELECT [Tranche], ROUND(SUM([Solde]), 2) AS [Montant], [Ordre]
+FROM (
+    SELECT 'A Echoir'  AS [Tranche], [Solde], 0 AS [Ordre] FROM Encours WHERE [Age] < 0
+    UNION ALL
+    SELECT '0-30j',    [Solde], 1 FROM Encours WHERE [Age] BETWEEN 0  AND 30
+    UNION ALL
+    SELECT '31-60j',   [Solde], 2 FROM Encours WHERE [Age] BETWEEN 31 AND 60
+    UNION ALL
+    SELECT '61-90j',   [Solde], 3 FROM Encours WHERE [Age] BETWEEN 61 AND 90
+    UNION ALL
+    SELECT '91-120j',  [Solde], 4 FROM Encours WHERE [Age] BETWEEN 91 AND 120
+    UNION ALL
+    SELECT '+120j',    [Solde], 5 FROM Encours WHERE [Age] > 120
+) t
+GROUP BY [Tranche], [Ordre]
+HAVING SUM([Solde]) > 0
+ORDER BY [Ordre]
 """,
     },
 
@@ -186,16 +211,23 @@ WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
         "description": "Top 10 clients avec le plus gros encours",
         "query": """
 SELECT TOP 10
-    [Code client] AS [Code],
-    [Intitulé client] AS [Client],
-    SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Encours],
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 0
-        THEN [Montant échéance] - ISNULL([Montant du règlement], 0) ELSE 0 END) AS [Echu],
+    e.[Code client] AS [Code],
+    e.[Intitulé client] AS [Client],
+    SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Encours],
+    SUM(CASE WHEN DATEDIFF(DAY, e.[Date d'échéance], @dateFin) > 0
+        THEN e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS [Echu],
     COUNT(*) AS [Nb Echeances]
-FROM [Echéances_Ventes]
-WHERE [Montant échéance] > ISNULL([Montant du règlement], 0)
-  AND (@societe IS NULL OR [societe] = @societe)
-GROUP BY [Code client], [Intitulé client]
+FROM [Echéances_Ventes] e
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= @dateFin
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON e.[N° pièce] = ifv.[N° pièce] AND e.[Code client] = ifv.[Code client] AND e.[DB_Id] = ifv.[DB_Id]
+WHERE e.[Date document] <= @dateFin
+  AND e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+  AND (@societe IS NULL OR e.[societe] = @societe)
+GROUP BY e.[Code client], e.[Intitulé client]
 ORDER BY [Encours] DESC
 """,
     },
@@ -204,16 +236,28 @@ ORDER BY [Encours] DESC
     {
         "code": "DS_TB_SYNTHESE_STOCK",
         "nom": "TB Synthèse Stock",
-        "description": "KPIs stock : valeur, nb articles, articles en rupture",
+        "description": "KPIs stock : valeur à @dateMax, nb articles, articles en rupture",
+        "params": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]',
         "query": """
+WITH StockParArticle AS (
+    SELECT
+        [Code article],
+        [societe],
+        SUM(CASE WHEN [Sens de mouvement] LIKE N'%ntr%'
+                 THEN ABS([Quantité]) ELSE -ABS([Quantité]) END) AS [Qte],
+        SUM(CASE WHEN [Sens de mouvement] LIKE N'%ntr%'
+                 THEN ABS([Montant Stock]) ELSE -ABS([Montant Stock]) END) AS [Valeur]
+    FROM [Mouvement_stock]
+    WHERE [Date Mouvement] <= @dateFin
+      AND (@societe IS NULL OR [societe] = @societe)
+    GROUP BY [Code article], [societe]
+)
 SELECT
-    ISNULL(SUM([Valeur du stock (montant)]), 0) AS [Valeur Stock Total],
-    COUNT(DISTINCT [Code article]) AS [Nb Articles en Stock],
-    SUM(CASE WHEN [Quantité en stock] <= 0 THEN 1 ELSE 0 END) AS [Articles en Rupture],
-    SUM(CASE WHEN [Quantité en stock] > 0 AND [Quantité en stock] <= ISNULL([Quantité minimale], 0) THEN 1 ELSE 0 END) AS [Articles Sous Seuil],
-    SUM(CASE WHEN [Quantité en stock] > 0 THEN 1 ELSE 0 END) AS [Articles Disponibles]
-FROM [Etat_Stock]
-WHERE (@societe IS NULL OR [societe] = @societe)
+    ISNULL(SUM(CASE WHEN [Qte] > 0 THEN [Valeur] ELSE 0 END), 0) AS [Valeur Stock Total],
+    COUNT(DISTINCT CASE WHEN [Qte] > 0 THEN [Code article] END)   AS [Nb Articles en Stock],
+    COUNT(DISTINCT CASE WHEN [Qte] <= 0 THEN [Code article] END)  AS [Articles en Rupture],
+    COUNT(DISTINCT [Code article])                                  AS [Articles Disponibles]
+FROM StockParArticle
 """,
     },
 
@@ -221,17 +265,30 @@ WHERE (@societe IS NULL OR [societe] = @societe)
     {
         "code": "DS_TB_STOCK_PAR_DEPOT",
         "nom": "TB Stock par Dépôt",
-        "description": "Valeur stock par dépôt pour pie chart",
+        "description": "Valeur stock par dépôt pour pie chart — calculée depuis mouvements jusqu'à @dateFin",
+        "params": '[{"name": "dateFin", "type": "date", "source": "global", "required": true}, {"name": "societe", "type": "select", "source": "query", "query": "SELECT code AS value, nom AS label FROM APP_DWH WHERE actif = 1 ORDER BY nom", "required": false, "allow_null": true, "null_label": "(Toutes)"}]',
         "query": """
+WITH StockParDepotArticle AS (
+    SELECT
+        ISNULL([Dépôt], 'Non defini') AS [Depot],
+        [Code article],
+        SUM(CASE WHEN [Sens de mouvement] LIKE N'%ntr%'
+                 THEN ABS([Quantité]) ELSE -ABS([Quantité]) END) AS [Qte],
+        SUM(CASE WHEN [Sens de mouvement] LIKE N'%ntr%'
+                 THEN ABS([Montant Stock]) ELSE -ABS([Montant Stock]) END) AS [Valeur]
+    FROM [Mouvement_stock]
+    WHERE [Date Mouvement] <= @dateFin
+      AND (@societe IS NULL OR [societe] = @societe)
+    GROUP BY ISNULL([Dépôt], 'Non defini'), [Code article]
+)
 SELECT
-    ISNULL([DE_Intitule], 'Non defini') AS [Depot],
-    SUM([Valeur du stock (montant)]) AS [Valeur Stock],
-    COUNT(DISTINCT [Code article]) AS [Nb Articles],
-    SUM([Quantité en stock]) AS [Qte en Stock]
-FROM [Etat_Stock]
-WHERE (@societe IS NULL OR [societe] = @societe)
-  AND [Quantité en stock] <> 0
-GROUP BY ISNULL([DE_Intitule], 'Non defini')
+    [Depot],
+    ISNULL(SUM(CASE WHEN [Qte] > 0 THEN [Valeur] ELSE 0 END), 0) AS [Valeur Stock],
+    COUNT(DISTINCT CASE WHEN [Qte] > 0 THEN [Code article] END)   AS [Nb Articles],
+    ISNULL(SUM(CASE WHEN [Qte] > 0 THEN [Qte] ELSE 0 END), 0)    AS [Qte en Stock]
+FROM StockParDepotArticle
+GROUP BY [Depot]
+HAVING SUM(CASE WHEN [Qte] > 0 THEN [Valeur] ELSE 0 END) > 0
 ORDER BY [Valeur Stock] DESC
 """,
     },
@@ -403,20 +460,51 @@ ORDER BY [CA HT] DESC
     {
         "code": "DS_TB_CA_NvsN1_MOIS",
         "nom": "TB Comparatif CA N vs N-1 par Mois",
-        "description": "CA mensuel année N vs N-1 pour graphique ligne",
+        "description": "CA, Marge, Clients, Documents mensuel N vs N-1",
         "query": """
 SELECT
-    MONTH([Date BL]) AS [Num Mois],
-    DATENAME(MONTH, DATEFROMPARTS(2000, MONTH([Date BL]), 1)) AS [Mois],
-    SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) THEN [Montant HT Net] ELSE 0 END) AS [CA Annee N],
-    SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END) AS [CA Annee N-1]
+    MONTH([Date BL]) AS [Mois],
+    DATENAME(MONTH, DATEFROMPARTS(2000, MONTH([Date BL]), 1)) AS [Mois Label],
+    SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin)     THEN [Montant HT Net] ELSE 0 END) AS [CA Annee N],
+    SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END) AS [CA Annee N-1],
+    ROUND(
+        SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin)     THEN [Montant HT Net] ELSE 0 END)
+      - SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END), 2
+    ) AS [Ecart CA],
+    CASE WHEN SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END) > 0
+         THEN ROUND(
+             (SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) THEN [Montant HT Net] ELSE 0 END)
+            - SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END))
+            * 100.0
+            / SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END), 2)
+         ELSE NULL END AS [Evol CA %],
+    SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin)
+        THEN [Montant HT Net] - ISNULL([CMUP], 0) * [Quantité] ELSE 0 END) AS [Marge N],
+    SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1
+        THEN [Montant HT Net] - ISNULL([CMUP], 0) * [Quantité] ELSE 0 END) AS [Marge N-1],
+    CASE WHEN SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) THEN [Montant HT Net] ELSE 0 END) > 0
+         THEN ROUND(
+             SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin)
+                 THEN [Montant HT Net] - ISNULL([CMUP], 0) * [Quantité] ELSE 0 END) * 100.0
+           / SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) THEN [Montant HT Net] ELSE 0 END), 2)
+         ELSE 0 END AS [Marge % N],
+    CASE WHEN SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END) > 0
+         THEN ROUND(
+             SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1
+                 THEN [Montant HT Net] - ISNULL([CMUP], 0) * [Quantité] ELSE 0 END) * 100.0
+           / SUM(CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Montant HT Net] ELSE 0 END), 2)
+         ELSE 0 END AS [Marge % N-1],
+    COUNT(DISTINCT CASE WHEN YEAR([Date BL]) = YEAR(@dateFin)     THEN [Code client] END) AS [Nb Clients N],
+    COUNT(DISTINCT CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [Code client] END) AS [Nb Clients N-1],
+    COUNT(DISTINCT CASE WHEN YEAR([Date BL]) = YEAR(@dateFin)     THEN [N° Pièce] END) AS [Nb Docs N],
+    COUNT(DISTINCT CASE WHEN YEAR([Date BL]) = YEAR(@dateFin) - 1 THEN [N° Pièce] END) AS [Nb Docs N-1]
 FROM [Lignes_des_ventes]
 WHERE [Valorise CA] = 'Oui'
   AND YEAR([Date BL]) IN (YEAR(@dateFin), YEAR(@dateFin) - 1)
-  AND MONTH([Date BL]) <= MONTH(@dateFin)
+  AND MONTH([Date BL]) BETWEEN MONTH(@dateDebut) AND MONTH(@dateFin)
   AND (@societe IS NULL OR [societe] = @societe)
 GROUP BY MONTH([Date BL]), DATENAME(MONTH, DATEFROMPARTS(2000, MONTH([Date BL]), 1))
-ORDER BY [Num Mois]
+ORDER BY [Mois]
 """,
     },
 
@@ -447,18 +535,27 @@ ORDER BY [Mois]
     {
         "code": "DS_TB_ENCAISSEMENTS_MOIS",
         "nom": "TB Encaissements Mensuels",
-        "description": "Encaissements et échéances par mois",
+        "description": "Encaissements réels vs échéances par mois (axe X = date échéance)",
         "query": """
 SELECT
-    FORMAT([Date d'échéance], 'yyyy-MM') AS [Mois],
-    DATENAME(MONTH, [Date d'échéance]) + ' ' + CAST(YEAR([Date d'échéance]) AS VARCHAR) AS [Periode],
-    SUM([Montant échéance]) AS [Echeances],
-    SUM(ISNULL([Montant du règlement], 0)) AS [Encaisse],
-    SUM([Montant échéance] - ISNULL([Montant du règlement], 0)) AS [Reste]
-FROM [Echéances_Ventes]
-WHERE [Date d'échéance] BETWEEN @dateDebut AND @dateFin
-  AND (@societe IS NULL OR [societe] = @societe)
-GROUP BY FORMAT([Date d'échéance], 'yyyy-MM'), DATENAME(MONTH, [Date d'échéance]) + ' ' + CAST(YEAR([Date d'échéance]) AS VARCHAR)
+    FORMAT(e.[Date d'échéance], 'yyyy-MM') AS [Mois],
+    DATENAME(MONTH, e.[Date d'échéance]) + ' ' + CAST(YEAR(e.[Date d'échéance]) AS VARCHAR) AS [Periode],
+    SUM(e.[Montant échéance]) AS [Echeances],
+    SUM(ISNULL(ifv.Total_Regle, 0)) AS [Encaisse],
+    SUM(e.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS [Reste]
+FROM [Echéances_Ventes] e
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] BETWEEN @dateDebut AND @dateFin
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON e.[N° pièce] = ifv.[N° pièce]
+      AND e.[Code client] = ifv.[Code client]
+      AND e.[DB_Id] = ifv.[DB_Id]
+WHERE e.[Date d'échéance] BETWEEN @dateDebut AND @dateFin
+  AND (@societe IS NULL OR e.[societe] = @societe)
+GROUP BY FORMAT(e.[Date d'échéance], 'yyyy-MM'),
+         DATENAME(MONTH, e.[Date d'échéance]) + ' ' + CAST(YEAR(e.[Date d'échéance]) AS VARCHAR)
 ORDER BY [Mois]
 """,
     },
@@ -533,10 +630,30 @@ NEW_DASHBOARDS = [
             W("b2", "chart_stacked_bar", "CA & Marge par Commercial", "DS_TB_TOP_COMMERCIAUX", 6, 2, 6, 5,
               x_field="Commercial", y_field="CA HT", y_field_2="Marge", y_label="CA HT", y_label_2="Marge",
               color="#2563eb", color_2="#16a34a", stack_mode="grouped", show_legend=True),
-            W("l1", "chart_line", "Comparatif CA N vs N-1", "DS_TB_CA_NvsN1_MOIS", 0, 7, 12, 4,
-              x_field="Mois", y_field="CA Annee N", y_field_2="CA Annee N-1",
-              y_label="Annee N", y_label_2="Annee N-1",
-              color="#2563eb", color_2="#94a3b8", show_grid=True, show_legend=True),
+            W("l1", "chart_line", "Comparatif CA N vs N-1 par Mois", "DS_TB_CA_NvsN1_MOIS", 0, 7, 8, 4,
+              x_field="Mois Label", y_field="CA Annee N", y_field_2="CA Annee N-1",
+              y_label="N", y_label_2="N-1",
+              color="#2563eb", color_2="#94a3b8", show_grid=True, show_legend=True,
+              drilldownDsCode="DS_CA_DETAIL_COMPLET", drilldownDsOrigin="template"),
+            W("b1b", "chart_bar", "Évolution CA % par Mois (N/N-1)", "DS_TB_CA_NvsN1_MOIS", 8, 7, 4, 4,
+              x_field="Mois Label", y_field="Evol CA %", y_label="Évol CA %",
+              color="#10b981", show_grid=True, show_legend=False),
+            W("l2", "chart_line", "Comparatif Marge N vs N-1 par Mois", "DS_TB_CA_NvsN1_MOIS", 0, 11, 8, 4,
+              x_field="Mois Label", y_field="Marge N", y_field_2="Marge N-1",
+              y_label="Marge N", y_label_2="Marge N-1",
+              color="#f59e0b", color_2="#d1d5db", show_grid=True, show_legend=True),
+            W("l3", "chart_line", "Taux de Marge % — N vs N-1", "DS_TB_CA_NvsN1_MOIS", 8, 11, 4, 4,
+              x_field="Mois Label", y_field="Marge % N", y_field_2="Marge % N-1",
+              y_label="Marge % N", y_label_2="Marge % N-1",
+              color="#8b5cf6", color_2="#c4b5fd", show_grid=True, show_legend=True),
+            W("l4", "chart_line", "Clients Actifs par Mois — N vs N-1", "DS_TB_CA_NvsN1_MOIS", 0, 15, 6, 4,
+              x_field="Mois Label", y_field="Nb Clients N", y_field_2="Nb Clients N-1",
+              y_label="Clients N", y_label_2="Clients N-1",
+              color="#0ea5e9", color_2="#bae6fd", show_grid=True, show_legend=True),
+            W("l5", "chart_line", "Nb Documents par Mois — N vs N-1", "DS_TB_CA_NvsN1_MOIS", 6, 15, 6, 4,
+              x_field="Mois Label", y_field="Nb Docs N", y_field_2="Nb Docs N-1",
+              y_label="Docs N", y_label_2="Docs N-1",
+              color="#ef4444", color_2="#fca5a5", show_grid=True, show_legend=True),
         ],
     },
 
@@ -656,18 +773,19 @@ def main():
         for ds in NEW_DATASOURCES:
             cursor.execute("SELECT id FROM APP_DataSources_Templates WHERE code = ?", (ds["code"],))
             existing = cursor.fetchone()
+            params_json = ds.get("params", '["dateDebut","dateFin","societe"]')
             if existing:
                 cursor.execute("""
                     UPDATE APP_DataSources_Templates
-                    SET nom = ?, description = ?, query_template = ?, actif = 1
+                    SET nom = ?, description = ?, query_template = ?, parameters = ?, actif = 1
                     WHERE code = ?
-                """, (ds["nom"], ds["description"], ds["query"].strip(), ds["code"]))
+                """, (ds["nom"], ds["description"], ds["query"].strip(), params_json, ds["code"]))
                 print(f"  [MAJ] {ds['code']}")
             else:
                 cursor.execute("""
                     INSERT INTO APP_DataSources_Templates (code, nom, description, query_template, type, actif, parameters)
-                    VALUES (?, ?, ?, ?, 'query', 1, '["dateDebut","dateFin","societe"]')
-                """, (ds["code"], ds["nom"], ds["description"], ds["query"].strip()))
+                    VALUES (?, ?, ?, ?, 'query', 1, ?)
+                """, (ds["code"], ds["nom"], ds["description"], ds["query"].strip(), params_json))
                 print(f"  [NEW] {ds['code']}")
 
     # ─── Étape 2 : Créer les dashboards ──────────────────────────────

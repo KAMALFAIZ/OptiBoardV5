@@ -159,6 +159,10 @@ class PivotUpdateRequest(BaseModel):
     window_calculations: Optional[List[Dict[str, Any]]] = None
     is_public: Optional[bool] = None
     application: Optional[str] = None
+    doc_description: Optional[str] = None
+    doc_fields: Optional[str] = None
+    doc_formula: Optional[str] = None
+    doc_advantage: Optional[str] = None
 
 class PivotExecuteRequest(BaseModel):
     context: Optional[Dict[str, Any]] = {}
@@ -246,6 +250,10 @@ def init_pivot_v2_tables():
                 ("application", "NVARCHAR(100)"),
                 ("drilldown_data_source_code", "VARCHAR(100)"),
                 ("drilldown_field_mapping", "NVARCHAR(MAX)"),
+                ("doc_description", "NVARCHAR(MAX)"),
+                ("doc_fields", "NVARCHAR(MAX)"),
+                ("doc_formula", "NVARCHAR(MAX)"),
+                ("doc_advantage", "NVARCHAR(MAX)"),
             ]
             for col_name, col_def in new_columns:
                 try:
@@ -1621,6 +1629,10 @@ async def update_pivot(
             "comparison_mode": data.comparison_mode,
             "is_public": (1 if data.is_public else 0) if data.is_public is not None else None,
             "application": data.application,
+            "doc_description": data.doc_description,
+            "doc_fields": data.doc_fields,
+            "doc_formula": data.doc_formula,
+            "doc_advantage": data.doc_advantage,
         }
 
         for field, value in field_mapping.items():

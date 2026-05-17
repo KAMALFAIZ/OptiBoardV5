@@ -20,8 +20,9 @@ import {
   Loader2, RefreshCw, Download, Table2, BarChart3, LayoutGrid,
   RotateCcw, FileSpreadsheet, FileText, Settings2, X,
   GripVertical, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Check,
-  ChevronDown, Presentation, ExternalLink
+  ChevronDown, Presentation, ExternalLink, Info
 } from 'lucide-react'
+import ReportDocModal, { hasDoc } from '../components/common/ReportDocModal'
 
 const VIEW_MODES = [
   { id: 'table', icon: Table2, label: 'Tableau' },
@@ -357,6 +358,7 @@ export default function PivotViewerV2() {
   // Donnees pivotees
   const [pivotResult, setPivotResult] = useState(null)
   const [showDebug, setShowDebug] = useState(false)
+  const [showDoc, setShowDoc] = useState(false)
   const [dwhList, setDwhList] = useState([])
   const [selectedDwhCode, setSelectedDwhCode] = useState(() => {
     try { return JSON.parse(localStorage.getItem('currentDWH'))?.code || null } catch { return null }
@@ -743,13 +745,13 @@ export default function PivotViewerV2() {
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 gap-2 flex-shrink-0">
         {/* Gauche: titre + metadata */}
         <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{pivotConfig.nom}</h1>
-          {pivotResult && !executing && (
-            <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-gray-400">
-              <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{sourceRows.toLocaleString('fr-FR')} lignes source</span>
-              <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{pivotRows.toLocaleString('fr-FR')} lignes pivot</span>
-              <span className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{execTime}ms</span>
-            </div>
+          {hasDoc(pivotConfig) ? (
+            <button onClick={() => setShowDoc(true)} className="flex items-center gap-1.5 text-base font-bold text-gray-900 dark:text-white truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+              {pivotConfig.nom}
+              <Info className="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
+            </button>
+          ) : (
+            <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{pivotConfig.nom}</h1>
           )}
           {/* ── DEBUG WHERE : visible uniquement si effective_dwh = null ── */}
           {pivotResult?.debug && !pivotResult.debug.effective_dwh && !executing && (
@@ -1091,6 +1093,8 @@ export default function PivotViewerV2() {
           </div>
         </>
       )}
+
+      {showDoc && <ReportDocModal title={pivotConfig.nom} config={pivotConfig} onClose={() => setShowDoc(false)} />}
     </div>
   )
 }

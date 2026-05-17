@@ -730,8 +730,6 @@ export default function AnalyseCACreances() {
             <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">Client</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">Commercial</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">Societe</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">Solde Total</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-purple-600 dark:text-purple-400 whitespace-nowrap bg-purple-50 dark:bg-purple-900/20">DSO</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap bg-green-50 dark:bg-green-900/20">0-30j</th>
@@ -748,12 +746,6 @@ export default function AnalyseCACreances() {
                     <div className="font-medium truncate max-w-[200px]" title={client.client}>
                       {client.client}
                     </div>
-                  </td>
-                  <td className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                    {client.representant}
-                  </td>
-                  <td className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                    {client.societe}
                   </td>
                   <td className="px-3 py-2 text-sm text-right font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                     {formatMillions(client.solde_cloture)}
@@ -781,7 +773,7 @@ export default function AnalyseCACreances() {
             </tbody>
             <tfoot className="bg-gray-100 dark:bg-gray-700 font-semibold sticky bottom-0">
               <tr>
-                <td colSpan="3" className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
+                <td colSpan="1" className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100">
                   Total ({balanceAgeeDetail.length} clients)
                 </td>
                 <td className="px-3 py-2 text-sm text-right text-gray-900 dark:text-gray-100 whitespace-nowrap">

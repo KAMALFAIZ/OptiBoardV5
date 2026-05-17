@@ -6,7 +6,7 @@ import {
   BarChart2, LineChart, PieChart, Activity, Table, Type, Gauge,
   RefreshCw, Edit, AlertCircle, LayoutGrid, X, Download,
   TrendingUp, TrendingDown, Settings2,
-  Filter, Layers, Target, Zap, Image, GitBranch, BarChart3, Timer, SlidersHorizontal
+  Filter, Layers, Target, Zap, Image, GitBranch, BarChart3, Timer, SlidersHorizontal, Info
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart as ReLineChart, Line, PieChart as RePieChart, Pie, Cell,
@@ -27,6 +27,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useGlobalFilters } from '../context/GlobalFilterContext'
 import GlobalFilterBar from '../components/GlobalFilterBar'
 import DrillDownModal from '../components/PivotV2/DrillDownModal'
+import ReportDocModal, { hasDoc } from '../components/common/ReportDocModal'
 
 // ─── Widget types ───
 const WIDGET_TYPE_MAP = {
@@ -197,6 +198,8 @@ export default function DashboardView() {
 
   // Données collectées depuis les widgets (pour InsightsPanel)
   const [insightsData, setInsightsData] = useState([])
+  // Documentation modal state
+  const [docModal, setDocModal] = useState(null)
 
   const fetchSharedData = useCallback((dsCode, dsId, isTemplate, filters) => {
     const cacheKey = `${dsCode || dsId}::${JSON.stringify(filters || {})}`
@@ -462,7 +465,7 @@ export default function DashboardView() {
         <div className="flex flex-col gap-3">
           {widgets.map(widget => (
             <div key={widget.id} style={{ minHeight: 180 }} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden flex flex-col shadow-sm">
-              <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} paramsConfirmed={paramsConfirmed} />
+              <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} paramsConfirmed={paramsConfirmed} setDocModal={setDocModal} />
             </div>
           ))}
         </div>
@@ -482,7 +485,7 @@ export default function DashboardView() {
           >
             {widgets.map(widget => (
               <div key={widget.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden flex flex-col shadow-sm">
-                <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} paramsConfirmed={paramsConfirmed} />
+                <WidgetView key={`${widget.id}-${refreshKey}`} widget={widget} onDrillDown={openDetail} globalFilters={mergedFilters} fetchSharedData={fetchSharedData} paramsConfirmed={paramsConfirmed} setDocModal={setDocModal} />
               </div>
             ))}
           </GridLayout>
@@ -510,6 +513,8 @@ export default function DashboardView() {
         drilldownDsCode={drilldownState.dsCode}
         title={drilldownState.title}
       />
+
+      {docModal && <ReportDocModal title={docModal.title} config={docModal.config} onClose={() => setDocModal(null)} />}
     </div>
   )
 }
@@ -564,7 +569,7 @@ function WidgetFilterBar({ widgets, globalFilters, setGlobalFilters }) {
 // ════════════════════════════════════════════════════════════════════
 // WIDGET VIEW (read-only)
 // ════════════════════════════════════════════════════════════════════
-function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData, paramsConfirmed = true }) {
+function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData, paramsConfirmed = true, setDocModal }) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -657,7 +662,14 @@ function WidgetView({ widget, onDrillDown, globalFilters, fetchSharedData, param
         <div className={`w-5 h-5 rounded flex items-center justify-center ${wt.color}`}>
           <Icon className="w-3 h-3 text-white" />
         </div>
-        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate">{widget.title}</span>
+        {hasDoc(widget.config) ? (
+          <button onClick={() => setDocModal(widget)} className="flex items-center gap-1 text-sm font-semibold text-gray-700 dark:text-gray-300 truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer">
+            {widget.title}
+            <Info className="w-3 h-3 text-primary-400 flex-shrink-0" />
+          </button>
+        ) : (
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate">{widget.title}</span>
+        )}
       </div>
       <div className="flex-1 p-3 overflow-hidden" style={{ minHeight: 0 }}>
         {!paramsConfirmed ? (

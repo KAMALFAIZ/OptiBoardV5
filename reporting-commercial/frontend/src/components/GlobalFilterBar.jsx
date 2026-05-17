@@ -57,6 +57,8 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
   }
 
   const handleFilterChange = (key, value) => {
+    if (key === 'dateDebut' && filters.dateFin && value > filters.dateFin) return
+    if (key === 'dateFin' && filters.dateDebut && value < filters.dateDebut) return
     updateFilter(key, value)
     if (onFilterChange) setTimeout(() => onFilterChange(), 100)
   }

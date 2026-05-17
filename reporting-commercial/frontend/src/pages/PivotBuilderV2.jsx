@@ -22,6 +22,7 @@ const TABS = [
   { id: 'config', label: 'Axes & Valeurs', icon: Rows3 },
   { id: 'formatting', label: 'Formatage', icon: Palette },
   { id: 'preview', label: 'Apercu', icon: Eye },
+  { id: 'doc', label: 'Doc', icon: BookOpen },
 ]
 
 const COMPARISON_MODES = [
@@ -1176,6 +1177,42 @@ export default function PivotBuilderV2() {
                   }}
                 />
               )}
+            </div>
+          )}
+
+          {/* ONGLET DOC */}
+          {activeTab === 'doc' && (
+            <div className="max-w-2xl space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Documentation du rapport</h3>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Objectif</label>
+                <textarea value={config.doc_description || ''} onChange={e => updateConfig('doc_description', e.target.value)} rows={3}
+                  placeholder="Decrivez ce que ce rapport affiche..."
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Descriptif des colonnes</label>
+                <textarea value={config.doc_fields || ''} onChange={e => updateConfig('doc_fields', e.target.value)} rows={4}
+                  placeholder="Ex: CA HT = chiffre d'affaires hors taxes&#10;Marge = CA HT - Achats&#10;Client = raison sociale..."
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Formule / Logique</label>
+                <textarea value={config.doc_formula || ''} onChange={e => updateConfig('doc_formula', e.target.value)} rows={2}
+                  placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Avantage</label>
+                <textarea value={config.doc_advantage || ''} onChange={e => updateConfig('doc_advantage', e.target.value)} rows={2}
+                  placeholder="A quoi sert ce rapport, quel gain pour l'utilisateur..."
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  Cette documentation sera visible par tous les utilisateurs au clic sur le titre du rapport.
+                </p>
+              </div>
             </div>
           )}
         </div>

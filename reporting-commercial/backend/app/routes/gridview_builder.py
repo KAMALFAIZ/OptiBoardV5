@@ -152,6 +152,10 @@ class GridViewUpdate(BaseModel):
     is_public: Optional[bool] = None
     application: Optional[str] = None
     features: Optional[GridFeatures] = None
+    doc_description: Optional[str] = None
+    doc_fields: Optional[str] = None
+    doc_formula: Optional[str] = None
+    doc_advantage: Optional[str] = None
 
 
 def init_gridview_tables():
@@ -199,6 +203,10 @@ def init_gridview_tables():
         ("created_by", "INT"),
         ("created_at", "DATETIME DEFAULT GETDATE()"),
         ("updated_at", "DATETIME DEFAULT GETDATE()"),
+        ("doc_description", "NVARCHAR(MAX)"),
+        ("doc_fields", "NVARCHAR(MAX)"),
+        ("doc_formula", "NVARCHAR(MAX)"),
+        ("doc_advantage", "NVARCHAR(MAX)"),
     ]
 
     try:
@@ -411,6 +419,12 @@ async def update_gridview(grid_id: int, grid: GridViewUpdate):
             features_data = serialize_model(grid.features)
             updates.append("features = ?")
             params.append(json.dumps(features_data))
+
+        for doc_field in ('doc_description', 'doc_fields', 'doc_formula', 'doc_advantage'):
+            val = getattr(grid, doc_field, None)
+            if val is not None:
+                updates.append(f"{doc_field} = ?")
+                params.append(val)
 
         updates.append("updated_at = GETDATE()")
 
