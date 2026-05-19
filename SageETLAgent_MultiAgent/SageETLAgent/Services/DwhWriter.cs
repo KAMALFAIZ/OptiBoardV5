@@ -896,10 +896,13 @@ namespace SageETLAgent.Services
             }
             var colsDef = string.Join(", ", columns);
 
+            // COLLATE CI_AI : insensible à la casse ET aux accents
+            // Évite de recréer [Echéances_Ventes] si [échéances_Ventes] existe déjà
             var createIfNotExistsSql = $@"
                 IF NOT EXISTS (
                     SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-                    WHERE TABLE_NAME = @tableName
+                    WHERE TABLE_NAME COLLATE SQL_Latin1_General_CP1_CI_AI
+                          = @tableName COLLATE SQL_Latin1_General_CP1_CI_AI
                 )
                 BEGIN
                     CREATE TABLE [{tableName}] ({colsDef})
@@ -960,7 +963,8 @@ namespace SageETLAgent.Services
                            ELSE ''
                        END AS FULL_TYPE
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_NAME = @tableName";
+                WHERE TABLE_NAME COLLATE SQL_Latin1_General_CP1_CI_AI
+                      = @tableName COLLATE SQL_Latin1_General_CP1_CI_AI";
 
             try
             {
@@ -1081,7 +1085,7 @@ namespace SageETLAgent.Services
         {
             // Recuperer les colonnes existantes
             var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var checkQuery = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName";
+            var checkQuery = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME COLLATE SQL_Latin1_General_CP1_CI_AI = @tableName COLLATE SQL_Latin1_General_CP1_CI_AI";
 
             try
             {
@@ -1132,7 +1136,9 @@ namespace SageETLAgent.Services
         {
             var checkQuery = @"
                 SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_NAME = @tableName AND COLUMN_NAME = 'societe'";
+                WHERE TABLE_NAME COLLATE SQL_Latin1_General_CP1_CI_AI
+                      = @tableName COLLATE SQL_Latin1_General_CP1_CI_AI
+                  AND COLUMN_NAME = 'societe'";
 
             using var checkCmd = new SqlCommand(checkQuery, conn);
             checkCmd.Parameters.AddWithValue("@tableName", tableName);

@@ -341,7 +341,25 @@ def validate_license(license_key: str, server_url: str = "", grace_days: int = 7
                 status.message = remote_result.get("message", "Licence invalide")
             return status
         else:
-            # Serveur injoignable — mode grace local
+            # Serveur injoignable — vérification HMAC locale en priorité
+            signing_secret = _get_signing_secret()
+            if signing_secret and verify_license_signature(license_key, signing_secret):
+                # Signature HMAC valide = licence authentique, mode offline permanent
+                status.valid = True
+                status.status = "valid"
+                status.grace_mode = False
+                status.message = "Licence valide (mode offline)"
+                logger.info("[LICENSE] Validation HMAC locale reussie — mode offline")
+                _save_license_cache({
+                    "status": "valid",
+                    "is_trial": status.is_trial,
+                    "features": status.features,
+                    "max_users": status.max_users,
+                    "timestamp": int(time.time())
+                })
+                return status
+
+            # Pas de secret HMAC — mode grace local (basé sur le cache)
             cache = _load_license_cache()
             if cache:
                 cache_age_days = (int(time.time()) - cache.get("timestamp", 0)) / 86400
@@ -366,25 +384,29 @@ def validate_license(license_key: str, server_url: str = "", grace_days: int = 7
                     logger.warning(f"[LICENSE] Mode grace: {status.grace_days_remaining} jours restants")
                     return status
                 else:
-                    status.status = "grace_expired"
-                    status.message = "Periode de grace expiree - serveur de licences injoignable"
-                    return status
-            else:
-                # Pas de cache — tenter verification HMAC locale, puis grace mode
-                signing_secret = _get_signing_secret()
-                if signing_secret and verify_license_signature(license_key, signing_secret):
-                    status.valid = True
-                    status.status = "valid"
-                    status.grace_mode = False
-                    status.message = "Licence valide (verification locale)"
-                    logger.info("[LICENSE] Validation HMAC locale reussie")
-                else:
+                    # Cache expiré mais licence locale encore valide → prolonger la grace
                     status.valid = True
                     status.status = "valid"
                     status.grace_mode = True
                     status.grace_days_remaining = grace_days
-                    status.message = f"Serveur injoignable - mode grace ({grace_days}j)"
-                    logger.warning(f"[LICENSE] Serveur injoignable, mode grace {grace_days}j")
+                    status.message = f"Serveur injoignable - mode grace reconduit ({grace_days}j)"
+                    logger.warning(f"[LICENSE] Cache grace expiré — grace reconduit {grace_days}j")
+                    _save_license_cache({
+                        "status": "valid",
+                        "is_trial": status.is_trial,
+                        "features": status.features,
+                        "max_users": status.max_users,
+                        "timestamp": int(time.time())
+                    })
+                    return status
+            else:
+                # Pas de cache — grace mode initial
+                status.valid = True
+                status.status = "valid"
+                status.grace_mode = True
+                status.grace_days_remaining = grace_days
+                status.message = f"Serveur injoignable - mode grace ({grace_days}j)"
+                logger.warning(f"[LICENSE] Serveur injoignable, mode grace {grace_days}j")
                 _save_license_cache({
                     "status": "valid",
                     "is_trial": status.is_trial,

@@ -11,7 +11,7 @@ import ReportDocModal, { hasDoc } from '../components/common/ReportDocModal'
 import * as XLSX from 'xlsx'
 import Loading from '../components/common/Loading'
 import CheckboxListFilter from '../components/common/CheckboxListFilter'
-import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions, exportGridPptx, isRequestCanceled } from '../services/api'
+import api, { getGridView, getDataSource, previewDataSource, executeQuery, getUnifiedDataSource, previewUnifiedDataSource, getUnifiedDataSourceFields, getUserGridPrefs, saveUserGridPrefs, resetUserGridPrefs, getUserEffectivePermissions, getDwhFilterOptions, exportGridPptx, isRequestCanceled } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { mapColumnsToColDefs, buildTotalsRow, columnStateToPrefs, prefsToColumnState } from '../utils/agGridColumnMapper'
@@ -179,6 +179,20 @@ export default function GridViewDisplay() {
   // Charger les options pour les paramètres de type select/multiselect
   useEffect(() => {
     const loadSelectOptions = async () => {
+      // Pré-peupler les options statiques (param.options = tableau de strings ou objets)
+      const staticParams = sourceParams.filter(p =>
+        (p.type === 'select' || p.type === 'multiselect') && Array.isArray(p.options) && p.options.length > 0
+      )
+      if (staticParams.length > 0) {
+        const staticMap = {}
+        for (const p of staticParams) {
+          staticMap[p.name] = p.options.map(o =>
+            typeof o === 'object' ? o : { value: o, label: o }
+          )
+        }
+        setSelectOptions(prev => ({ ...prev, ...staticMap }))
+      }
+
       const selectParams = sourceParams.filter(p =>
         (p.type === 'select' || p.type === 'multiselect') && p.source === 'query' && p.query
       )
@@ -294,9 +308,28 @@ export default function GridViewDisplay() {
         setGroupByFields(defaultGroupBy)
       }
 
-      // Supporter data_source_code (templates) OU data_source_id (legacy)
+      // Pré-charger les colonnes depuis /fields si aucune colonne configurée
+      // → les en-têtes s'affichent immédiatement même si aucune donnée dans la période
       const hasSourceCode = gridData.data_source_code && gridData.data_source_code.trim() !== ''
       const hasSourceId = gridData.data_source_id && gridData.data_source_id > 0
+
+      if (hasSourceCode && finalColumns.length === 0) {
+        try {
+          const fieldsRes = await getUnifiedDataSourceFields(gridData.data_source_code)
+          const fieldsData = fieldsRes.data?.fields || []
+          if (fieldsData.length > 0) {
+            setColumns(fieldsData.map(f => ({
+              field: f.name,
+              header: f.label || f.name,
+              visible: true,
+              width: 120,
+              type: f.type || 'text',
+            })))
+          }
+        } catch (e) {
+          console.warn('[OptiBoard] Pré-chargement /fields:', e)
+        }
+      }
 
       if (hasSourceCode || hasSourceId) {
         let sourceRes
@@ -329,7 +362,8 @@ export default function GridViewDisplay() {
               source: p.source,
               query: p.query,
               allow_null: p.allow_null,
-              null_label: p.null_label
+              null_label: p.null_label,
+              options: p.options || []
             }))
           } else if (typeof params === 'object' && Object.keys(params).length > 0) {
             paramList = Object.entries(params).map(([name, cfg]) => ({
@@ -341,7 +375,8 @@ export default function GridViewDisplay() {
               source: cfg.source,
               query: cfg.query,
               allow_null: cfg.allow_null,
-              null_label: cfg.null_label
+              null_label: cfg.null_label,
+              options: cfg.options || []
             }))
           }
 
@@ -574,6 +609,26 @@ export default function GridViewDisplay() {
             type: c.type || 'text',
           }))
           setColumns(emptyCols)
+
+        // Cas 3 : aucune donnée ET aucune métadonnée → appel /fields (SELECT TOP 0)
+        // Garantit que les colonnes s'affichent même quand la période ne contient aucune ligne
+        } else if (shouldUseUnified) {
+          try {
+            const fieldsRes = await getUnifiedDataSourceFields(sourceIdentifier)
+            const fieldsData = fieldsRes.data?.fields || []
+            if (fieldsData.length > 0) {
+              const fallbackCols = fieldsData.map(f => ({
+                field: f.name,
+                header: f.label || f.name,
+                visible: true,
+                width: 120,
+                type: f.type || 'text',
+              }))
+              setColumns(fallbackCols)
+            }
+          } catch (e) {
+            console.warn('[OptiBoard] /fields fallback échec:', e)
+          }
         }
       }
 

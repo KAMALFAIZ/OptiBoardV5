@@ -249,7 +249,8 @@ LEFT JOIN (
     ) i ON r.societe = i.societe AND r.[Code client] = i.[Code client]
 ) rni ON ev.[Code client] = rni.[Code client] AND ev.societe = rni.societe
 
-WHERE ev.[Type Document] LIKE '%facture%'
+WHERE ev.[Date document] <= @dateFin
+  AND ev.[Type Document] LIKE '%facture%'
   AND ev.[Type Document] <> 'Facture d''accompte'
   AND ev.[Type de règlement] <> 'Acompte'
   AND (@societe IS NULL OR ev.societe = @societe)
@@ -305,7 +306,7 @@ DS_TEMPLATES = [
             + "WHERE ev.[Type Document] LIKE '%facture%' "
             + "AND ev.[Type Document] <> 'Facture d''accompte' "
             + "AND ev.[Type de règlement] <> 'Acompte' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "ORDER BY ev.[Date d'échéance] DESC",
         "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
@@ -322,21 +323,22 @@ DS_TEMPLATES = [
             + "ev.[Montant échéance] AS [Montant Échéance], "
             + "ISNULL(reg.MontantRegle, 0) AS [Montant Regle], "
             + "ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) AS [Reste à Payer], "
-            + "DATEDIFF(day, ev.[Date d'échéance], GETDATE()) AS [Jours de Retard], "
-            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 0 THEN 'A Jour' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 30 THEN '1-30j' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 60 THEN '31-60j' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 90 THEN '61-90j' "
+            + "DATEDIFF(day, ev.[Date d'échéance], @dateFin) AS [Jours de Retard], "
+            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 0 THEN 'A Jour' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 30 THEN '1-30j' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 60 THEN '31-60j' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 90 THEN '61-90j' "
             + "ELSE '+90j' END AS [Tranche Retard], "
             + "ev.[Mode de règlement] AS [Mode de Règlement], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
-            + "ORDER BY DATEDIFF(day, ev.[Date d'échéance], GETDATE()) DESC",
-        "params": PARAMS_SOCIETE_ONLY,
+            + "ORDER BY DATEDIFF(day, ev.[Date d'échéance], @dateFin) DESC",
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 3. GRID: Reglements Recus ---
@@ -367,11 +369,11 @@ DS_TEMPLATES = [
         "query": "SELECT "
             + "ev.[Code client], ev.[Intitulé client] AS [Client], "
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Solde Total], "
-            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 0 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [Non Échu], "
-            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) BETWEEN 1 AND 30 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [1-30j], "
-            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) BETWEEN 31 AND 60 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [31-60j], "
-            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) BETWEEN 61 AND 90 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [61-90j], "
-            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) > 90 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [Plus 90j], "
+            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 0 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [Non Échu], "
+            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) BETWEEN 1 AND 30 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [1-30j], "
+            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) BETWEEN 31 AND 60 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [31-60j], "
+            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) BETWEEN 61 AND 90 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [61-90j], "
+            + "SUM(CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) > 90 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [Plus 90j], "
             + "COUNT(*) AS [Nb Échéances], "
             + "ISNULL(MAX(rne.ReglementsNonEchus), 0) AS [Règlements Non Échus], "
             + "ISNULL(MAX(blnf.BL_NonFactures), 0) AS [BL Non Facturés], "
@@ -379,9 +381,9 @@ DS_TEMPLATES = [
             + "ISNULL(MAX(rni.ReglementNonImpute), 0) AS [Règlements Non Imputés], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "LEFT JOIN (SELECT societe, [Code client], SUM([Montant régler]) AS ReglementsNonEchus "
-            + "FROM Imputation_Factures_Ventes WHERE [Date d'échéance] > GETDATE() "
+            + "FROM Imputation_Factures_Ventes WHERE [Date d'échéance] > @dateFin "
             + "GROUP BY societe, [Code client]) rne "
             + "ON ev.[Code client] = rne.[Code client] AND ev.societe = rne.societe "
             + "LEFT JOIN (SELECT societe, [Code client], SUM([Montant TTC Net]) AS BL_NonFactures "
@@ -400,12 +402,13 @@ DS_TEMPLATES = [
             + "FROM Imputation_Factures_Ventes GROUP BY societe, [Code client]) i "
             + "ON r.societe = i.societe AND r.[Code client] = i.[Code client]) rni "
             + "ON ev.[Code client] = rni.[Code client] AND ev.societe = rni.societe "
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.[Intitulé client], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) DESC",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 5. GRID: Echeances avec Imputations (JOIN) ---
@@ -426,7 +429,7 @@ DS_TEMPLATES = [
             + "FROM " + TBL_EV + " ev "
             + "LEFT JOIN Imputation_Factures_Ventes imp "
             + "ON imp.[Id échéance] = ev.[N° interne] AND imp.societe = ev.societe "
-            + "WHERE ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "WHERE ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "ORDER BY ev.[Date document] DESC, ev.[N° Pièce]",
         "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
@@ -442,17 +445,18 @@ DS_TEMPLATES = [
             + "ev.[Montant échéance] AS [Montant Échéance], "
             + "ISNULL(reg.MontantRegle, 0) AS [Montant Réglé], "
             + "ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) AS [Reste à Payer], "
-            + "DATEDIFF(day, ev.[Date d'échéance], GETDATE()) AS [Jours de Retard], "
+            + "DATEDIFF(day, ev.[Date d'échéance], @dateFin) AS [Jours de Retard], "
             + "ev.[Mode de règlement] AS [Mode de Règlement], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Date d'échéance] < GETDATE() "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Date d'échéance] < @dateFin "
             + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
-            + "ORDER BY DATEDIFF(day, ev.[Date d'échéance], GETDATE()) DESC",
-        "params": PARAMS_SOCIETE_ONLY,
+            + "ORDER BY DATEDIFF(day, ev.[Date d'échéance], @dateFin) DESC",
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 7. GRID: Clients a Risque (>90j retard) ---
@@ -463,23 +467,24 @@ DS_TEMPLATES = [
             + "ev.[Code client], ev.[Intitulé client] AS [Client], "
             + "COUNT(*) AS [Nb Factures Impayées], "
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Montant Impayé], "
-            + "MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) AS [Max Jours de Retard], "
-            + "AVG(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) AS [Moy Jours de Retard], "
+            + "MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) AS [Max Jours de Retard], "
+            + "AVG(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) AS [Moy Jours de Retard], "
             + "MIN(ev.[Date d'échéance]) AS [Plus Ancienne Échéance], "
-            + "CASE WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) > 180 THEN 'CRITIQUE' "
-            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) > 90 THEN 'ELEVE' "
-            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) > 30 THEN 'MOYEN' "
+            + "CASE WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) > 180 THEN 'CRITIQUE' "
+            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) > 90 THEN 'ELEVE' "
+            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) > 30 THEN 'MOYEN' "
             + "ELSE 'FAIBLE' END AS [Niveau de Risque], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
-            + "AND ev.[Date d'échéance] < GETDATE() "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + "AND ev.[Date d'échéance] < @dateFin "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.[Intitulé client], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) DESC",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 8. GRID: Historique Reglements par Client ---
@@ -514,17 +519,18 @@ DS_TEMPLATES = [
             + "ev.[Montant échéance] AS [Montant Échéance], "
             + "ISNULL(reg.MontantRegle, 0) AS [Montant Réglé], "
             + "ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) AS [Reste à Payer], "
-            + "DATEDIFF(day, GETDATE(), ev.[Date d'échéance]) AS [Jours Restants], "
+            + "DATEDIFF(day, @dateFin, ev.[Date d'échéance]) AS [Jours Restants], "
             + "ev.[Mode de règlement] AS [Mode de Règlement], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Date d'échéance] >= GETDATE() "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Date d'échéance] >= @dateFin "
             + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "ORDER BY ev.[Date d'échéance] ASC",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 10. GRID: Delai Moyen de Paiement par Client ---
@@ -559,13 +565,13 @@ DS_TEMPLATES = [
             + "SUM(ev.[Montant échéance]) - SUM(ISNULL(imp.[Montant régler], 0)) AS [Reste à Payer], "
             + "MIN(ev.[Date d'échéance]) AS [Échéance Plus Ancienne], "
             + "MAX(ev.[Date d'échéance]) AS [Échéance Plus Récente], "
-            + "MAX(CASE WHEN ev.[Date d'échéance] < GETDATE() "
-            + "THEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) ELSE 0 END) AS [Max Jours de Retard], "
+            + "MAX(CASE WHEN ev.[Date d'échéance] < @dateFin "
+            + "THEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) ELSE 0 END) AS [Max Jours de Retard], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
             + "LEFT OUTER JOIN Imputation_Factures_Ventes imp "
             + "ON ev.[N° interne] = imp.[Id échéance] AND ev.societe = imp.societe "
-            + "WHERE ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "WHERE ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.[Intitulé client], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance]) - SUM(ISNULL(imp.[Montant régler], 0)) DESC",
         "params": PARAMS_DATE_SOCIETE,
@@ -577,26 +583,27 @@ DS_TEMPLATES = [
         "nom": "Créances par Tranche d'Âge",
         "query": "SELECT "
             + "ev.[Code client], ev.[Intitulé client] AS [Client], "
-            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 0 THEN 'Non Échu' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 30 THEN '1-30j' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 60 THEN '31-60j' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 90 THEN '61-90j' "
+            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 0 THEN 'Non Échu' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 30 THEN '1-30j' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 60 THEN '31-60j' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 90 THEN '61-90j' "
             + "ELSE '+90j' END AS [Tranche], "
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Montant Impayé], "
             + "COUNT(*) AS [Nb Échéances], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.[Intitulé client], "
-            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 0 THEN 'Non Échu' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 30 THEN '1-30j' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 60 THEN '31-60j' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 90 THEN '61-90j' "
+            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 0 THEN 'Non Échu' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 30 THEN '1-30j' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 60 THEN '31-60j' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 90 THEN '61-90j' "
             + "ELSE '+90j' END, ev.societe",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 13. PIVOT: Reglements par Mode ---
@@ -629,8 +636,8 @@ DS_TEMPLATES = [
             + "COUNT(*) AS [Nb Échéances], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY ev.[Type Document], ev.[Code client], ev.[Intitulé client], ev.societe",
         "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
@@ -649,9 +656,9 @@ DS_TEMPLATES = [
             + "COUNT(DISTINCT ev.[Code client]) AS [Nb Clients], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY YEAR(ev.[Date document]), MONTH(ev.[Date document]), ev.societe "
             + "ORDER BY YEAR(ev.[Date document]), MONTH(ev.[Date document])",
         "params": PARAMS_DATE_SOCIETE,
@@ -671,9 +678,9 @@ DS_TEMPLATES = [
             + "COUNT(*) AS [Nb Échéances], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.[Intitulé client], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) DESC",
         "params": PARAMS_DATE_SOCIETE,
@@ -692,9 +699,9 @@ DS_TEMPLATES = [
             + "COUNT(DISTINCT ev.[Code client]) AS [Nb Clients], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY ev.[Code tiers payeur], ev.[Intitulé Tiers payeur], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance]) DESC",
         "params": PARAMS_DATE_SOCIETE,
@@ -712,13 +719,13 @@ DS_TEMPLATES = [
             + "THEN ROUND(100.0 * SUM(ISNULL(reg.MontantRegle, 0)) / SUM(ev.[Montant échéance]), 2) ELSE 0 END AS [Taux Recouvrement], "
             + "COUNT(*) AS [Nb Échéances], "
             + "COUNT(DISTINCT ev.[Code client]) AS [Nb Clients], "
-            + "SUM(CASE WHEN ev.[Date d'échéance] < GETDATE() AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 THEN 1 ELSE 0 END) AS [Nb Echues Impayees], "
-            + "SUM(CASE WHEN ev.[Date d'échéance] < GETDATE() AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [Montant Echues Impayees], "
+            + "SUM(CASE WHEN ev.[Date d'échéance] < @dateFin AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 THEN 1 ELSE 0 END) AS [Nb Echues Impayees], "
+            + "SUM(CASE WHEN ev.[Date d'échéance] < @dateFin AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 THEN ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) ELSE 0 END) AS [Montant Echues Impayees], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY ev.societe",
         "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
@@ -735,9 +742,9 @@ DS_TEMPLATES = [
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Impaye], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY YEAR(ev.[Date document]), MONTH(ev.[Date document]), ev.societe "
             + "ORDER BY YEAR(ev.[Date document]), MONTH(ev.[Date document])",
         "params": PARAMS_DATE_SOCIETE,
@@ -748,26 +755,27 @@ DS_TEMPLATES = [
         "code": "DS_REC_REPARTITION_AGEE",
         "nom": "Répartition Balance Âgée",
         "query": "SELECT "
-            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 0 THEN 'Non Echu' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 30 THEN '1-30 jours' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 60 THEN '31-60 jours' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 90 THEN '61-90 jours' "
+            + "CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 0 THEN 'Non Echu' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 30 THEN '1-30 jours' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 60 THEN '31-60 jours' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 90 THEN '61-90 jours' "
             + "ELSE 'Plus de 90 jours' END AS [Tranche], "
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Montant Impaye], "
             + "COUNT(*) AS [Nb Échéances], "
             + "COUNT(DISTINCT ev.[Code client]) AS [Nb Clients], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
-            + "GROUP BY CASE WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 0 THEN 'Non Echu' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 30 THEN '1-30 jours' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 60 THEN '31-60 jours' "
-            + "WHEN DATEDIFF(day, ev.[Date d'échéance], GETDATE()) <= 90 THEN '61-90 jours' "
+            + "GROUP BY CASE WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 0 THEN 'Non Echu' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 30 THEN '1-30 jours' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 60 THEN '31-60 jours' "
+            + "WHEN DATEDIFF(day, ev.[Date d'échéance], @dateFin) <= 90 THEN '61-90 jours' "
             + "ELSE 'Plus de 90 jours' END, ev.societe",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 21. DASHBOARD: Top 20 Debiteurs ---
@@ -778,16 +786,17 @@ DS_TEMPLATES = [
             + "ev.[Code client], ev.[Intitulé client] AS [Client], "
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Montant Impaye], "
             + "COUNT(*) AS [Nb Échéances], "
-            + "MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) AS [Max Retard Jours], "
+            + "MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) AS [Max Retard Jours], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.[Intitulé client], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) DESC",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 22. DASHBOARD: Repartition par Mode Reglement ---
@@ -802,9 +811,9 @@ DS_TEMPLATES = [
             + "COUNT(*) AS [Nb Échéances], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY ev.[Mode de règlement], ev.societe "
             + "ORDER BY SUM(ev.[Montant échéance]) DESC",
         "params": PARAMS_DATE_SOCIETE,
@@ -823,9 +832,9 @@ DS_TEMPLATES = [
             + "SUM(ISNULL(reg.MontantRegle, 0)) AS [Recouvre], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
+            + REG_SUBQUERY_DATE
             + "WHERE ev.[Type Document] LIKE '%facture%' "
-            + "AND ev.[Date document] BETWEEN @dateDebut AND @dateFin AND " + SOC_EV + " "
+            + "AND ev.[Date document] <= @dateFin AND " + SOC_EV + " "
             + "GROUP BY YEAR(ev.[Date document]), MONTH(ev.[Date document]), ev.societe "
             + "ORDER BY YEAR(ev.[Date document]), MONTH(ev.[Date document])",
         "params": PARAMS_DATE_SOCIETE,
@@ -842,22 +851,23 @@ DS_TEMPLATES = [
             + "FROM ("
             + "SELECT ev.[Code client], "
             + "SUM(ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0)) AS [Montant Impaye], "
-            + "CASE WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) > 180 THEN 'CRITIQUE' "
-            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) > 90 THEN 'ELEVE' "
-            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], GETDATE())) > 30 THEN 'MOYEN' "
+            + "CASE WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) > 180 THEN 'CRITIQUE' "
+            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) > 90 THEN 'ELEVE' "
+            + "WHEN MAX(DATEDIFF(day, ev.[Date d'échéance], @dateFin)) > 30 THEN 'MOYEN' "
             + "ELSE 'FAIBLE' END AS [Niveau Risque], "
             + "ev.societe "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
-            + "AND ev.[Date d'échéance] < GETDATE() "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Montant échéance] - ISNULL(reg.MontantRegle, 0) > 0.01 "
+            + "AND ev.[Date d'échéance] < @dateFin "
             + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "GROUP BY ev.[Code client], ev.societe"
             + ") sub "
             + "GROUP BY sub.[Niveau Risque], sub.societe "
             + "ORDER BY CASE sub.[Niveau Risque] WHEN 'CRITIQUE' THEN 1 WHEN 'ELEVE' THEN 2 WHEN 'MOYEN' THEN 3 ELSE 4 END",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
     # --- 25. DASHBOARD: Encaissements Mensuels ---
@@ -893,12 +903,13 @@ DS_TEMPLATES = [
             + "COUNT(DISTINCT ev.[Code client]) AS [Nb Clients], "
             + "ev.societe AS [Société] "
             + "FROM " + TBL_EV + " ev "
-            + REG_SUBQUERY
-            + "WHERE ev.[Type Document] LIKE '%facture%' "
+            + REG_SUBQUERY_DATE
+            + "WHERE ev.[Date document] <= @dateFin "
+            + "AND ev.[Type Document] LIKE '%facture%' "
             + "AND " + SOC_EV + " "
             + "GROUP BY YEAR(ev.[Date document]), ev.societe "
             + "ORDER BY YEAR(ev.[Date document])",
-        "params": PARAMS_SOCIETE_ONLY,
+        "params": PARAMS_DATE_SOCIETE,
         "category": "recouvrement"
     },
 ]
