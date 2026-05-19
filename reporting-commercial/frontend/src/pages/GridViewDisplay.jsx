@@ -514,59 +514,67 @@ export default function GridViewDisplay() {
       setAllData(remappedData)
 
       // Auto-générer les colonnes depuis les données si columns_config est vide
-      if (columns.length === 0 && remappedData.length > 0) {
-        const autoKeys = Object.keys(remappedData[0]).filter(k => !k.startsWith('__'))
-
+      if (columns.length === 0) {
         // Construire un map name→type depuis la réponse API (types SQL réels)
         // ex: nvarchar→text, decimal→number, datetime→date
         const apiTypeMap = {}
         apiColumnsRaw.forEach(c => { if (c.name) apiTypeMap[c.name] = c.type })
 
-        // Fallback : détecter le type en scannant TOUTES les lignes (si API ne retourne rien)
-        // Regex ISO 8601 : "2026-04-14T00:00:00" ou "2026-04-14"
-        const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/
-        const detectColTypeFromData = (key) => {
-          for (const row of remappedData) {
-            const v = row[key]
-            if (v === null || v === undefined) continue
-            // Date ISO sérialisée par le backend (datetime → string JSON)
-            if (typeof v === 'string' && ISO_DATE_RE.test(v.trim())) return 'date'
-            if (typeof v === 'string') {
-              const s = v.trim()
-              if (s === '') continue
-              // Zéros de tête → code varchar ("000172", "001") → text
-              if (s.startsWith('0') && s.length > 1 && !isNaN(Number(s))) return 'text'
-              // Non-numérique → varchar
-              if (isNaN(Number(s))) return 'text'
-              // Sinon : chaîne numérique sans zéros de tête → continuer pour décider
-              continue
-            }
-          }
-          for (const row of remappedData) {
-            const v = row[key]
-            if (typeof v === 'number') return 'number'
-            if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v.trim()))) return 'number'
-          }
-          return 'text'
-        }
-
         // Détecter si le backend retourne des types significatifs (au moins 1 non-"text")
-        // vs. ancien backend qui retourne "text" pour tout (pas de détection avancée)
         const apiHasProperTypes = apiColumnsRaw.length > 0 &&
           apiColumnsRaw.some(c => c.type && c.type !== 'text')
 
-        const autoCols = autoKeys.map(k => {
-          let finalType
-          if (apiHasProperTypes && apiTypeMap[k]) {
-            // Backend avec détection SQL → on lui fait confiance entièrement
-            finalType = apiTypeMap[k]
-          } else {
-            // Ancien backend (tout "text") ou absence de métadonnées → scan données
-            finalType = detectColTypeFromData(k)
+        // Cas 1 : données disponibles → auto-générer depuis les clés du premier objet
+        if (remappedData.length > 0) {
+          const autoKeys = Object.keys(remappedData[0]).filter(k => !k.startsWith('__'))
+
+          // Fallback : détecter le type en scannant TOUTES les lignes (si API ne retourne rien)
+          // Regex ISO 8601 : "2026-04-14T00:00:00" ou "2026-04-14"
+          const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/
+          const detectColTypeFromData = (key) => {
+            for (const row of remappedData) {
+              const v = row[key]
+              if (v === null || v === undefined) continue
+              if (typeof v === 'string' && ISO_DATE_RE.test(v.trim())) return 'date'
+              if (typeof v === 'string') {
+                const s = v.trim()
+                if (s === '') continue
+                if (s.startsWith('0') && s.length > 1 && !isNaN(Number(s))) return 'text'
+                if (isNaN(Number(s))) return 'text'
+                continue
+              }
+            }
+            for (const row of remappedData) {
+              const v = row[key]
+              if (typeof v === 'number') return 'number'
+              if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v.trim()))) return 'number'
+            }
+            return 'text'
           }
-          return { field: k, header: k, visible: true, width: 120, type: finalType }
-        })
-        setColumns(autoCols)
+
+          const autoCols = autoKeys.map(k => {
+            let finalType
+            if (apiHasProperTypes && apiTypeMap[k]) {
+              finalType = apiTypeMap[k]
+            } else {
+              finalType = detectColTypeFromData(k)
+            }
+            return { field: k, header: k, visible: true, width: 120, type: finalType }
+          })
+          setColumns(autoCols)
+
+        // Cas 2 : aucune donnée mais le backend a retourné les métadonnées de colonnes
+        // → afficher les colonnes vides plutôt qu'un écran blanc
+        } else if (apiColumnsRaw.length > 0) {
+          const emptyCols = apiColumnsRaw.map(c => ({
+            field: c.name,
+            header: c.name,
+            visible: true,
+            width: 120,
+            type: c.type || 'text',
+          }))
+          setColumns(emptyCols)
+        }
       }
 
       // Log toujours visible dans la console pour diagnostic
@@ -1685,7 +1693,7 @@ export default function GridViewDisplay() {
       )}
 
       {/* AG Grid */}
-      <div ref={gridContainerRef} className={`flex-1 overflow-x-auto ${darkMode ? 'ag-theme-quartz-dark' : 'ag-theme-quartz'}`}>
+      <div ref={gridContainerRef} className={`flex-1 overflow-x-auto ${darkMode ? 'ag-theme-quartz-dark' : 'ag-theme-quartz'}`} style={{ minHeight: 200 }}>
         <AgGridReact
           ref={gridRef}
           theme="legacy"
@@ -1693,6 +1701,7 @@ export default function GridViewDisplay() {
           columnDefs={agColumnDefs}
           defaultColDef={defaultColDef}
           localeText={AG_GRID_LOCALE_FR}
+          overlayNoRowsTemplate='<span style="padding:24px;color:#6b7280;font-size:13px">Aucune donnée pour la période sélectionnée</span>'
           animateRows={displayData.length < 5000}
           rowBuffer={displayData.length > 5000 ? 10 : 20}
           enableCellTextSelection={true}
