@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Server, CheckCircle, XCircle, AlertTriangle, Clock,
   RefreshCw, Pause, Play, Eye, Activity, Zap, Wifi, WifiOff,
-  Trash2, Database, Download
+  Trash2, Database, Download, Search, Filter
 } from 'lucide-react'
 
 const statusConfig = {
@@ -195,6 +195,22 @@ function AgentCard({ agent, onAgentClick, onViewLogs, onTriggerSync, onPauseResu
 }
 
 export default function AgentList({ agents, onAgentClick, onViewLogs, onTriggerSync, onPauseResume, onSyncTables, onDelete }) {
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+
+  const filtered = useMemo(() => {
+    if (!agents) return []
+    return agents.filter(a => {
+      if (statusFilter !== 'all' && a.status !== statusFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        const haystack = `${a.name || ''} ${a.dwh_name || ''} ${a.dwh_code || ''} ${a.hostname || ''} ${a.ip_address || ''}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    })
+  }, [agents, search, statusFilter])
+
   if (!agents || agents.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-8 text-center">
@@ -210,19 +226,60 @@ export default function AgentList({ agents, onAgentClick, onViewLogs, onTriggerS
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {agents.map(agent => (
-        <AgentCard
-          key={agent.agent_id}
-          agent={agent}
-          onAgentClick={onAgentClick}
-          onViewLogs={onViewLogs}
-          onTriggerSync={onTriggerSync}
-          onPauseResume={onPauseResume}
-          onSyncTables={onSyncTables}
-          onDelete={onDelete}
-        />
-      ))}
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Rechercher un agent..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter size={14} className="text-gray-400" />
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="all">Tous les statuts</option>
+            <option value="active">Actif</option>
+            <option value="syncing">Synchronisation</option>
+            <option value="error">Erreur</option>
+            <option value="inactive">Inactif</option>
+            <option value="paused">En pause</option>
+          </select>
+          {(search || statusFilter !== 'all') && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {filtered.length}/{agents.length}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 text-center text-gray-500 dark:text-gray-400">
+          Aucun agent ne correspond aux filtres.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(agent => (
+            <AgentCard
+              key={agent.agent_id}
+              agent={agent}
+              onAgentClick={onAgentClick}
+              onViewLogs={onViewLogs}
+              onTriggerSync={onTriggerSync}
+              onPauseResume={onPauseResume}
+              onSyncTables={onSyncTables}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

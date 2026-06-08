@@ -313,9 +313,9 @@ IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Agent_Tables' AND xt
 CREATE TABLE APP_ETL_Agent_Tables (
     id                  INT IDENTITY(1,1) PRIMARY KEY,
     agent_id            VARCHAR(100) NOT NULL,
-    table_name          VARCHAR(200) NOT NULL,
+    table_name          NVARCHAR(200) NOT NULL,
     source_query        NVARCHAR(MAX),
-    target_table        VARCHAR(200),
+    target_table        NVARCHAR(200),
     societe_code        VARCHAR(50) NOT NULL DEFAULT '',
     primary_key_columns NVARCHAR(500),
     sync_type           VARCHAR(20) DEFAULT 'incremental',

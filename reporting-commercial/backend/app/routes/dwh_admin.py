@@ -2033,10 +2033,12 @@ async def dwh_admin_test_smtp(code: str, smtp: SMTPConfig):
 
 @router.get("/dwh-admin/{code}/sources")
 async def dwh_admin_list_sources(code: str):
-    """Liste les sources Sage d'un DWH."""
+    """Liste les sources Sage d'un DWH (metadata uniquement — credentials dans APP_ETL_Agents)."""
     try:
         rows = execute_query(
-            "SELECT id, dwh_code, code_societe, nom_societe, serveur_sage, base_sage, user_sage, etl_enabled, etl_mode, etl_schedule, last_sync, last_sync_status, actif FROM APP_DWH_Sources WHERE dwh_code=? ORDER BY nom_societe",
+            "SELECT id, dwh_code, code_societe, nom_societe, agent_id, "
+            "etl_enabled, etl_mode, etl_schedule, last_sync, last_sync_status, actif "
+            "FROM APP_DWH_Sources WHERE dwh_code=? ORDER BY nom_societe",
             (code,), use_cache=False,
         )
         return {"success": True, "data": rows}
@@ -2046,12 +2048,20 @@ async def dwh_admin_list_sources(code: str):
 
 @router.post("/dwh-admin/{code}/sources")
 async def dwh_admin_add_source(code: str, source: Dict[str, Any] = Body(...)):
-    """Ajoute une source Sage à un DWH."""
+    """Ajoute une source Sage (entrée monitoring) à un DWH.
+    Les credentials Sage doivent être configurés via l'agent ETL (APP_ETL_Agents).
+    """
     try:
         with get_db_cursor() as cursor:
             cursor.execute(
-                "INSERT INTO APP_DWH_Sources (dwh_code, code_societe, nom_societe, serveur_sage, base_sage, user_sage, password_sage, etl_enabled, etl_mode, etl_schedule) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (code, source.get("code_societe"), source.get("nom_societe"), source.get("serveur_sage"), source.get("base_sage"), source.get("user_sage"), source.get("password_sage"), 1 if source.get("etl_enabled", True) else 0, source.get("etl_mode", "incremental"), source.get("etl_schedule", "*/15 * * * *")),
+                "INSERT INTO APP_DWH_Sources "
+                "(dwh_code, code_societe, nom_societe, agent_id, etl_enabled, etl_mode, etl_schedule) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (code, source.get("code_societe"), source.get("nom_societe"),
+                 source.get("agent_id"),
+                 1 if source.get("etl_enabled", True) else 0,
+                 source.get("etl_mode", "incremental"),
+                 source.get("etl_schedule", "*/15 * * * *")),
             )
         return {"success": True, "message": "Source ajoutée"}
     except Exception as e:

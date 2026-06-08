@@ -377,8 +377,18 @@ namespace SageETLAgent.Services
             }
         }
 
+        private int _cycleCount = 0;
+        private const int ReloadConfigEveryNCycles = 10;
+
         private async Task RunSyncCycleAsync(CancellationToken ct)
         {
+            // Recharger les tables periodiquement pour prendre en compte les toggles
+            _cycleCount++;
+            if (_cycleCount % ReloadConfigEveryNCycles == 0)
+            {
+                await LoadTablesConfigAsync();
+            }
+
             if (_syncScheduler == null || !_tables.Any())
                 return;
 
@@ -463,7 +473,12 @@ namespace SageETLAgent.Services
 
                 List<Dictionary<string, object?>> data;
 
-                if (_incrementalEngine != null &&
+                // Mode special: extraction dynamique des informations libres Sage (EAV)
+                if (table.CustomQuery == "__INFO_LIBRES_VALUES__")
+                {
+                    data = await sageExtractor.ExtractInfoLibresValuesAsync(extractProgress, ct);
+                }
+                else if (_incrementalEngine != null &&
                     table.SyncType == "incremental" &&
                     !string.IsNullOrEmpty(table.TimestampColumn) &&
                     lastSync != null &&
@@ -488,6 +503,19 @@ namespace SageETLAgent.Services
                         ct);
                 }
 
+                // Diagnostic: detecter les lignes exclues par les JOINs (full reload uniquement)
+                if (!table.ForceFullReload && table.SyncType != "incremental" || (lastSync == null && !table.ForceFullReload))
+                {
+                    try
+                    {
+                        var (baseCount, queryCount, excluded) = await sageExtractor.DiagnoseJoinExclusionsAsync(
+                            table.TableName, table.CustomQuery, null, ct);
+                        if (excluded > 0)
+                            Log($"[{table.TableName}] ATTENTION: {excluded:N0} lignes exclues par les JOINs ({baseCount:N0} base vs {queryCount:N0} extraites)");
+                    }
+                    catch { /* diagnostic non-bloquant */ }
+                }
+
                 // Injecter DB_Id (identifiant client multi-tenant) dans chaque ligne
                 if (data.Any() && !string.IsNullOrWhiteSpace(_agent.DwhCode))
                 {
@@ -507,6 +535,24 @@ namespace SageETLAgent.Services
                 if (!data.Any())
                 {
                     Log($"[{table.TableName}] 0 lignes modifiees");
+                    // Creer la table vide dans le DWH si elle n'existe pas encore
+                    try
+                    {
+                        var targetTableName = table.TargetTable ?? table.TableName;
+                        var sourceQuery = table.CustomQuery ?? $"SELECT * FROM [{table.TableName}]";
+                        var schemaColumns = await sageExtractor.GetQueryColumnsAsync(sourceQuery, ct);
+                        if (schemaColumns.Any())
+                        {
+                            await dwhWriter.EnsureTableExistsFromColumnsAsync(
+                                targetTableName, schemaColumns, _agent.DwhCode, ct);
+                        }
+                    }
+                    catch (Exception emptyEx)
+                    {
+                        _logger.Warn(LogCategory.CHARGEMENT,
+                            $"Creation table vide ignoree: {emptyEx.Message}",
+                            _agent.Name, table.TableName);
+                    }
                 }
                 else
                 {

@@ -3,9 +3,13 @@ import { Brain, CheckCircle, XCircle, Trash2, Plus, Edit3, Save, X, ThumbsUp, Th
 import api from '../services/api'
 
 const PROVIDER_MODELS = {
-  openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5'],
-  ollama:    ['llama3.2', 'mistral', 'codellama', 'phi3'],
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
+  openai:    ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o4-mini', 'gpt-4.1'],
+  google:    ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+  mistral:   ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'codestral-latest'],
+  groq:      ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
+  deepseek:  ['deepseek-chat', 'deepseek-reasoner'],
+  ollama:    ['llama3.2', 'mistral', 'codellama', 'phi3', 'mixtral', 'qwen2.5'],
 }
 
 const getUserHeader = () => {
@@ -246,8 +250,12 @@ export default function AIQueryLibraryPage() {
                   }}
                   className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500">
                   <option value="">-- Choisir --</option>
-                  <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="google">Google (Gemini)</option>
+                  <option value="mistral">Mistral AI</option>
+                  <option value="groq">Groq</option>
+                  <option value="deepseek">DeepSeek</option>
                   <option value="ollama">Ollama (local)</option>
                 </select>
               </div>
@@ -255,16 +263,19 @@ export default function AIQueryLibraryPage() {
               {/* Model */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Modèle</label>
-                <select value={aiConfig.AI_MODEL}
+                <input type="text" list="ai-models-list"
+                  value={aiConfig.AI_MODEL}
+                  placeholder="Sélectionner ou saisir un modèle"
                   onChange={e => setAiConfig(p => ({ ...p, AI_MODEL: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                  className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <datalist id="ai-models-list">
                   {(PROVIDER_MODELS[aiConfig.AI_PROVIDER] || []).map(m => (
-                    <option key={m} value={m}>{m}</option>
+                    <option key={m} value={m} />
                   ))}
-                </select>
+                </datalist>
               </div>
 
-              {/* API Key */}
+              {/* API Key — all cloud providers */}
               {aiConfig.AI_PROVIDER && aiConfig.AI_PROVIDER !== 'ollama' && (
                 <div className="md:col-span-2">
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Clé API</label>

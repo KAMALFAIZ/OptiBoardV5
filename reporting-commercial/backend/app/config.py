@@ -1,3 +1,4 @@
+from pydantic import computed_field
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pathlib import Path
@@ -58,9 +59,10 @@ class Settings(BaseSettings):
     MASTER_TIMEOUT: int = 30        # timeout HTTP en secondes
 
     # AI Module settings
-    AI_PROVIDER: str = ""  # "openai" | "anthropic" | "ollama"
+    AI_PROVIDER: str = ""  # "openai" | "anthropic" | "ollama" | "google" | "mistral" | "groq" | "deepseek"
     AI_MODEL: str = ""
     AI_API_KEY: str = ""
+    AI_BASE_URL: str = ""  # URL personnalisée (auto-détecté si vide)
     AI_OLLAMA_URL: str = "http://localhost:11434"
     AI_MAX_TOKENS: int = 4096
     AI_TEMPERATURE: float = 0.2
@@ -87,6 +89,7 @@ class Settings(BaseSettings):
     WA_APP_SECRET: str = ""            # App Secret (validation signature webhook)
     WA_BOT_ENABLED: bool = False       # Activer/désactiver le chatbot WhatsApp
 
+    @computed_field
     @property
     def database_url(self) -> str:
         return (
@@ -98,21 +101,25 @@ class Settings(BaseSettings):
             f"TrustServerCertificate=yes"
         )
 
+    @computed_field
     @property
     def is_configured(self) -> bool:
         """Verifie si la base de donnees est configuree"""
         return bool(self.DB_SERVER and self.DB_NAME and self.DB_USER and self.DB_PASSWORD)
 
+    @computed_field
     @property
     def is_standalone(self) -> bool:
         """Retourne True si le mode client autonome est activé"""
         return self.STANDALONE_MODE
 
+    @computed_field
     @property
     def is_production(self) -> bool:
         """Retourne True si l'application tourne en mode production"""
-        return self.APP_ENV.lower() == "production"
+        return (self.APP_ENV or 'development').lower() == "production"
 
+    @computed_field
     @property
     def is_licensed(self) -> bool:
         """Verifie si une cle de licence est configuree (toujours True en standalone sans URL)"""

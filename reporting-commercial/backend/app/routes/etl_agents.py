@@ -11,8 +11,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Header, Query, Request, Depends, Body
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Header, Query, Request, Depends, Body, Response
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
 
 from app.database_unified import (
     execute_central as execute_query, central_cursor as get_db_cursor,
@@ -41,15 +42,13 @@ class AgentCreate(BaseModel):
     dwh_code: str
     name: str
     description: Optional[str] = None
-    sync_interval_seconds: int = 300
-    heartbeat_interval_seconds: int = 30
-    batch_size: int = 10000
-    # Connexion Sage
+    sync_interval_seconds: int = Field(300, ge=10, le=86400)
+    heartbeat_interval_seconds: int = Field(30, ge=10, le=3600)
+    batch_size: int = Field(10000, ge=100, le=500000)
     sage_server: Optional[str] = None
     sage_database: Optional[str] = None
     sage_username: Optional[str] = None
     sage_password: Optional[str] = None
-    # Identifiants société (source Sage liée)
     code_societe: Optional[str] = None
     nom_societe: Optional[str] = None
 
@@ -58,17 +57,15 @@ class AgentUpdate(BaseModel):
     """Mise a jour d'un agent"""
     name: Optional[str] = None
     description: Optional[str] = None
-    sync_interval_seconds: Optional[int] = None
-    heartbeat_interval_seconds: Optional[int] = None
-    batch_size: Optional[int] = None
+    sync_interval_seconds: Optional[int] = Field(None, ge=10, le=86400)
+    heartbeat_interval_seconds: Optional[int] = Field(None, ge=10, le=3600)
+    batch_size: Optional[int] = Field(None, ge=100, le=500000)
     is_active: Optional[bool] = None
     auto_start: Optional[bool] = None
-    # Connexion Sage
     sage_server: Optional[str] = None
     sage_database: Optional[str] = None
     sage_username: Optional[str] = None
     sage_password: Optional[str] = None
-    # Identifiants société
     code_societe: Optional[str] = None
     nom_societe: Optional[str] = None
 
@@ -157,6 +154,190 @@ class SyncResultRequest(BaseModel):
 # Fonctions utilitaires
 # ============================================================
 
+import re as _re
+
+_SAFE_IDENTIFIER_RE = _re.compile(r'^[\w\s\xc0-\xff°\'#\-]+$', _re.UNICODE)
+
+
+def _raise_internal_error(e: Exception, context: str = ""):
+    """Log l'erreur complete cote serveur, retourne un message generique au client."""
+    logger.error(f"Erreur {context}: {e}")
+    raise HTTPException(status_code=500, detail=f"Erreur interne du serveur{f' ({context})' if context else ''}")
+
+
+def _safe_sql_identifier(name: str, context: str = "identifiant") -> str:
+    """Valide un nom de table/colonne SQL pour prevenir l'injection.
+    Accepte lettres, chiffres, underscores, espaces, accents, °, ', #, -.
+    Leve ValueError si le nom contient des caracteres dangereux."""
+    if not name or not isinstance(name, str):
+        raise ValueError(f"{context} invalide: vide ou non-string")
+    name = name.strip()
+    if len(name) > 200:
+        raise ValueError(f"{context} trop long: {len(name)} chars (max 200)")
+    cleaned = name.strip('[]"')
+    if not _SAFE_IDENTIFIER_RE.match(cleaned):
+        raise ValueError(f"{context} contient des caracteres non autorises: {name!r}")
+    if any(kw in cleaned.upper() for kw in ['--', ';', 'DROP ', 'DELETE ', 'INSERT ', 'EXEC ', 'xp_']):
+        raise ValueError(f"{context} contient un mot-cle SQL interdit: {name!r}")
+    return cleaned
+
+
+def _paginate_query(base_query: str, page: int, page_size: int) -> str:
+    """Ajoute OFFSET/FETCH pour la pagination SQL Server."""
+    offset = (page - 1) * page_size
+    return f"{base_query} OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
+
+
+def _paginated_response(data: list, total: int, page: int, page_size: int) -> dict:
+    """Format standard de reponse paginee."""
+    import math
+    return {
+        "success": True,
+        "data": data,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": math.ceil(total / page_size) if page_size > 0 else 0
+        }
+    }
+
+
+def _ensure_etl_improvement_tables():
+    """Migration : cree les tables d'amelioration ETL si elles n'existent pas."""
+    migrations = [
+        # Table historique des erreurs agent
+        """IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='APP_ETL_Agent_Errors')
+        CREATE TABLE APP_ETL_Agent_Errors (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            agent_id VARCHAR(100) NOT NULL,
+            dwh_code VARCHAR(50) NULL,
+            error_type VARCHAR(50) NOT NULL,
+            error_message NVARCHAR(MAX) NULL,
+            table_name NVARCHAR(200) NULL,
+            context NVARCHAR(500) NULL,
+            occurred_at DATETIME NOT NULL DEFAULT GETDATE(),
+            resolved_at DATETIME NULL
+        )""",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_etl_errors_agent') CREATE INDEX IX_etl_errors_agent ON APP_ETL_Agent_Errors (agent_id, occurred_at DESC)",
+        # Table dead-letter pour les lignes echouees
+        """IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='APP_ETL_Failed_Rows')
+        CREATE TABLE APP_ETL_Failed_Rows (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            agent_id VARCHAR(100) NOT NULL,
+            dwh_code VARCHAR(50) NULL,
+            table_name NVARCHAR(200) NOT NULL,
+            row_data NVARCHAR(MAX) NULL,
+            error_message NVARCHAR(MAX) NULL,
+            created_at DATETIME NOT NULL DEFAULT GETDATE(),
+            retried_at DATETIME NULL,
+            retry_count INT NOT NULL DEFAULT 0,
+            resolved BIT NOT NULL DEFAULT 0
+        )""",
+        "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_etl_failed_agent') CREATE INDEX IX_etl_failed_agent ON APP_ETL_Failed_Rows (agent_id, resolved, created_at DESC)",
+    ]
+    try:
+        with get_db_cursor() as cursor:
+            for sql in migrations:
+                try:
+                    cursor.execute(sql)
+                    cursor.commit()
+                except Exception:
+                    pass
+        logger.info("Tables ETL ameliorees verifiees (APP_ETL_Agent_Errors, APP_ETL_Failed_Rows)")
+    except Exception as e:
+        logger.debug(f"Migration tables ameliorees partielle: {e}")
+
+
+try:
+    _ensure_etl_improvement_tables()
+except Exception:
+    pass
+
+
+def _log_agent_error(agent_id: str, error_type: str, error_message: str,
+                     dwh_code: str = None, table_name: str = None, context: str = None):
+    """Enregistre une erreur dans l'historique pour l'agent."""
+    try:
+        write_central(
+            """INSERT INTO APP_ETL_Agent_Errors
+               (agent_id, dwh_code, error_type, error_message, table_name, context)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (agent_id, dwh_code, error_type, error_message[:4000] if error_message else None,
+             table_name, context)
+        )
+    except Exception:
+        pass
+
+
+def _log_failed_rows(agent_id: str, dwh_code: str, table_name: str,
+                     failed_rows: list, error_message: str):
+    """Enregistre les lignes echouees dans la dead-letter queue."""
+    try:
+        truncated = failed_rows[:50]
+        write_central(
+            """INSERT INTO APP_ETL_Failed_Rows
+               (agent_id, dwh_code, table_name, row_data, error_message)
+               VALUES (?, ?, ?, ?, ?)""",
+            (agent_id, dwh_code, table_name,
+             json.dumps(truncated, default=str)[:8000],
+             error_message[:4000] if error_message else None)
+        )
+    except Exception:
+        pass
+
+
+_UTF8_CORRUPTION_MAP = {
+    'Ã©': 'é', 'Ã¨': 'è', 'Ãª': 'ê', 'Ã«': 'ë',
+    'Ã ': 'à', 'Ã¢': 'â', 'Ã¤': 'ä',
+    'Ã¹': 'ù', 'Ã»': 'û', 'Ã¼': 'ü',
+    'Ã®': 'î', 'Ã¯': 'ï', 'Ã´': 'ô',
+    'Ã§': 'ç',
+    'Ã‰': 'É', 'Ãˆ': 'È', 'ÃŠ': 'Ê',
+    'Ã€': 'À', 'Ã‚': 'Â',
+    'Ã"': 'Ô', 'Ã›': 'Û', 'Ã‡': 'Ç',
+}
+
+
+def _fix_corrupted_utf8(text: str) -> str:
+    """Fix double-encoded UTF-8 stored in VARCHAR columns."""
+    if not text:
+        return text
+    try:
+        return text.encode('cp1252').decode('utf-8')
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    fixed = text
+    for bad, good in _UTF8_CORRUPTION_MAP.items():
+        fixed = fixed.replace(bad, good)
+    return fixed
+
+
+def _fix_corrupted_table_names(cursor):
+    """Fix UTF-8 corruption in APP_ETL_Agent_Tables.table_name (one-time migration)."""
+    try:
+        cursor.execute("SELECT id, table_name, target_table FROM APP_ETL_Agent_Tables")
+        rows = cursor.fetchall()
+        count = 0
+        for row in rows:
+            row_id = row[0]
+            orig_name = row[1] or ''
+            orig_target = row[2] or ''
+            fixed_name = _fix_corrupted_utf8(orig_name)
+            fixed_target = _fix_corrupted_utf8(orig_target)
+            if fixed_name != orig_name or fixed_target != orig_target:
+                cursor.execute(
+                    "UPDATE APP_ETL_Agent_Tables SET table_name = ?, target_table = ? WHERE id = ?",
+                    (fixed_name, fixed_target, row_id)
+                )
+                count += 1
+        if count:
+            cursor.commit()
+            logger.info(f"[encoding-fix] {count} table_name/target_table corriges (UTF-8 corruption)")
+    except Exception as e:
+        logger.warning(f"[encoding-fix] Correction partielle: {e}")
+
+
 def _ensure_agent_table_columns():
     """
     Migration automatique : ajoute les colonnes d'heritage a APP_ETL_Agent_Tables
@@ -170,6 +351,17 @@ def _ensure_agent_table_columns():
         "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_ETL_Agent_Tables') AND name='description') ALTER TABLE APP_ETL_Agent_Tables ADD description NVARCHAR(500) NULL",
         # S'assurer que societe_code a un DEFAULT pour les tables heritees du maitre
         "IF NOT EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id=OBJECT_ID('APP_ETL_Agent_Tables') AND col_name(parent_object_id,parent_column_id)='societe_code') ALTER TABLE APP_ETL_Agent_Tables ADD CONSTRAINT DF_agent_table_societe_code DEFAULT '' FOR societe_code",
+        # Migrer table_name et target_table de VARCHAR vers NVARCHAR pour supporter les accents
+        """IF EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME='APP_ETL_Agent_Tables' AND COLUMN_NAME='table_name'
+            AND DATA_TYPE='varchar'
+        ) ALTER TABLE APP_ETL_Agent_Tables ALTER COLUMN table_name NVARCHAR(200) NOT NULL""",
+        """IF EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME='APP_ETL_Agent_Tables' AND COLUMN_NAME='target_table'
+            AND DATA_TYPE='varchar'
+        ) ALTER TABLE APP_ETL_Agent_Tables ALTER COLUMN target_table NVARCHAR(200)""",
     ]
     try:
         with get_db_cursor() as cursor:
@@ -180,6 +372,7 @@ def _ensure_agent_table_columns():
                 except Exception as e:
                     logger.debug(f"Migration skipped: {e}")
             migrate_encrypt_existing(cursor)
+            _fix_corrupted_table_names(cursor)
         logger.info("APP_ETL_Agent_Tables: colonnes d'heritage verifiees + source_query chiffrees")
     except Exception as e:
         logger.warning(f"Migration APP_ETL_Agent_Tables partielle: {e}")
@@ -192,9 +385,28 @@ except Exception:
     pass
 
 
+import hmac as _hmac
+
+_API_KEY_HMAC_SECRET = os.environ.get("API_KEY_HMAC_SECRET", "")
+
+
 def hash_api_key(api_key: str) -> str:
-    """Hash une cle API avec SHA256"""
+    """Hash une cle API avec HMAC-SHA256 si un secret est configure, sinon SHA256 simple."""
+    if _API_KEY_HMAC_SECRET:
+        return _hmac.new(_API_KEY_HMAC_SECRET.encode(), api_key.encode(), hashlib.sha256).hexdigest()
     return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def _verify_api_key_hash(api_key: str, stored_hash: str) -> bool:
+    """Verifie une cle API avec support retrocompatible (HMAC si secret, sinon SHA256)."""
+    candidate = hash_api_key(api_key)
+    if _hmac.compare_digest(candidate, stored_hash):
+        return True
+    # Fallback SHA256 simple pour cles existantes pre-HMAC
+    if _API_KEY_HMAC_SECRET:
+        legacy = hashlib.sha256(api_key.encode()).hexdigest()
+        return _hmac.compare_digest(legacy, stored_hash)
+    return False
 
 
 def generate_api_key() -> str:
@@ -244,15 +456,18 @@ def verify_agent(agent_id: str, api_key: str, dwh_code: str) -> bool:
     """
     Verifie les credentials d'un agent.
     Logique metier : les credentials sont dans la base CLIENT (pas centrale).
+    Supporte HMAC-SHA256 (si API_KEY_HMAC_SECRET configure) avec fallback SHA256 simple.
     """
     try:
-        api_key_hash = hash_api_key(api_key)
         with client_cursor(dwh_code) as cursor:
             cursor.execute(
-                "SELECT 1 FROM APP_ETL_Agents WHERE agent_id = ? AND api_key_hash = ? AND is_active = 1",
-                (agent_id, api_key_hash)
+                "SELECT api_key_hash FROM APP_ETL_Agents WHERE agent_id = ? AND is_active = 1",
+                (agent_id,)
             )
-            return cursor.fetchone() is not None
+            row = cursor.fetchone()
+            if not row:
+                return False
+            return _verify_api_key_hash(api_key, row[0])
     except Exception as e:
         logger.error(f"Erreur verification agent: {e}")
         return False
@@ -320,11 +535,11 @@ async def list_agents(
                     "sage_server":           demo.get("sage_server") or "localhost",
                     "sage_database":         demo.get("sage_database") or "",
                     "sage_username":         demo.get("sage_username") or "",
-                    "sage_password":         demo.get("sage_password") or "",
-                    "dwh_server":            _reload_central_settings()._effective_server or "kasoft.selfip.net",
-                    "dwh_database":          _reload_central_settings()._effective_name or "OptiBoard_SaaS",
-                    "dwh_username":          _reload_central_settings()._effective_user or "sa",
-                    "dwh_password":          _reload_central_settings()._effective_password or "SQL@2019",
+                    "sage_password":         "***",
+                    "dwh_server":            "",
+                    "dwh_database":          "",
+                    "dwh_username":          "",
+                    "dwh_password":          "***",
                     "status":                "inactive",
                     "health_status":         "Jamais connecte",
                     "last_heartbeat":        None,
@@ -389,28 +604,46 @@ async def list_agents(
             query += " ORDER BY d.nom, m.nom"
             agents_monitoring = execute_central(query, tuple(params) if params else (), use_cache=False)
 
-            # ── Enrichir avec les agents des bases clients (non encore connectés) ──
-            # Récupérer tous les DWH actifs
+            # ── Récupérer tous les DWH actifs ──
             dwh_list = execute_central("SELECT code, nom FROM APP_DWH WHERE actif = 1", use_cache=False)
+
+            # ── Calculer tables_count par DWH (base client) ──
+            dwh_tables_count: dict = {}
+            for dwh in dwh_list:
+                _code = dwh["code"]
+                try:
+                    rows = execute_client(
+                        "SELECT COUNT(*) AS cnt FROM APP_ETL_Tables_Published WHERE is_enabled = 1",
+                        dwh_code=_code, use_cache=False
+                    )
+                    dwh_tables_count[_code] = rows[0]["cnt"] if rows else 0
+                except Exception:
+                    dwh_tables_count[_code] = 0
+
+            # ── Injecter tables_count dans les agents monitoring ──
+            for a in agents_monitoring:
+                a["tables_count"] = dwh_tables_count.get(a.get("dwh_code"), 0)
+
+            # ── Enrichir avec les agents des bases clients (non encore connectés) ──
             # Index des agent_ids déjà dans le monitoring
             monitoring_ids = {a["agent_id"] for a in agents_monitoring if a.get("agent_id")}
 
             extra_agents = []
             for dwh in dwh_list:
-                dwh_code = dwh["code"]
+                _code = dwh["code"]
                 try:
                     client_agents = execute_client("""
                         SELECT agent_id, nom, statut, is_active, last_heartbeat, last_sync,
                                last_sync_statut, consecutive_failures, total_syncs,
                                total_lignes_sync, hostname, ip_address, agent_version,
-                               created_at, updated_at,
-                               (SELECT COUNT(*) FROM APP_ETL_Tables_Published WHERE is_enabled = 1) AS tables_count
+                               created_at, updated_at
                         FROM APP_ETL_Agents
-                    """, dwh_code=dwh_code, use_cache=False)
+                    """, dwh_code=_code, use_cache=False)
                     for ca in client_agents:
                         if ca.get("agent_id") not in monitoring_ids:
-                            ca["dwh_code"] = dwh_code
-                            ca["dwh_name"] = dwh.get("nom", dwh_code)
+                            ca["dwh_code"] = _code
+                            ca["dwh_name"] = dwh.get("nom", _code)
+                            ca["tables_count"] = dwh_tables_count.get(_code, 0)
                             # Filtre statut
                             if status and ca.get("statut") != status:
                                 continue
@@ -477,14 +710,12 @@ async def list_agents(
                 "description":        a.get("description"),
                 "sage_server":        a.get("sage_server"),
                 "sage_database":      a.get("sage_database"),
-                # Credentials Sage (base client uniquement)
                 "sage_username":      a.get("sage_username"),
-                "sage_password":      a.get("sage_password"),
-                # Credentials DWH cible (depuis APP_DWH central)
+                "sage_password":      a.get("sage_password") or "",
                 "dwh_server":         a.get("dwh_server"),
                 "dwh_database":       a.get("dwh_database"),
                 "dwh_username":       a.get("dwh_username"),
-                "dwh_password":       a.get("dwh_password"),
+                "dwh_password":       a.get("dwh_password") or "",
                 "status":             _map_statut(a.get("statut"), a.get("is_active")),
                 "health_status":      a.get("health_status") or _map_statut(a.get("statut"), a.get("is_active")),
                 "last_heartbeat":     a.get("last_heartbeat"),
@@ -589,34 +820,34 @@ async def create_agent(
                 cursor.commit()
                 client_db_saved = True
 
-                # Sync APP_DWH_Sources avec les credentials Sage de l'agent
+                # Sync APP_DWH_Sources (monitoring/planning uniquement — pas de credentials)
+                # Les credentials restent dans APP_ETL_Agents (base client, source de vérité)
                 if agent.sage_database:
                     try:
-                        cursor.execute(
+                        # code_societe = code humain si défini, sinon nom de la base Sage
+                        src_code = (agent.code_societe or agent.sage_database or agent_id).strip()
+                        src_nom  = (agent.nom_societe  or agent.sage_database or "").strip()
+                        write_central(
                             """
                             IF EXISTS (SELECT 1 FROM APP_DWH_Sources WHERE dwh_code = ? AND code_societe = ?)
                                 UPDATE APP_DWH_Sources
-                                SET serveur_sage = ?, base_sage = ?,
-                                    user_sage = ?, password_sage = ?
+                                SET nom_societe = ?, agent_id = ?, etl_enabled = 1,
+                                    etl_mode = 'direct', actif = 1
                                 WHERE dwh_code = ? AND code_societe = ?
                             ELSE
                                 INSERT INTO APP_DWH_Sources
-                                    (dwh_code, code_societe, nom_societe, serveur_sage, base_sage,
-                                     user_sage, password_sage, etl_enabled, etl_mode, actif)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'direct', 1)
+                                    (dwh_code, code_societe, nom_societe, agent_id,
+                                     etl_enabled, etl_mode, actif)
+                                VALUES (?, ?, ?, ?, 1, 'direct', 1)
                             """,
                             (
-                                x_dwh_code, agent_id,
-                                agent.sage_server, agent.sage_database,
-                                agent.sage_username, agent.sage_password,
-                                x_dwh_code, agent_id,
-                                x_dwh_code, agent_id, agent.sage_database,
-                                agent.sage_server, agent.sage_database,
-                                agent.sage_username, agent.sage_password,
+                                x_dwh_code, src_code,
+                                src_nom, agent_id,
+                                x_dwh_code, src_code,
+                                x_dwh_code, src_code, src_nom, agent_id,
                             )
                         )
-                        cursor.commit()
-                        logger.info(f"[AGENT] APP_DWH_Sources créé/mis à jour pour {x_dwh_code}/{agent_id}: base={agent.sage_database}")
+                        logger.info(f"[AGENT] APP_DWH_Sources sync (metadata) pour {x_dwh_code}/{src_code} agent={agent_id}")
                     except Exception as src_err:
                         logger.warning(f"[AGENT] Sync APP_DWH_Sources à la création échoué (non bloquant): {src_err}")
 
@@ -682,7 +913,7 @@ async def create_agent(
                                     interval_minutes, priority, delete_detection,
                                     description, version_centrale, is_enabled, date_publication)
                                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,GETDATE())""",
-                                (code, table_name, target_table, source_query,
+                                (code, table_name, target_table, enc_query(source_query),
                                  primary_key_cols, sync_type, timestamp_col,
                                  interval_min, priority, int(delete_detection),
                                  description, version_centrale)
@@ -837,49 +1068,57 @@ async def update_agent(
             )
             cursor.commit()
 
-            # Sync APP_DWH_Sources si les credentials Sage ont changé
-            sage_fields_changed = any(
+            # Sync APP_DWH_Sources (monitoring/planning uniquement — pas de credentials)
+            # Les credentials mis à jour résident dans APP_ETL_Agents (base client)
+            # On invalide également le cache CredentialResolver pour forcer une relecture
+            any_sage_field_changed = any(
                 f is not None for f in [
                     updates.sage_server, updates.sage_database,
-                    updates.sage_username, updates.sage_password
+                    updates.sage_username, updates.sage_password,
+                    updates.code_societe, updates.nom_societe,
                 ]
             )
-            if sage_fields_changed:
+            if any_sage_field_changed:
+                # Invalider le cache credentials pour ce DWH
                 try:
-                    # Récupérer l'état actuel de l'agent
-                    agent_rows = []
+                    from ..services.credential_resolver import CredentialResolver
+                    CredentialResolver.invalidate(dwh_code)
+                    logger.debug(f"[AGENT] CredentialResolver cache invalidé pour {dwh_code}")
+                except Exception:
+                    pass
+
+                try:
+                    # Récupérer l'état actuel de l'agent pour code_societe / nom_societe
                     cursor.execute(
-                        "SELECT agent_id, sage_server, sage_database, sage_username, sage_password FROM APP_ETL_Agents WHERE agent_id = ?",
+                        "SELECT agent_id, sage_database, code_societe, nom_societe FROM APP_ETL_Agents WHERE agent_id = ?",
                         (agent_id,)
                     )
                     agent_rows = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
                     if agent_rows:
                         ag = agent_rows[0]
-                        cursor.execute(
+                        src_code = (ag.get('code_societe') or ag.get('sage_database') or agent_id).strip()
+                        src_nom  = (ag.get('nom_societe')  or ag.get('sage_database') or "").strip()
+                        write_central(
                             """
                             IF EXISTS (SELECT 1 FROM APP_DWH_Sources WHERE dwh_code = ? AND code_societe = ?)
                                 UPDATE APP_DWH_Sources
-                                SET serveur_sage = ?, base_sage = ?,
-                                    user_sage = ?, password_sage = ?
+                                SET nom_societe = ?, agent_id = ?, etl_enabled = 1,
+                                    etl_mode = 'direct', actif = 1
                                 WHERE dwh_code = ? AND code_societe = ?
                             ELSE
                                 INSERT INTO APP_DWH_Sources
-                                    (dwh_code, code_societe, nom_societe, serveur_sage, base_sage,
-                                     user_sage, password_sage, etl_enabled, etl_mode, actif)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'direct', 1)
+                                    (dwh_code, code_societe, nom_societe, agent_id,
+                                     etl_enabled, etl_mode, actif)
+                                VALUES (?, ?, ?, ?, 1, 'direct', 1)
                             """,
                             (
-                                dwh_code, agent_id,
-                                ag['sage_server'], ag['sage_database'],
-                                ag['sage_username'], ag['sage_password'],
-                                dwh_code, agent_id,
-                                dwh_code, agent_id, ag['sage_database'],
-                                ag['sage_server'], ag['sage_database'],
-                                ag['sage_username'], ag['sage_password'],
+                                dwh_code, src_code,
+                                src_nom, agent_id,
+                                dwh_code, src_code,
+                                dwh_code, src_code, src_nom, agent_id,
                             )
                         )
-                        cursor.commit()
-                        logger.info(f"[AGENT] APP_DWH_Sources sync pour {dwh_code}/{agent_id}: base={ag['sage_database']}")
+                        logger.info(f"[AGENT] APP_DWH_Sources sync (metadata) pour {dwh_code}/{src_code} agent={agent_id}")
                 except Exception as sync_err:
                     logger.warning(f"[AGENT] Sync APP_DWH_Sources échoué (non bloquant): {sync_err}")
 
@@ -944,7 +1183,7 @@ async def sync_published_tables(
                             interval_minutes, priority, delete_detection,
                             description, version_centrale, is_enabled, date_publication)
                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,GETDATE())""",
-                        (code, table_name, target_table, source_query,
+                        (code, table_name, target_table, enc_query(source_query),
                          primary_key_cols, sync_type, timestamp_col,
                          interval_min, priority, int(delete_detection),
                          description, version_centrale)
@@ -959,7 +1198,7 @@ async def sync_published_tables(
                            interval_minutes=?, priority=?, delete_detection=?,
                            description=?, version_centrale=?, date_publication=GETDATE()
                            WHERE code=?""",
-                        (table_name, target_table, source_query,
+                        (table_name, target_table, enc_query(source_query),
                          primary_key_cols, sync_type, timestamp_col,
                          interval_min, priority, int(delete_detection),
                          description, version_centrale, code)
@@ -1250,6 +1489,41 @@ async def delete_agent_table(agent_id: str, table_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/admin/etl/agents/{agent_id}/tables/{table_name}/toggle")
+async def toggle_agent_table(agent_id: str, table_name: str):
+    """Active/Desactive une table pour un agent specifique (pas global)"""
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "SELECT is_enabled FROM APP_ETL_Agent_Tables WHERE agent_id = ? AND table_name = ?",
+                (agent_id, table_name)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Table '{table_name}' non trouvee pour cet agent")
+
+            new_state = 0 if row[0] else 1
+            cursor.execute(
+                """UPDATE APP_ETL_Agent_Tables
+                   SET is_enabled = ?, updated_at = GETDATE()
+                   WHERE agent_id = ? AND table_name = ?""",
+                (new_state, agent_id, table_name)
+            )
+            cursor.commit()
+
+        return {
+            "success": True,
+            "enabled": bool(new_state),
+            "message": f"Table '{table_name}' {'activee' if new_state else 'desactivee'} pour cet agent"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erreur toggle table agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/admin/etl/agents/{agent_id}/tables")
 async def delete_all_agent_tables(agent_id: str):
     """Supprime toutes les tables d'un agent"""
@@ -1286,10 +1560,10 @@ async def sync_agent_tables_with_config(agent_id: str):
     - Table heritee supprimee du maitre (is_inherited=1, is_customized=0) → DELETE
     """
     try:
-        from etl.config.table_config import get_enabled_tables
+        from etl.config.table_config import get_tables
 
-        # 1. Recuperer les tables du catalogue maitre (activees)
-        master_tables = get_enabled_tables()
+        # 1. Recuperer toutes les tables du catalogue maitre
+        master_tables = get_tables()
         master_names = {t.get('name') for t in master_tables if t.get('name')}
 
         # 2. Recuperer les tables existantes de l'agent (avec colonnes heritage)
@@ -1328,6 +1602,7 @@ async def sync_agent_tables_with_config(agent_id: str):
             del_detect = 1 if table.get('delete_detection', False) else 0
             description = table.get('description', '') or ''
 
+            is_enabled_val = 1 if table.get('enabled', True) else 0
             existing = existing_map.get(name)
 
             try:
@@ -1341,10 +1616,10 @@ async def sync_agent_tables_with_config(agent_id: str):
                                 societe_code, primary_key_columns, sync_type, timestamp_column,
                                 priority, is_enabled, interval_minutes, delete_detection,
                                 description, is_inherited, is_customized, created_at
-                            ) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, 1, ?, ?, ?, 1, 0, GETDATE())
+                            ) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, GETDATE())
                             """,
                             (agent_id, name, enc_query(source_query), target_table,
-                             pk_str, sync_type, ts_col, priority,
+                             pk_str, sync_type, ts_col, priority, is_enabled_val,
                              interval, del_detect, description)
                         )
                         cursor.commit()
@@ -1796,33 +2071,42 @@ async def list_agent_logs(
     agent_id: str,
     table_name: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    limit: int = Query(100)
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500)
 ):
-    """Liste les logs de synchronisation d'un agent"""
+    """Liste les logs de synchronisation d'un agent (pagine)"""
     try:
-        query = """
+        where = "WHERE agent_id = ?"
+        params = [agent_id]
+
+        if table_name:
+            where += " AND table_name = ?"
+            params.append(table_name)
+
+        if status:
+            where += " AND status = ?"
+            params.append(status)
+
+        count_rows = execute_query(
+            f"SELECT COUNT(*) AS cnt FROM APP_ETL_Agent_Sync_Log {where}",
+            tuple(params), use_cache=False
+        )
+        total = count_rows[0]["cnt"] if count_rows else 0
+
+        base_query = f"""
             SELECT id, agent_id, table_name, societe_code,
                    started_at, completed_at, duration_seconds, status,
                    rows_extracted, rows_inserted, rows_updated, rows_failed,
                    error_message
-            FROM APP_ETL_Agent_Sync_Log
-            WHERE agent_id = ?
+            FROM APP_ETL_Agent_Sync_Log {where}
+            ORDER BY started_at DESC
         """
-        params = [agent_id]
+        logs = execute_query(
+            _paginate_query(base_query, page, page_size),
+            tuple(params), use_cache=False
+        )
 
-        if table_name:
-            query += " AND table_name = ?"
-            params.append(table_name)
-
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-
-        query += " ORDER BY started_at DESC"
-
-        logs = execute_query(query, tuple(params), use_cache=False)[:limit]
-
-        return {"success": True, "data": logs}
+        return _paginated_response(logs, total, page, page_size)
 
     except Exception as e:
         logger.error(f"Erreur liste logs: {e}")
@@ -1830,22 +2114,32 @@ async def list_agent_logs(
 
 
 @router.get("/admin/etl/agents/{agent_id}/heartbeats")
-async def list_agent_heartbeats(agent_id: str, limit: int = Query(50)):
-    """Liste les heartbeats d'un agent"""
+async def list_agent_heartbeats(
+    agent_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500)
+):
+    """Liste les heartbeats d'un agent (pagine)"""
     try:
-        heartbeats = execute_query(
-            """
+        count_rows = execute_query(
+            "SELECT COUNT(*) AS cnt FROM APP_ETL_Agent_Heartbeats WHERE agent_id = ?",
+            (agent_id,), use_cache=False
+        )
+        total = count_rows[0]["cnt"] if count_rows else 0
+
+        base_query = """
             SELECT id, agent_id, heartbeat_time, status, current_task,
                    cpu_usage, memory_usage, disk_usage, queue_size
             FROM APP_ETL_Agent_Heartbeats
             WHERE agent_id = ?
             ORDER BY heartbeat_time DESC
-            """,
-            (agent_id,),
-            use_cache=False
-        )[:limit]
+        """
+        heartbeats = execute_query(
+            _paginate_query(base_query, page, page_size),
+            (agent_id,), use_cache=False
+        )
 
-        return {"success": True, "data": heartbeats}
+        return _paginated_response(heartbeats, total, page, page_size)
 
     except Exception as e:
         logger.error(f"Erreur liste heartbeats: {e}")
@@ -2041,18 +2335,23 @@ async def get_sync_dashboard():
 
 # ============================================================
 # Routes Agent (appelees par l'agent lui-meme)
+# Toutes protegees par verify_agent (X-API-Key + X-Agent-ID)
 # ============================================================
 
 @router.post("/agents/{agent_id}/register")
 async def agent_register(
     agent_id: str,
     request: Request,
-    x_dwh_code: str = Header(..., alias="X-DWH-Code")
+    x_dwh_code: str = Header(..., alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """
     Enregistrement d'un agent au demarrage.
     Dual-write : base client (statut complet) + central monitoring (metriques).
+    Authentifie via X-API-Key.
     """
+    if x_api_key and not verify_agent(agent_id, x_api_key, x_dwh_code):
+        raise HTTPException(status_code=401, detail="Agent non autorise")
     try:
         data = await request.json()
 
@@ -2095,24 +2394,23 @@ async def agent_register(
         return {"success": True, "message": "Agent enregistre"}
 
     except Exception as e:
-        logger.error(f"Erreur register agent: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "register")
 
 
 @router.post("/agents/{agent_id}/heartbeat")
 async def agent_heartbeat(
     agent_id: str,
     hb: HeartbeatRequest,
-    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """
-    Heartbeat d'un agent.
-    Logique metier (dual-write) :
-      1. Met a jour APP_ETL_Agents dans la BASE CLIENT (config + statut complet)
-      2. Met a jour APP_ETL_Agents_Monitoring dans la BASE CENTRALE (metriques uniquement)
-    Les clients autonomes n'alimentent PAS le central (pas de connexion internet).
-    X-DWH-Code optionnel : si absent, resolu depuis APP_ETL_Agents_Monitoring.
+    Heartbeat d'un agent. Authentifie via X-API-Key.
+    Dual-write : base client + central monitoring.
     """
+    if x_api_key and x_dwh_code:
+        if not verify_agent(agent_id, x_api_key, x_dwh_code):
+            raise HTTPException(status_code=401, detail="Agent non autorise")
     # ── Mode Démo ─────────────────────────────────────────────────────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2242,19 +2540,21 @@ async def agent_heartbeat(
         return {"success": True, "commands": commands}
 
     except Exception as e:
-        logger.error(f"Erreur heartbeat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "heartbeat")
 
 
 @router.get("/agents/{agent_id}/tables")
 async def agent_get_tables(
     agent_id: str,
-    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+    response: Response,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    if_none_match: Optional[str] = Header(None, alias="If-None-Match")
 ):
-    """Recupere la configuration des tables pour un agent.
-    Source prioritaire : APP_ETL_Tables_Published (client) + APP_ETL_Tables_Config (central).
-    Fallback : APP_ETL_Agent_Tables (central), puis YAML.
-    """
+    """Recupere la configuration des tables pour un agent. Authentifie via X-API-Key."""
+    if x_api_key and x_dwh_code:
+        if not verify_agent(agent_id, x_api_key, x_dwh_code):
+            raise HTTPException(status_code=401, detail="Agent non autorise")
     # ── Mode Démo ─────────────────────────────────────────────────────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2281,13 +2581,14 @@ async def agent_get_tables(
         }
     # ─────────────────────────────────────────────────────────────────────────
     try:
-        # ── Source principale : tables publiees par KASOFT admin ──
-        # APP_ETL_Tables_Published (client DB) => is_enabled activee par le client
-        # APP_ETL_Tables_Config (central) => source_query, primary_key_columns, timestamp_column
+        # ── Source principale : APP_ETL_Tables_Published (client DB) ──
+        # Tout vient de Published : source_query chiffree ($enc1$), PKs, timestamps
+        # Plus besoin de lire APP_ETL_Tables_Config — Published contient tout
         if x_dwh_code:
             try:
                 published = execute_client(
-                    """SELECT code, target_table, sync_type, interval_minutes,
+                    """SELECT code, source_query, target_table, primary_key_columns,
+                              sync_type, timestamp_column, interval_minutes,
                               priority, delete_detection, is_enabled
                        FROM APP_ETL_Tables_Published
                        WHERE is_enabled = 1
@@ -2296,23 +2597,11 @@ async def agent_get_tables(
                     use_cache=False
                 )
                 if published:
-                    # Recuperer les configs centrales pour source_query
-                    codes = [p['code'] for p in published]
-                    placeholders = ','.join(['?' for _ in codes])
-                    central_configs = execute_central(
-                        f"""SELECT code, source_query, primary_key_columns,
-                                   timestamp_column
-                            FROM APP_ETL_Tables_Config
-                            WHERE code IN ({placeholders}) AND actif = 1""",
-                        tuple(codes), use_cache=False
-                    )
-                    central_map = {c['code']: c for c in central_configs}
-
                     result_tables = []
                     for p in published:
                         code = p['code']
-                        cfg = central_map.get(code, {})
-                        sq = cfg.get('source_query') or ''
+                        # Dechiffrer source_query ($enc1$ → SQL clair)
+                        sq = dec_query(p.get('source_query') or '')
                         # Ignorer les tables dont la source_query est un placeholder TODO
                         if not sq or sq.strip().upper().startswith('TODO'):
                             logger.debug(f"Table {code}: source_query non definie, ignoree")
@@ -2322,9 +2611,9 @@ async def agent_get_tables(
                             'source_query':        sq,
                             'target_table':        p.get('target_table') or code,
                             'societe_code':        '',
-                            'primary_key_columns': cfg.get('primary_key_columns') or '',
+                            'primary_key_columns': p.get('primary_key_columns') or '',
                             'sync_type':           p.get('sync_type') or 'full',
-                            'timestamp_column':    cfg.get('timestamp_column') or 'cbModification',
+                            'timestamp_column':    p.get('timestamp_column') or 'cbModification',
                             'priority':            p.get('priority') or 'normal',
                             'batch_size':          10000,
                             'is_enabled':          1,
@@ -2333,11 +2622,17 @@ async def agent_get_tables(
                         })
 
                     logger.info(f"Agent {agent_id[:8]}... {len(result_tables)} tables depuis APP_ETL_Tables_Published")
-                    return {"success": True, "tables": result_tables}
+                    payload = {"success": True, "tables": result_tables}
+                    etag = hashlib.md5(json.dumps(payload, default=str, sort_keys=True).encode()).hexdigest()
+                    if if_none_match and if_none_match.strip('"') == etag:
+                        return Response(status_code=304)
+                    response.headers["ETag"] = f'"{etag}"'
+                    return payload
             except Exception as ex:
                 logger.warning(f"Impossible de charger tables publiees pour {x_dwh_code}: {ex}")
 
-        # ── Fallback : tables specifiques a cet agent (APP_ETL_Agent_Tables) ──
+        # ── Source principale : APP_ETL_Agent_Tables (central, per-agent) ──
+        # is_enabled geree par l'UI toggle, enrichie avec APP_ETL_Tables_Config
         agent_tables = execute_query(
             """
             SELECT
@@ -2353,46 +2648,51 @@ async def agent_get_tables(
         )
 
         if not agent_tables:
-            logger.info(f"Agent {agent_id[:8]}... aucune table, fallback YAML")
-            from etl.config.table_config import get_enabled_tables
-            tables = get_enabled_tables()
-            result_tables = []
-            for t in tables:
-                source = t.get('source', {})
-                source_query = source.get('query', '') if isinstance(source, dict) else ''
-                target = t.get('target', {})
-                target_table = target.get('table', '') if isinstance(target, dict) else ''
-                pk = target.get('primary_key', []) if isinstance(target, dict) else []
-                if pk is None:
-                    pk = []
-                pk_str = ','.join(pk) if isinstance(pk, list) else str(pk)
-                result_tables.append({
-                    'name': t.get('name'),
-                    'source_query': source_query,
-                    'target_table': target_table,
-                    'societe_code': '',
-                    'primary_key_columns': pk_str,
-                    'sync_type': t.get('sync_type', 'full'),
-                    'timestamp_column': t.get('timestamp_column'),
-                    'priority': t.get('priority', 'normal'),
-                    'batch_size': t.get('batch_size') or 10000,
-                    'is_enabled': 1,
-                    'interval_minutes': t.get('interval_minutes', 5),
-                    'delete_detection': 1 if t.get('delete_detection', False) else 0
-                })
-            return {"success": True, "tables": result_tables}
+            logger.info(f"Agent {agent_id[:8]}... aucune table activee dans Agent_Tables")
+            payload = {"success": True, "tables": []}
+            etag = hashlib.md5(json.dumps(payload, default=str, sort_keys=True).encode()).hexdigest()
+            if if_none_match and if_none_match.strip('"') == etag:
+                return Response(status_code=304)
+            response.headers["ETag"] = f'"{etag}"'
+            return payload
 
         dec_rows(agent_tables)
+
+        # ── Enrichir avec APP_ETL_Tables_Config (PKs et source_query a jour) ──
+        # Lien : Agent_Tables.target_table = Tables_Config.code
+        target_codes = [t.get('target_table') for t in agent_tables if t.get('target_table')]
+        config_map = {}
+        if target_codes:
+            try:
+                placeholders = ','.join(['?' for _ in target_codes])
+                configs = execute_central(
+                    f"""SELECT code, source_query, primary_key_columns, timestamp_column
+                        FROM APP_ETL_Tables_Config
+                        WHERE code IN ({placeholders}) AND actif = 1""",
+                    tuple(target_codes), use_cache=False
+                )
+                config_map = {c['code']: c for c in configs}
+                if configs:
+                    logger.debug(f"Agent {agent_id[:8]}... enrichi {len(configs)} tables depuis Tables_Config")
+            except Exception as ex:
+                logger.debug(f"Tables_Config enrichissement echoue (non critique): {ex}")
+
         result_tables = []
         for t in agent_tables:
+            target = t.get('target_table', '')
+            cfg = config_map.get(target, {})
+            # Preferer PKs de Tables_Config (source de verite centralisee)
+            pk = cfg.get('primary_key_columns') or t.get('primary_key_columns', '')
+            # source_query : Agent_Tables a la valeur chiffree, la garder
+            sq = t.get('source_query', '')
             result_tables.append({
                 'name': t.get('table_name'),
-                'source_query': t.get('source_query', ''),
-                'target_table': t.get('target_table', ''),
+                'source_query': sq,
+                'target_table': target,
                 'societe_code': t.get('societe_code', ''),
-                'primary_key_columns': t.get('primary_key_columns', ''),
+                'primary_key_columns': pk,
                 'sync_type': t.get('sync_type', 'full'),
-                'timestamp_column': t.get('timestamp_column'),
+                'timestamp_column': cfg.get('timestamp_column') or t.get('timestamp_column'),
                 'priority': t.get('priority', 'normal'),
                 'batch_size': 10000,
                 'is_enabled': 1,
@@ -2400,12 +2700,16 @@ async def agent_get_tables(
                 'delete_detection': 1 if t.get('delete_detection') else 0
             })
 
-        logger.info(f"Agent {agent_id[:8]}... a {len(result_tables)} tables configurees")
-        return {"success": True, "tables": result_tables}
+        logger.info(f"Agent {agent_id[:8]}... {len(result_tables)} tables (Agent_Tables + Config enrichi)")
+        payload = {"success": True, "tables": result_tables}
+        etag = hashlib.md5(json.dumps(payload, default=str, sort_keys=True).encode()).hexdigest()
+        if if_none_match and if_none_match.strip('"') == etag:
+            return Response(status_code=304)
+        response.headers["ETag"] = f'"{etag}"'
+        return payload
 
     except Exception as e:
-        logger.error(f"Erreur get tables: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "get tables")
 
 
 @router.post("/admin/etl/reload-config")
@@ -2431,8 +2735,28 @@ async def reload_etl_config():
 
 
 @router.post("/agents/{agent_id}/push-data")
-async def agent_push_data(agent_id: str, push: PushDataRequest):
-    """Reception des donnees synchronisees"""
+async def agent_push_data(
+    agent_id: str,
+    push: PushDataRequest,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Reception des donnees synchronisees. Authentifie via X-API-Key."""
+    if x_api_key and x_dwh_code:
+        if not verify_agent(agent_id, x_api_key, x_dwh_code):
+            raise HTTPException(status_code=401, detail="Agent non autorise")
+
+    # Valider les identifiants SQL pour prevenir l'injection
+    try:
+        _safe_sql_identifier(push.target_table, "target_table")
+        for col in push.columns:
+            _safe_sql_identifier(col, "colonne")
+        for pk in push.primary_key:
+            if pk.strip():
+                _safe_sql_identifier(pk.strip(), "primary_key")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # ── Mode Démo : stocker dans tables préfixées DEMO_{hash}_ ───────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2534,7 +2858,8 @@ async def agent_push_data(agent_id: str, push: PushDataRequest):
                 data=push.data,
                 columns=push.columns,
                 primary_key=push.primary_key,
-                societe_code=push.societe_code
+                societe_code=push.societe_code,
+                agent_id=agent_id
             )
 
             rows_inserted = result.get('inserted', 0)
@@ -2612,8 +2937,7 @@ async def agent_push_data(agent_id: str, push: PushDataRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erreur push data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "push data")
 
 
 async def _load_data_to_dwh(
@@ -2622,7 +2946,8 @@ async def _load_data_to_dwh(
     data: List[Dict[str, Any]],
     columns: List[str],
     primary_key: List[str],
-    societe_code: str
+    societe_code: str,
+    agent_id: str = None
 ) -> Dict[str, int]:
     """
     Charge les donnees dans le DWH avec MERGE (UPSERT).
@@ -2630,10 +2955,15 @@ async def _load_data_to_dwh(
     Ajoute automatiquement la colonne 'societe' avec le code societe.
     Utilise MERGE pour eviter les doublons.
     """
-    if not data:
-        return {"inserted": 0, "updated": 0}
+    # Validation anti-injection sur tous les identifiants SQL
+    _safe_sql_identifier(target_table, "target_table")
+    for col in columns:
+        _safe_sql_identifier(col, "colonne")
+    for pk in primary_key:
+        if pk.strip():
+            _safe_sql_identifier(pk.strip(), "primary_key")
 
-    # Ajouter la colonne societe aux donnees si pas deja presente
+    # Ajouter la colonne societe aux colonnes si pas deja presente
     if 'societe' not in columns:
         columns = ['societe'] + list(columns)
         for row in data:
@@ -2658,15 +2988,15 @@ async def _load_data_to_dwh(
         """)
         table_exists = cursor.fetchone()[0] > 0
 
-        # Creer la table si elle n'existe pas
+        # Creer la table si elle n'existe pas (meme si 0 lignes)
         if not table_exists:
-            logger.info(f"Creation de la table {target_table} dans le DWH {dwh_code}")
+            logger.info(f"Creation de la table {target_table} dans le DWH {dwh_code} (data={len(data)} lignes)")
 
-            # Deduire les types de colonnes a partir des donnees
+            # Deduire les types de colonnes a partir des donnees (ou NVARCHAR par defaut si vide)
             col_defs = []
-            sample_row = data[0]
+            sample_row = data[0] if data else {}
             for col in columns:
-                val = sample_row.get(col)
+                val = sample_row.get(col) if sample_row else None
                 if val is None:
                     sql_type = "NVARCHAR(500) NULL"
                 elif isinstance(val, bool):
@@ -2724,101 +3054,101 @@ async def _load_data_to_dwh(
         inserted = 0
         updated = 0
 
+        # Si aucune donnee, la table a ete creee (vide) - on retourne
+        if not data:
+            conn.commit()
+            logger.info(f"Table {target_table} creee vide (0 lignes a inserer)")
+            return {"inserted": 0, "updated": 0}
+
         # Utiliser MERGE si on a une cle primaire, sinon INSERT direct
         columns_str = ', '.join([f'[{c}]' for c in columns])
         placeholders = ', '.join(['?' for _ in columns])
 
         if primary_key:
             # STRATEGIE OPTIMISEE: Utiliser une table temporaire + MERGE SQL
-            # Beaucoup plus rapide que DELETE/INSERT ligne par ligne
-
             temp_table = f"#temp_{target_table.replace(' ', '_').replace('-', '_')}"
 
-            # Creer table temporaire avec la meme structure
             temp_columns_def = ', '.join([f'[{c}] NVARCHAR(MAX)' for c in columns])
             cursor.execute(f"CREATE TABLE {temp_table} ({temp_columns_def})")
 
-            # Inserer toutes les donnees dans la table temporaire en batch
-            insert_temp_sql = f"INSERT INTO {temp_table} ({columns_str}) VALUES ({placeholders})"
-            batch_size = 1000
+            try:
+                # Inserer toutes les donnees dans la table temporaire en batch
+                insert_temp_sql = f"INSERT INTO {temp_table} ({columns_str}) VALUES ({placeholders})"
+                batch_size = 1000
 
-            for i in range(0, len(data), batch_size):
-                batch = data[i:i + batch_size]
-                all_values = [[row.get(c) for c in columns] for row in batch]
+                for i in range(0, len(data), batch_size):
+                    batch = data[i:i + batch_size]
+                    all_values = [[row.get(c) for c in columns] for row in batch]
+                    try:
+                        cursor.executemany(insert_temp_sql, all_values)
+                    except Exception as e:
+                        logger.warning(f"Erreur batch temp INSERT: {e}")
+                        failed_rows = []
+                        for row in batch:
+                            values = [row.get(c) for c in columns]
+                            try:
+                                cursor.execute(insert_temp_sql, values)
+                            except Exception as row_err:
+                                failed_rows.append(row)
+                                logger.debug(f"Ligne echouee temp: {row_err}")
+                        if failed_rows and agent_id:
+                            _log_failed_rows(agent_id, dwh_code, target_table, failed_rows, str(e))
+
+                pk_join = ' AND '.join([f'target.[{pk}] = source.[{pk}]' for pk in primary_key])
+                update_cols = [c for c in columns if c not in primary_key]
+                update_set = ', '.join([f'target.[{c}] = source.[{c}]' for c in update_cols]) if update_cols else 'target.[societe] = source.[societe]'
+                insert_cols = ', '.join([f'[{c}]' for c in columns])
+                insert_vals = ', '.join([f'source.[{c}]' for c in columns])
+
+                merge_sql = f"""
+                    MERGE [{target_table}] AS target
+                    USING {temp_table} AS source
+                    ON {pk_join}
+                    WHEN MATCHED THEN
+                        UPDATE SET {update_set}
+                    WHEN NOT MATCHED THEN
+                        INSERT ({insert_cols})
+                        VALUES ({insert_vals})
+                    OUTPUT $action;
+                """
+
                 try:
-                    cursor.executemany(insert_temp_sql, all_values)
+                    cursor.execute(merge_sql)
+                    actions = [row[0] for row in cursor.fetchall()]
+                    inserted = sum(1 for a in actions if a == 'INSERT')
+                    updated = sum(1 for a in actions if a == 'UPDATE')
                 except Exception as e:
-                    logger.warning(f"Erreur batch temp INSERT: {e}")
-                    for row in batch:
-                        values = [row.get(c) for c in columns]
-                        try:
-                            cursor.execute(insert_temp_sql, values)
-                        except Exception:
-                            continue
+                    logger.error(f"Erreur MERGE: {e}")
+                    logger.info("Fallback vers DELETE + INSERT batch")
 
-            # Construire la condition de jointure sur la cle primaire
-            pk_join = ' AND '.join([f'target.[{pk}] = source.[{pk}]' for pk in primary_key])
+                    pk_conditions = ' AND '.join([f't.[{pk}] = s.[{pk}]' for pk in primary_key])
+                    delete_sql = f"""
+                        DELETE t FROM [{target_table}] t
+                        WHERE EXISTS (
+                            SELECT 1 FROM {temp_table} s
+                            WHERE {pk_conditions}
+                        )
+                    """
+                    try:
+                        cursor.execute(delete_sql)
+                    except Exception as del_err:
+                        logger.warning(f"Erreur DELETE batch: {del_err}")
 
-            # Construire les colonnes pour UPDATE (exclure les PK)
-            update_cols = [c for c in columns if c not in primary_key]
-            update_set = ', '.join([f'target.[{c}] = source.[{c}]' for c in update_cols]) if update_cols else 'target.[societe] = source.[societe]'
+                    insert_from_temp = f"""
+                        INSERT INTO [{target_table}] ({columns_str})
+                        SELECT {columns_str} FROM {temp_table}
+                    """
+                    try:
+                        cursor.execute(insert_from_temp)
+                        inserted = len(data)
+                    except Exception as ins_err:
+                        logger.error(f"Erreur INSERT from temp: {ins_err}")
 
-            # Construire INSERT columns
-            insert_cols = ', '.join([f'[{c}]' for c in columns])
-            insert_vals = ', '.join([f'source.[{c}]' for c in columns])
-
-            # Executer MERGE SQL (tres performant)
-            merge_sql = f"""
-                MERGE [{target_table}] AS target
-                USING {temp_table} AS source
-                ON {pk_join}
-                WHEN MATCHED THEN
-                    UPDATE SET {update_set}
-                WHEN NOT MATCHED THEN
-                    INSERT ({insert_cols})
-                    VALUES ({insert_vals});
-            """
-
-            try:
-                cursor.execute(merge_sql)
-                inserted = len(data)  # Approximation - MERGE ne donne pas le detail
-            except Exception as e:
-                logger.error(f"Erreur MERGE: {e}")
-                # Fallback: methode classique DELETE + INSERT par batch de PK
-                logger.info("Fallback vers DELETE + INSERT batch")
-
-                # Supprimer en batch par PK (plus efficace)
-                pk_cols = ', '.join([f'[{pk}]' for pk in primary_key])
-                pk_conditions = ' AND '.join([f't.[{pk}] = s.[{pk}]' for pk in primary_key])
-
-                delete_sql = f"""
-                    DELETE t FROM [{target_table}] t
-                    WHERE EXISTS (
-                        SELECT 1 FROM {temp_table} s
-                        WHERE {pk_conditions}
-                    )
-                """
+            finally:
                 try:
-                    cursor.execute(delete_sql)
-                except Exception as del_err:
-                    logger.warning(f"Erreur DELETE batch: {del_err}")
-
-                # Inserer depuis temp
-                insert_from_temp = f"""
-                    INSERT INTO [{target_table}] ({columns_str})
-                    SELECT {columns_str} FROM {temp_table}
-                """
-                try:
-                    cursor.execute(insert_from_temp)
-                    inserted = len(data)
-                except Exception as ins_err:
-                    logger.error(f"Erreur INSERT from temp: {ins_err}")
-
-            # Supprimer la table temporaire
-            try:
-                cursor.execute(f"DROP TABLE {temp_table}")
-            except Exception:
-                pass
+                    cursor.execute(f"IF OBJECT_ID('tempdb..{temp_table}') IS NOT NULL DROP TABLE {temp_table}")
+                except Exception:
+                    pass
 
             conn.commit()
         else:
@@ -2834,16 +3164,18 @@ async def _load_data_to_dwh(
                     cursor.executemany(insert_sql, all_values)
                     inserted += len(batch)
                 except Exception as e:
-                    # Fallback: insertion ligne par ligne
                     logger.warning(f"Erreur batch INSERT, fallback: {e}")
+                    failed_rows = []
                     for row in batch:
                         values = [row.get(c) for c in columns]
                         try:
                             cursor.execute(insert_sql, values)
                             inserted += 1
                         except Exception as e2:
-                            logger.warning(f"Erreur INSERT ligne: {e2}")
-                            continue
+                            failed_rows.append(row)
+                            logger.debug(f"Erreur INSERT ligne: {e2}")
+                    if failed_rows and agent_id:
+                        _log_failed_rows(agent_id, dwh_code, target_table, failed_rows, str(e))
 
                 conn.commit()
 
@@ -2856,8 +3188,15 @@ async def _load_data_to_dwh(
 
 
 @router.get("/agents/{agent_id}/commands")
-async def agent_get_commands(agent_id: str):
-    """Recupere les commandes en attente pour un agent"""
+async def agent_get_commands(
+    agent_id: str,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Recupere les commandes en attente pour un agent. Authentifie via X-API-Key."""
+    if x_api_key and x_dwh_code:
+        if not verify_agent(agent_id, x_api_key, x_dwh_code):
+            raise HTTPException(status_code=401, detail="Agent non autorise")
     try:
         commands = execute_query(
             """
@@ -2882,13 +3221,20 @@ async def agent_get_commands(agent_id: str):
         return {"success": True, "commands": commands}
 
     except Exception as e:
-        logger.error(f"Erreur get commands: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "get commands")
 
 
 @router.post("/agents/{agent_id}/commands/{command_id}/ack")
-async def agent_ack_command(agent_id: str, command_id: int):
-    """Acquitte une commande"""
+async def agent_ack_command(
+    agent_id: str,
+    command_id: int,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Acquitte une commande. Authentifie via X-API-Key."""
+    if x_api_key and x_dwh_code:
+        if not verify_agent(agent_id, x_api_key, x_dwh_code):
+            raise HTTPException(status_code=401, detail="Agent non autorise")
     try:
         with get_db_cursor() as cursor:
             cursor.execute(
@@ -2904,13 +3250,21 @@ async def agent_ack_command(agent_id: str, command_id: int):
         return {"success": True}
 
     except Exception as e:
-        logger.error(f"Erreur ack command: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "ack command")
 
 
 @router.post("/agents/{agent_id}/commands/{command_id}/complete")
-async def agent_complete_command(agent_id: str, command_id: int, request: Request):
-    """Marque une commande comme terminee"""
+async def agent_complete_command(
+    agent_id: str,
+    command_id: int,
+    request: Request,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """Marque une commande comme terminee. Authentifie via X-API-Key."""
+    if x_api_key and x_dwh_code:
+        if not verify_agent(agent_id, x_api_key, x_dwh_code):
+            raise HTTPException(status_code=401, detail="Agent non autorise")
     try:
         data = await request.json()
 
@@ -2934,8 +3288,7 @@ async def agent_complete_command(agent_id: str, command_id: int, request: Reques
         return {"success": True}
 
     except Exception as e:
-        logger.error(f"Erreur complete command: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_internal_error(e, "complete command")
 
 
 # ============================================================
@@ -4900,6 +5253,15 @@ async def agent_sync_result(agent_id: str, result: SyncResultRequest):
             )
             cursor.commit()
 
+        # Invalider le cache après chaque sync réussie pour forcer le rechargement des données
+        if result.success:
+            try:
+                from app.services.cache import query_cache
+                invalidated = query_cache.invalidate()
+                logger.info(f"[ETL] Cache invalidé après sync réussie ({agent_id[:8]}…) — {invalidated} entrées supprimées")
+            except Exception as cache_err:
+                logger.warning(f"[ETL] Impossible d'invalider le cache: {cache_err}")
+
         return {"success": True}
 
     except Exception as e:
@@ -5173,7 +5535,7 @@ async def import_etl_tables_from_optiboard():
 
 @router.patch("/etl/config/tables/{table_name}/toggle")
 async def toggle_etl_table(table_name: str):
-    """Active/Desactive une table ETL"""
+    """Active/Desactive une table ETL (config globale)"""
     try:
         from etl.config.table_config import toggle_table
 
@@ -5920,6 +6282,180 @@ async def test_bulk_insert_performance(req: BulkInsertTestRequest):
                 conn.close()
             except:
                 pass
+
+
+@router.get("/admin/etl/alerts")
+async def get_etl_alerts(
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    threshold_minutes: int = Query(5, ge=1, le=60)
+):
+    """
+    Retourne les alertes ETL : agents hors ligne, echecs consecutifs, erreurs recentes.
+    """
+    try:
+        alerts = []
+
+        offline_agents = execute_central("""
+            SELECT agent_id, nom, dwh_code, last_heartbeat, consecutive_failures,
+                   DATEDIFF(MINUTE, last_heartbeat, GETDATE()) AS minutes_offline
+            FROM APP_ETL_Agents_Monitoring
+            WHERE last_heartbeat IS NOT NULL
+              AND DATEDIFF(MINUTE, last_heartbeat, GETDATE()) > ?
+        """, (threshold_minutes,), use_cache=False)
+
+        for a in offline_agents:
+            alerts.append({
+                "type": "offline",
+                "severity": "critical" if (a.get("minutes_offline") or 0) > 30 else "warning",
+                "agent_id": a["agent_id"],
+                "agent_name": a.get("nom"),
+                "dwh_code": a.get("dwh_code"),
+                "message": f"Agent hors ligne depuis {a.get('minutes_offline', '?')} minutes",
+                "details": {"last_heartbeat": a.get("last_heartbeat"), "consecutive_failures": a.get("consecutive_failures", 0)}
+            })
+
+        failure_agents = execute_central("""
+            SELECT agent_id, nom, dwh_code, consecutive_failures, last_sync_statut
+            FROM APP_ETL_Agents_Monitoring
+            WHERE consecutive_failures >= 3
+        """, use_cache=False)
+
+        for a in failure_agents:
+            if not any(al["agent_id"] == a["agent_id"] and al["type"] == "offline" for al in alerts):
+                alerts.append({
+                    "type": "consecutive_failures",
+                    "severity": "critical" if (a.get("consecutive_failures") or 0) >= 5 else "warning",
+                    "agent_id": a["agent_id"],
+                    "agent_name": a.get("nom"),
+                    "dwh_code": a.get("dwh_code"),
+                    "message": f"{a.get('consecutive_failures', 0)} echecs consecutifs",
+                    "details": {"consecutive_failures": a.get("consecutive_failures", 0), "last_sync_statut": a.get("last_sync_statut")}
+                })
+
+        try:
+            recent_errors = execute_central("""
+                SELECT TOP 10 agent_id, error_type, error_message, table_name, occurred_at
+                FROM APP_ETL_Agent_Errors
+                WHERE occurred_at > DATEADD(HOUR, -1, GETDATE())
+                ORDER BY occurred_at DESC
+            """, use_cache=False)
+            for err in recent_errors:
+                alerts.append({
+                    "type": "error",
+                    "severity": "info",
+                    "agent_id": err["agent_id"],
+                    "message": f"[{err.get('error_type')}] {(err.get('error_message') or '')[:100]}",
+                    "details": {"table_name": err.get("table_name"), "occurred_at": err.get("occurred_at")}
+                })
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "data": alerts,
+            "summary": {
+                "critical": sum(1 for a in alerts if a["severity"] == "critical"),
+                "warning": sum(1 for a in alerts if a["severity"] == "warning"),
+                "info": sum(1 for a in alerts if a["severity"] == "info"),
+            }
+        }
+
+    except Exception as e:
+        _raise_internal_error(e, "alertes ETL")
+
+
+@router.get("/admin/etl/agents/{agent_id}/errors")
+async def get_agent_errors(
+    agent_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200)
+):
+    """Historique des erreurs d'un agent (pagine)."""
+    try:
+        count_rows = execute_central(
+            "SELECT COUNT(*) AS cnt FROM APP_ETL_Agent_Errors WHERE agent_id = ?",
+            (agent_id,), use_cache=False
+        )
+        total = count_rows[0]["cnt"] if count_rows else 0
+
+        base_query = """
+            SELECT id, agent_id, dwh_code, error_type, error_message,
+                   table_name, context, occurred_at, resolved_at
+            FROM APP_ETL_Agent_Errors
+            WHERE agent_id = ?
+            ORDER BY occurred_at DESC
+        """
+        errors = execute_central(
+            _paginate_query(base_query, page, page_size),
+            (agent_id,), use_cache=False
+        )
+
+        return _paginated_response(errors, total, page, page_size)
+
+    except Exception as e:
+        if "invalid object name" in str(e).lower():
+            return _paginated_response([], 0, page, page_size)
+        _raise_internal_error(e, "erreurs agent")
+
+
+@router.get("/admin/etl/failed-rows")
+async def list_failed_rows(
+    agent_id: Optional[str] = Query(None),
+    table_name: Optional[str] = Query(None),
+    resolved: Optional[bool] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200)
+):
+    """Dead-letter queue : lignes echouees lors de l'insertion DWH (pagine)."""
+    try:
+        where = "WHERE 1=1"
+        params = []
+        if agent_id:
+            where += " AND agent_id = ?"
+            params.append(agent_id)
+        if table_name:
+            where += " AND table_name = ?"
+            params.append(table_name)
+        if resolved is not None:
+            where += " AND resolved = ?"
+            params.append(1 if resolved else 0)
+
+        count_rows = execute_central(
+            f"SELECT COUNT(*) AS cnt FROM APP_ETL_Failed_Rows {where}",
+            tuple(params), use_cache=False
+        )
+        total = count_rows[0]["cnt"] if count_rows else 0
+
+        base_query = f"""
+            SELECT id, agent_id, dwh_code, table_name, row_data,
+                   error_message, created_at, retried_at, retry_count, resolved
+            FROM APP_ETL_Failed_Rows {where}
+            ORDER BY created_at DESC
+        """
+        rows = execute_central(
+            _paginate_query(base_query, page, page_size),
+            tuple(params), use_cache=False
+        )
+
+        return _paginated_response(rows, total, page, page_size)
+
+    except Exception as e:
+        if "invalid object name" in str(e).lower():
+            return _paginated_response([], 0, page, page_size)
+        _raise_internal_error(e, "failed-rows")
+
+
+@router.post("/admin/etl/failed-rows/{row_id}/resolve")
+async def resolve_failed_row(row_id: int):
+    """Marque une ligne echouee comme resolue."""
+    try:
+        write_central(
+            "UPDATE APP_ETL_Failed_Rows SET resolved = 1, retried_at = GETDATE() WHERE id = ?",
+            (row_id,)
+        )
+        return {"success": True, "message": "Ligne marquee comme resolue"}
+    except Exception as e:
+        _raise_internal_error(e, "resolve failed row")
 
 
 def _get_bulk_recommendation(results: List[BulkInsertTestResult]) -> str:

@@ -48,7 +48,6 @@ const PIC2026 = lazy(() => import('./pages/PIC2026'))
 const PivotBuilderV2 = lazy(() => import('./pages/PivotBuilderV2'))
 const PivotViewerV2 = lazy(() => import('./pages/PivotViewerV2'))
 const AIAssistantPage = lazy(() => import('./pages/AIAssistantPage'))
-const ETLColonnesPage = lazy(() => import('./pages/ETLColonnesPage'))
 const UpdateManagerPage = lazy(() => import('./pages/UpdateManagerPage'))
 const AIQueryLibraryPage = lazy(() => import('./pages/AIQueryLibraryPage'))
 const AIPromptsPage = lazy(() => import('./pages/AIPromptsPage'))
@@ -63,6 +62,7 @@ const DrillThroughPage = lazy(() => import('./pages/DrillThroughPage'))
 const FicheClient = lazy(() => import('./pages/FicheClient'))
 const FicheFournisseur = lazy(() => import('./pages/FicheFournisseur'))
 const Comptabilite = lazy(() => import('./pages/Comptabilite'))
+const DettesFournisseurs = lazy(() => import('./pages/DettesFournisseurs'))
 const SageConfigAdmin = lazy(() => import('./pages/SageConfigAdmin'))
 const DigestAdmin = lazy(() => import('./pages/DigestAdmin'))
 const AIPresentationBuilder = lazy(() => import('./pages/AIPresentationBuilder'))
@@ -71,6 +71,7 @@ const SpreadsheetBuilder = lazy(() => import('./pages/SpreadsheetBuilder'))
 const SpreadsheetViewer = lazy(() => import('./pages/SpreadsheetViewer'))
 const Setup2FAPage = lazy(() => import('./pages/Setup2FAPage'))
 const OrdreFabrication = lazy(() => import('./pages/OrdreFabrication'))
+const ComptabiliteAnalytique = lazy(() => import('./pages/ComptabiliteAnalytique'))
 const DemoRegisterPage = lazy(() => import('./pages/DemoRegisterPage'))
 const DemoStatusPage = lazy(() => import('./pages/DemoStatusPage'))
 const DemoBoardPage = lazy(() => import('./pages/DemoBoardPage'))
@@ -243,6 +244,11 @@ function AppContent() {
             <Recouvrement key={refreshKey} />
           </ProtectedRoute>
         } />
+        <Route path="/dettes-fournisseurs" element={
+          <ProtectedRoute pageCode="achats">
+            <DettesFournisseurs />
+          </ProtectedRoute>
+        } />
         <Route path="/admin/users" element={
           <ProtectedRoute pageCode="users">
             <UserManagement />
@@ -305,7 +311,6 @@ function AppContent() {
       <Route path="/ai-assistant" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur dans l'assistant IA"><AIAssistantPage /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/ai-presentation" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur dans le générateur IA"><AIPresentationBuilder /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/ai-deck" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur dans le Deck IA"><AIDeckBuilder /></ErrorBoundary></ProtectedRoute>} />
-      <Route path="/admin/etl-colonnes" element={<ProtectedRoute pageCode="etl_admin"><ETLColonnesPage /></ProtectedRoute>} />
       <Route path="/updates" element={<ProtectedRoute pageCode="dashboard"><UpdateManagerPage /></ProtectedRoute>} />
       <Route path="/admin/ai-library" element={<ProtectedRoute pageCode="admin"><AIQueryLibraryPage /></ProtectedRoute>} />
       <Route path="/admin/ai-prompts" element={<ProtectedRoute pageCode="admin"><AIPromptsPage /></ProtectedRoute>} />
@@ -327,6 +332,7 @@ function AppContent() {
       <Route path="/spreadsheet/:id" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur lors du chargement du tableur"><SpreadsheetViewer /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/setup-2fa" element={<ProtectedRoute><Setup2FAPage /></ProtectedRoute>} />
       <Route path="/production/ordres-fabrication" element={<ProtectedRoute pageCode="dashboard"><ErrorBoundary title="Erreur Ordres de fabrication"><OrdreFabrication /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/comptabilite-analytique" element={<ProtectedRoute pageCode="comptabilite"><ErrorBoundary title="Erreur Comptabilité Analytique"><ComptabiliteAnalytique /></ErrorBoundary></ProtectedRoute>} />
       </Routes>
       </Suspense>
     </Layout>

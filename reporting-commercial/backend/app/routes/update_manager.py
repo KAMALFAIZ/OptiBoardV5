@@ -33,6 +33,7 @@ from ..database_unified import (
     execute_central, write_central, central_cursor,
     execute_client, write_client, client_cursor,
 )
+from ..services.query_crypto import enc_query
 
 
 # ============================================================
@@ -429,7 +430,7 @@ async def pull_etl_updates(
                         # UPDATE params
                         t_code,
                         t.get("nom") or t[1], t.get("table_name") or t[2],
-                        t.get("target_table") or t[3], t.get("source_query") or t[4],
+                        t.get("target_table") or t[3], enc_query(t.get("source_query") or t[4]),
                         t.get("primary_key_columns") or t[5], t.get("sync_type") or t[6],
                         t.get("timestamp_column") or t[7], t.get("interval_minutes") or t[8],
                         t.get("priority") or t[9], t.get("delete_detection") or t[10],
@@ -437,7 +438,7 @@ async def pull_etl_updates(
                         # INSERT params
                         t_code,
                         t.get("nom") or t[1], t.get("table_name") or t[2],
-                        t.get("target_table") or t[3], t.get("source_query") or t[4],
+                        t.get("target_table") or t[3], enc_query(t.get("source_query") or t[4]),
                         t.get("primary_key_columns") or t[5], t.get("sync_type") or t[6],
                         t.get("timestamp_column") or t[7], t.get("interval_minutes") or t[8],
                         t.get("priority") or t[9], t.get("delete_detection") or t[10],

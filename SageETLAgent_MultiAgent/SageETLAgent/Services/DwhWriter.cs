@@ -30,13 +30,16 @@ namespace SageETLAgent.Services
         public DwhWriter(string server, string database, string username, string password, string? agentName = null)
         {
             _agentName = agentName ?? "";
-            // Utiliser SQL Auth si un username est fourni (meme si le password est vide)
-            // Utiliser Windows Auth uniquement si le username est vide ET le serveur est local
             string auth;
             if (!string.IsNullOrWhiteSpace(username))
                 auth = $"User Id={username};Password={password ?? ""}";
             else if (IsLocalServer(server))
+            {
                 auth = "Integrated Security=True;Trusted_Connection=True";
+                _logger.Warn(LogCategory.CONNEXION,
+                    $"DWH '{server}': pas de username fourni, Windows Auth utilisee implicitement.",
+                    _agentName);
+            }
             else
                 auth = $"User Id={username};Password={password ?? ""}";
             _connectionString = $"Server={server};Database={database};{auth};" +
@@ -390,6 +393,10 @@ namespace SageETLAgent.Services
                 }
                 catch (Exception ex) { _logger.Debug(LogCategory.CHARGEMENT, $"Nettoyage societe=NULL non applicable (colonne absente)", _agentName, tableName); }
 
+                // Supprimer les doublons existants avant le MERGE
+                // (historique: anciens syncs sans colonne societe ou MERGE defaillant)
+                await DeduplicateExistingAsync(tableName, pksWithSociete, societeCode, cancellationToken);
+
                 // Dedupliquer par PK pour eviter l'erreur MERGE "UPDATE same row more than once"
                 var cleanPKs = pksWithSociete.Select(CleanColumnName).ToList();
                 var deduped = DeduplicateByPrimaryKey(dataWithSociete, cleanPKs);
@@ -669,6 +676,78 @@ namespace SageETLAgent.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Supprime les doublons existants dans la table DWH pour une societe donnee.
+        /// Garde une seule copie par combinaison societe+PK (celle avec le plus grand %%physloc%%).
+        /// Retourne le nombre de doublons supprimes.
+        /// </summary>
+        public async Task<int> DeduplicateExistingAsync(
+            string tableName,
+            List<string> primaryKeyColumns,
+            string societeCode,
+            CancellationToken cancellationToken = default)
+        {
+            if (!primaryKeyColumns.Any())
+                return 0;
+
+            var conn = await GetConnectionAsync(cancellationToken);
+
+            // Verifier que la table et les colonnes existent
+            try
+            {
+                var cleanPKs = primaryKeyColumns.Select(CleanColumnName).ToList();
+
+                // Verifier que toutes les colonnes PK existent dans la table cible
+                var checkSql = $@"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = '{tableName}'
+                    AND COLUMN_NAME IN ({string.Join(",", cleanPKs.Select(pk => $"'{pk}'"))})";
+                using var checkCmd = new SqlCommand(checkSql, conn);
+                checkCmd.CommandTimeout = 30;
+                var existingCols = new List<string>();
+                using (var reader = await checkCmd.ExecuteReaderAsync(cancellationToken))
+                {
+                    while (await reader.ReadAsync(cancellationToken))
+                        existingCols.Add(reader.GetString(0));
+                }
+
+                // Si des colonnes PK manquent, on ne peut pas dedupliquer
+                if (existingCols.Count < cleanPKs.Count)
+                    return 0;
+
+                // CTE pour identifier les doublons: PARTITION BY societe+PKs, garder ROW_NUMBER=1
+                var partitionCols = string.Join(", ", cleanPKs.Select(pk => $"[{pk}]"));
+                var dedupSql = $@"
+                    ;WITH cte_dups AS (
+                        SELECT ROW_NUMBER() OVER (
+                            PARTITION BY [societe], {partitionCols}
+                            ORDER BY (SELECT NULL)
+                        ) AS rn
+                        FROM [{tableName}]
+                        WHERE [societe] = @societe
+                    )
+                    DELETE FROM cte_dups WHERE rn > 1";
+
+                using var dedupCmd = new SqlCommand(dedupSql, conn);
+                dedupCmd.Parameters.AddWithValue("@societe", societeCode);
+                dedupCmd.CommandTimeout = 300;
+
+                var deleted = await dedupCmd.ExecuteNonQueryAsync(cancellationToken);
+                if (deleted > 0)
+                {
+                    _logger.Warn(LogCategory.CHARGEMENT,
+                        $"Deduplication: {deleted:N0} doublons supprimes (PKs: {partitionCols})",
+                        _agentName, tableName);
+                }
+                return deleted;
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug(LogCategory.CHARGEMENT,
+                    $"Deduplication non applicable: {ex.Message}", _agentName, tableName);
+                return 0;
+            }
+        }
+
         #endregion
 
         #region Pointage
@@ -922,6 +1001,59 @@ namespace SageETLAgent.Services
             {
                 // Une autre connexion a cree la table entre le IF NOT EXISTS et le CREATE → ignorer
                 _logger.Debug(LogCategory.CHARGEMENT, $"Table {tableName} creee par un autre agent (race condition), OK", _agentName);
+            }
+        }
+
+        /// <summary>
+        /// Cree la table dans le DWH a partir d'une liste de noms de colonnes (0 donnees disponibles).
+        /// Toutes les colonnes sont creees en NVARCHAR(MAX) NULL + colonne societe.
+        /// </summary>
+        public async Task EnsureTableExistsFromColumnsAsync(
+            string tableName,
+            List<string> columnNames,
+            string societeCode,
+            CancellationToken cancellationToken)
+        {
+            if (!columnNames.Any()) return;
+
+            var conn = await GetConnectionAsync(cancellationToken);
+
+            // Ajouter societe en premier si pas deja presente
+            var allColumns = new List<string> { "societe" };
+            foreach (var col in columnNames)
+            {
+                var clean = CleanColumnName(col);
+                if (!clean.Equals("societe", StringComparison.OrdinalIgnoreCase))
+                    allColumns.Add(clean);
+            }
+
+            var colsDef = string.Join(", ", allColumns.Select(c => $"[{c}] NVARCHAR(MAX) NULL"));
+
+            var sql = $@"
+                IF NOT EXISTS (
+                    SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_NAME COLLATE SQL_Latin1_General_CP1_CI_AI
+                          = @tableName COLLATE SQL_Latin1_General_CP1_CI_AI
+                )
+                BEGIN
+                    CREATE TABLE [{tableName}] ({colsDef})
+                END";
+
+            try
+            {
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@tableName", tableName);
+                cmd.CommandTimeout = 30;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                _logger.Info(LogCategory.CHARGEMENT, $"Table {tableName} creee vide ({allColumns.Count} colonnes)", _agentName);
+            }
+            catch (Exception ex) when (
+                (ex is SqlException sqlEx && sqlEx.Number == 2714) ||
+                ex.Message.Contains("Il existe", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("already an object", StringComparison.OrdinalIgnoreCase))
+            {
+                // Race condition - table deja creee par un autre processus, ignorer
+                _logger.Debug(LogCategory.CHARGEMENT, $"Table {tableName} deja existante (race condition OK)", _agentName);
             }
         }
 

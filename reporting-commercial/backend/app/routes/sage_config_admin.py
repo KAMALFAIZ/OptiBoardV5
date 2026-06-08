@@ -33,6 +33,8 @@ class TestMappingRequest(BaseModel):
     sage_sql: str
     db_name: str = "bijou"
     societe_code: str = "TEST"
+    # dwh_code optionnel — si absent, résolu automatiquement depuis APP_DWH_Sources
+    dwh_code: Optional[str] = None
 
 
 @router.get("")
@@ -156,44 +158,44 @@ async def test_sql(payload: TestMappingRequest):
 
         import pyodbc
         from ..database_unified import execute_central
-        # Récupère les infos de connexion Sage pour un test
-        sources = execute_central(
-            """
-            SELECT TOP 1 serveur_sage, base_sage, user_sage, password_sage
-            FROM APP_DWH_Sources
-            WHERE actif = 1
-              AND base_sage = ?
-            """,
-            (payload.db_name,),
-            use_cache=False,
-        )
-        if not sources:
-            # Fallback : première source active
-            sources = execute_central(
-                """
-                SELECT TOP 1 serveur_sage, base_sage, user_sage, password_sage
-                FROM APP_DWH_Sources
-                WHERE actif = 1
-                """,
+        from ..services.credential_resolver import CredentialResolver, SageSourceNotFoundError
+
+        # Résoudre le dwh_code si non fourni (lookup via APP_DWH_Sources)
+        dwh_code = payload.dwh_code
+        if not dwh_code:
+            lookup = execute_central(
+                "SELECT TOP 1 dwh_code FROM APP_DWH_Sources WHERE code_societe = ? AND actif = 1",
+                (payload.societe_code,),
                 use_cache=False,
             )
-        if not sources:
-            raise HTTPException(400, "Aucune source Sage configurée")
+            if not lookup:
+                lookup = execute_central(
+                    "SELECT TOP 1 dwh_code FROM APP_DWH_Sources WHERE actif = 1 ORDER BY id",
+                    use_cache=False,
+                )
+            if not lookup:
+                raise HTTPException(400, "Aucune source Sage configurée — précisez dwh_code dans la requête")
+            dwh_code = lookup[0]["dwh_code"]
 
-        src = sources[0]
-        user = (src.get("user_sage") or "").strip()
-        pwd = (src.get("password_sage") or "").strip()
+        # Résoudre les credentials via CredentialResolver (source : APP_ETL_Agents puis fallback APP_DWH_Sources)
+        try:
+            creds = CredentialResolver.get(dwh_code=dwh_code, societe_code=payload.societe_code)
+        except SageSourceNotFoundError:
+            raise HTTPException(400, f"Aucune source Sage trouvée pour DWH={dwh_code} / societe={payload.societe_code}")
+
+        user = (creds.username or "").strip()
+        pwd  = (creds.password or "").strip()
         if user:
             conn_str = (
                 f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-                f"SERVER={src['serveur_sage']};DATABASE={src['base_sage']};"
+                f"SERVER={creds.serveur};DATABASE={creds.base};"
                 f"UID={user};PWD={pwd};"
                 f"TrustServerCertificate=yes;Connection Timeout=15;"
             )
         else:
             conn_str = (
                 f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-                f"SERVER={src['serveur_sage']};DATABASE={src['base_sage']};"
+                f"SERVER={creds.serveur};DATABASE={creds.base};"
                 f"Trusted_Connection=yes;"
                 f"TrustServerCertificate=yes;Connection Timeout=15;"
             )

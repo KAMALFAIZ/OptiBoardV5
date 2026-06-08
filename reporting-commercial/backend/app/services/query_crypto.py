@@ -88,3 +88,68 @@ def migrate_encrypt_existing(cursor) -> int:
     except Exception as e:
         logger.warning(f"[query_crypto] Migration chiffrement partielle: {e}")
         return 0
+
+
+def migrate_encrypt_config(central_cursor) -> int:
+    """
+    Chiffre les lignes APP_ETL_Tables_Config.source_query qui sont encore en plaintext.
+    A executer une fois apres le deploiement (base centrale OptiBoard_SaaS).
+    Retourne le nombre de lignes mises a jour.
+    """
+    try:
+        central_cursor.execute(
+            "SELECT id, source_query FROM APP_ETL_Tables_Config "
+            "WHERE source_query IS NOT NULL AND source_query != '' "
+            "AND source_query NOT LIKE '$enc1$%'"
+        )
+        rows = central_cursor.fetchall()
+        count = 0
+        for row in rows:
+            row_id = row[0]
+            plain = row[1]
+            encrypted = enc_query(plain)
+            if encrypted and encrypted != plain:
+                central_cursor.execute(
+                    "UPDATE APP_ETL_Tables_Config SET source_query = ? WHERE id = ?",
+                    (encrypted, row_id)
+                )
+                count += 1
+        if count:
+            central_cursor.commit()
+            logger.info(f"[query_crypto] {count} source_query Config migrees vers AES-GCM")
+        return count
+    except Exception as e:
+        logger.warning(f"[query_crypto] Migration chiffrement Config partielle: {e}")
+        return 0
+
+
+def migrate_encrypt_published(client_cursor) -> int:
+    """
+    Chiffre les lignes APP_ETL_Tables_Published.source_query qui sont encore en plaintext.
+    Retourne le nombre de lignes mises a jour.
+    """
+    try:
+        client_cursor.execute(
+            "SELECT id, source_query FROM APP_ETL_Tables_Published "
+            "WHERE source_query IS NOT NULL AND source_query != '' "
+            "AND source_query NOT LIKE '$enc1$%'"
+        )
+        rows = client_cursor.fetchall()
+        count = 0
+        for row in rows:
+            row_id = row[0]
+            plain = row[1]
+            encrypted = enc_query(plain)
+            if encrypted and encrypted != plain:
+                client_cursor.execute(
+                    "UPDATE APP_ETL_Tables_Published SET source_query = ? WHERE id = ?",
+                    (encrypted, row_id)
+                )
+                count += 1
+        if count:
+            client_cursor.commit()
+            logger.info(f"[query_crypto] {count} source_query Published migrees vers AES-GCM")
+        return count
+    except Exception as e:
+        logger.warning(f"[query_crypto] Migration chiffrement Published partielle: {e}")
+        return 0

@@ -26,6 +26,14 @@ const getDefaultFilters = () => {
   }
 }
 
+/** Valide qu'une date ISO (YYYY-MM-DD) a une année entre 2000 et 2099 */
+function sanitizeDate(d, fallback = '') {
+  if (!d || typeof d !== 'string') return fallback
+  const y = parseInt(d.slice(0, 4), 10)
+  if (isNaN(y) || y < 2000 || y > 2099 || d.length !== 10 || d[4] !== '-' || d[7] !== '-') return fallback
+  return d
+}
+
 export function GlobalFilterProvider({ children }) {
   // Charger les filtres depuis localStorage ou utiliser les valeurs par défaut
   const [filters, setFilters] = useState(() => {
@@ -35,11 +43,20 @@ export function GlobalFilterProvider({ children }) {
         const parsed = JSON.parse(stored)
         const defaults = getDefaultFilters()
         const merged = { ...defaults, ...parsed }
-        // Si dateDebut est dans l'annee courante seulement, etendre a 2 ans en arriere
+        // Valider et corriger les dates (évite les années hors-range comme 262026)
+        merged.dateDebut = sanitizeDate(merged.dateDebut, defaults.dateDebut)
+        merged.dateFin   = sanitizeDate(merged.dateFin,   defaults.dateFin)
+        // Si dateDebut est dans l'année courante ou au-delà, étendre à 10 ans en arrière
+        // Si dateDebut est dans l'année courante ou au-delà, étendre à 10 ans en arrière
         const currentYear = new Date().getFullYear()
-        const storedYear = merged.dateDebut ? parseInt(merged.dateDebut.slice(0, 4)) : 0
+        const storedYear = parseInt(merged.dateDebut.slice(0, 4), 10)
         if (storedYear >= currentYear) {
           merged.dateDebut = defaults.dateDebut
+        }
+        // Si dateFin est dans le futur (> 1 an), ramener à aujourd'hui
+        const finYear = parseInt((merged.dateFin || '').slice(0, 4), 10)
+        if (isNaN(finYear) || finYear > currentYear + 1) {
+          merged.dateFin = defaults.dateFin
         }
         return merged
       }
@@ -62,7 +79,11 @@ export function GlobalFilterProvider({ children }) {
    * Met à jour un seul filtre
    */
   const updateFilter = useCallback((key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }))
+    // Valider les champs date avant de les accepter
+    const safeValue = (key === 'dateDebut' || key === 'dateFin')
+      ? sanitizeDate(value, value)
+      : value
+    setFilters(prev => ({ ...prev, [key]: safeValue }))
   }, [])
 
   /**

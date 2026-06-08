@@ -191,6 +191,119 @@ async def get_dashboard(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/kpis-advanced")
+async def get_kpis_advanced(
+    date_debut: Optional[date] = Query(None),
+    date_fin: Optional[date] = Query(None),
+    periode: Optional[str] = Query("annee_courante"),
+    dwh_code: Optional[str] = Query(None),
+):
+    """5 KPIs avancés pour la bande de KPIs de la HomePage (Phase 3 — U-03).
+
+    Retourne :
+    - Taux de marge brute (%)
+    - DPO fournisseurs (jours)
+    - Taux de recouvrement du mois (%)
+    - Couverture stock (jours)
+    - Résultat net estimé (MAD)
+    """
+    from ..database_unified import execute_app
+    from ..services.calculs import get_periode_dates
+
+    if not date_debut or not date_fin:
+        date_debut_str, date_fin_str = get_periode_dates(periode)
+    else:
+        date_debut_str = date_debut.strftime("%Y-%m-%d")
+        date_fin_str   = date_fin.strftime("%Y-%m-%d")
+
+    # Mois courant pour le taux de recouvrement
+    now = datetime.now()
+    mois_debut = f"{now.year}-{now.month:02d}-01"
+    import calendar
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    mois_fin  = f"{now.year}-{now.month:02d}-{last_day}"
+
+    def _q(sql, params=None):
+        try:
+            rows = execute_app(sql, params, dwh_code=dwh_code)
+            return rows[0] if rows else {}
+        except Exception:
+            return {}
+
+    # 1. Taux marge brute
+    r_ca = _q(
+        "SELECT SUM([Montant HT Net]) AS CA, SUM([Coût]) AS Cout "
+        "FROM [dbo].[DashBoard_CA] WHERE [Valorise CA]='oui' "
+        "AND [Date BL] BETWEEN ? AND ?",
+        (date_debut_str, date_fin_str),
+    )
+    ca  = float(r_ca.get("CA")  or 0)
+    cout = float(r_ca.get("Cout") or 0)
+    taux_marge = round((ca - cout) / ca * 100, 1) if ca > 0 else None
+
+    # 2. DPO fournisseurs = (Dettes / Achats) × 30
+    r_dpo = _q(
+        "SELECT SUM([Montant HT Net]) AS Achats FROM [dbo].[DashBoard_CA] "
+        "WHERE [Date BL] BETWEEN ? AND ?",  # proxy achats si pas de table dédiée
+        (date_debut_str, date_fin_str),
+    )
+    r_dettes = _q("SELECT SUM([Solde]) AS Dettes FROM [dbo].[Situation_Fournisseurs]")
+    dettes  = float(r_dettes.get("Dettes") or 0)
+    achats  = float(r_dpo.get("Achats") or 0)
+    dpo = round(dettes / achats * 30, 1) if achats > 0 else None
+
+    # 3. Taux recouvrement mois courant
+    r_recouvrement = _q(
+        "SELECT SUM([Montant réglement]) AS Regle FROM [dbo].[Imputation_Factures_Ventes] "
+        "WHERE [Date réglement] BETWEEN ? AND ?",
+        (mois_debut, mois_fin),
+    )
+    r_du = _q(
+        "SELECT SUM([Montant échéance]) AS Du FROM [dbo].[Echéances_Ventes] "
+        "WHERE [Date document] <= ? AND ISNULL([Régler],0) < [Montant échéance]",
+        (mois_fin,),
+    )
+    regle = float(r_recouvrement.get("Regle") or 0)
+    du    = float(r_du.get("Du") or 0)
+    taux_recouvrement = round(regle / du * 100, 1) if du > 0 else None
+
+    # 4. Couverture stock = Stock / (CA / 30)
+    r_stock = _q(
+        "SELECT SUM(CASE WHEN [Sens de mouvement]='E' THEN [Quantité]*[CMUP] "
+        "ELSE -[Quantité]*[CMUP] END) AS Valeur_Stock FROM [dbo].[Mouvement_stock]"
+    )
+    stock_valeur = float(r_stock.get("Valeur_Stock") or 0)
+    ca_jour = ca / 30 if ca > 0 else 0
+    couverture_stock = round(stock_valeur / ca_jour, 1) if ca_jour > 0 else None
+
+    # 5. Résultat net estimé = Produits − Charges
+    r_produits = _q(
+        "SELECT SUM([EC_Montant]) AS Produits FROM [dbo].[Ecritures_Comptables] "
+        "WHERE LEFT([CG_Num],1)='7' AND [EC_Sens]=2 AND [EC_Date] BETWEEN ? AND ?",
+        (date_debut_str, date_fin_str),
+    )
+    r_charges = _q(
+        "SELECT SUM([EC_Montant]) AS Charges FROM [dbo].[Ecritures_Comptables] "
+        "WHERE LEFT([CG_Num],1)='6' AND [EC_Sens]=1 AND [EC_Date] BETWEEN ? AND ?",
+        (date_debut_str, date_fin_str),
+    )
+    produits = float(r_produits.get("Produits") or 0)
+    charges  = float(r_charges.get("Charges")  or 0)
+    resultat_net = produits - charges
+
+    return {
+        "success": True,
+        "periode": {"debut": date_debut_str, "fin": date_fin_str},
+        "kpis": {
+            "taux_marge_brute":     {"label": "Taux de marge brute",         "value": taux_marge,          "unite": "%"},
+            "dpo_fournisseurs":     {"label": "DPO fournisseurs",             "value": dpo,                 "unite": "j"},
+            "taux_recouvrement_m":  {"label": "Taux recouvrement (mois)",    "value": taux_recouvrement,   "unite": "%"},
+            "couverture_stock":     {"label": "Couverture stock",             "value": couverture_stock,    "unite": "j"},
+            "resultat_net_estime":  {"label": "Résultat net estimé",         "value": resultat_net,        "unite": "MAD"},
+        }
+    }
+
+
 @router.get("/evolution-mensuelle")
 async def get_evolution_mensuelle(
     date_debut: Optional[date] = Query(None),

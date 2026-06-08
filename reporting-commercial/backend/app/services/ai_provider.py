@@ -1,6 +1,6 @@
 """
 Service d'abstraction multi-fournisseur d'IA pour OptiBoard.
-Supporte: OpenAI (GPT-4o), Anthropic (Claude), Ollama (local).
+Supporte: OpenAI, Anthropic, Ollama, Google Gemini, Mistral, Groq, DeepSeek.
 """
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, List, Dict, Optional
@@ -43,15 +43,36 @@ class BaseAIProvider(ABC):
         ...
 
 
-class OpenAIProvider(BaseAIProvider):
-    """Fournisseur OpenAI (GPT-4o, GPT-4-turbo, etc.)"""
+PROVIDER_BASE_URLS = {
+    "openai":   "https://api.openai.com/v1",
+    "mistral":  "https://api.mistral.ai/v1",
+    "groq":     "https://api.groq.com/openai/v1",
+    "deepseek": "https://api.deepseek.com/v1",
+    "google":   "https://generativelanguage.googleapis.com/v1beta/openai",
+}
 
-    def __init__(self, api_key: str, model: str, max_tokens: int, temperature: float):
+PROVIDER_DEFAULTS = {
+    "openai":    "gpt-4o",
+    "anthropic": "claude-sonnet-4-6",
+    "ollama":    "llama3.2",
+    "google":    "gemini-2.5-flash",
+    "mistral":   "mistral-large-latest",
+    "groq":      "llama-3.3-70b-versatile",
+    "deepseek":  "deepseek-chat",
+}
+
+
+class OpenAICompatibleProvider(BaseAIProvider):
+    """Fournisseur compatible API OpenAI (OpenAI, Mistral, Groq, DeepSeek, Google Gemini)."""
+
+    def __init__(self, api_key: str, model: str, max_tokens: int, temperature: float,
+                 base_url: str = "https://api.openai.com/v1", provider_label: str = "OpenAI"):
         self.api_key = api_key
         self.model = model or "gpt-4o"
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self.base_url = "https://api.openai.com/v1"
+        self.base_url = base_url.rstrip("/")
+        self.provider_label = provider_label
 
     async def chat(self, messages: List[AIMessage], stream: bool = False) -> str:
         headers = {
@@ -111,7 +132,10 @@ class OpenAIProvider(BaseAIProvider):
                             pass
 
     def get_provider_name(self) -> str:
-        return f"OpenAI ({self.model})"
+        return f"{self.provider_label} ({self.model})"
+
+
+OpenAIProvider = OpenAICompatibleProvider
 
 
 class AnthropicProvider(BaseAIProvider):
@@ -271,37 +295,43 @@ def get_ai_provider() -> Optional[BaseAIProvider]:
     Retourne None si l'IA n'est pas configuree ou desactivee.
     """
     from ..config import reload_settings
-    settings = reload_settings()  # Toujours relire le .env pour avoir la config a jour
+    settings = reload_settings()
 
     if not settings.AI_ENABLED or not settings.AI_PROVIDER:
         return None
 
     provider = settings.AI_PROVIDER.lower()
+    custom_url = (settings.AI_BASE_URL or "").strip()
 
-    if provider == "openai":
-        if not settings.AI_API_KEY:
-            raise AIProviderError("Cle API OpenAI non configuree")
-        return OpenAIProvider(
-            api_key=settings.AI_API_KEY,
-            model=settings.AI_MODEL,
-            max_tokens=settings.AI_MAX_TOKENS,
-            temperature=settings.AI_TEMPERATURE
-        )
-    elif provider == "anthropic":
+    if provider == "anthropic":
         if not settings.AI_API_KEY:
             raise AIProviderError("Cle API Anthropic non configuree")
         return AnthropicProvider(
             api_key=settings.AI_API_KEY,
-            model=settings.AI_MODEL,
+            model=settings.AI_MODEL or PROVIDER_DEFAULTS.get("anthropic", ""),
             max_tokens=settings.AI_MAX_TOKENS,
             temperature=settings.AI_TEMPERATURE
         )
-    elif provider == "ollama":
+
+    if provider == "ollama":
         return OllamaProvider(
             base_url=settings.AI_OLLAMA_URL,
-            model=settings.AI_MODEL,
+            model=settings.AI_MODEL or PROVIDER_DEFAULTS.get("ollama", ""),
             max_tokens=settings.AI_MAX_TOKENS,
             temperature=settings.AI_TEMPERATURE
         )
-    else:
-        raise AIProviderError(f"Fournisseur IA inconnu: {provider}")
+
+    if provider in PROVIDER_BASE_URLS:
+        if not settings.AI_API_KEY:
+            raise AIProviderError(f"Cle API {provider} non configuree")
+        base_url = custom_url or PROVIDER_BASE_URLS[provider]
+        return OpenAICompatibleProvider(
+            api_key=settings.AI_API_KEY,
+            model=settings.AI_MODEL or PROVIDER_DEFAULTS.get(provider, ""),
+            max_tokens=settings.AI_MAX_TOKENS,
+            temperature=settings.AI_TEMPERATURE,
+            base_url=base_url,
+            provider_label=provider.capitalize(),
+        )
+
+    raise AIProviderError(f"Fournisseur IA inconnu: {provider}")

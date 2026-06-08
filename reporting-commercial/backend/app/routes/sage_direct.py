@@ -1,6 +1,6 @@
 """
 Sage Direct — Accès lecture seule sans synchronisation ETL
-Credentials lus depuis APP_DWH_Sources (base centrale OptiBoard_SaaS)
+Credentials résolus via CredentialResolver (source de vérité : APP_ETL_Agents)
 Aucune écriture dans DWH, aucun changement de datasource.
 """
 import asyncio
@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 from ..database_unified import execute_central
+from ..services.credential_resolver import CredentialResolver, SageSourceNotFoundError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sage-direct", tags=["Sage Direct"])
@@ -21,22 +22,25 @@ router = APIRouter(prefix="/api/sage-direct", tags=["Sage Direct"])
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_sage_credentials(dwh_code: str, code_societe: str) -> Dict[str, Any]:
-    """Récupère les credentials Sage depuis APP_DWH_Sources (lecture seule)."""
-    rows = execute_central(
-        """
-        SELECT serveur_sage, base_sage, user_sage, password_sage, nom_societe
-        FROM APP_DWH_Sources
-        WHERE dwh_code = ? AND code_societe = ? AND actif = 1
-        """,
-        (dwh_code, code_societe),
-        use_cache=False,
-    )
-    if not rows:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Source Sage '{code_societe}' introuvable ou inactive pour ce DWH"
-        )
-    return rows[0]
+    """Récupère les credentials Sage via CredentialResolver.
+    Source de vérité : APP_ETL_Agents (base client).
+    Fallback automatique sur APP_DWH_Sources pour la rétrocompatibilité.
+    """
+    try:
+        creds = CredentialResolver.get(dwh_code=dwh_code, societe_code=code_societe)
+    except SageSourceNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[SageDirect] CredentialResolver error for {dwh_code}/{code_societe}: {e}")
+        raise HTTPException(status_code=503, detail="Impossible de résoudre les credentials Sage")
+    # Convertir SageCredentials → dict avec les clés attendues par _open_sage_connection
+    return {
+        "serveur_sage":  creds.serveur,
+        "base_sage":     creds.base,
+        "user_sage":     creds.username,
+        "password_sage": creds.password,
+        "nom_societe":   creds.nom_societe,
+    }
 
 
 def _open_sage_connection(creds: Dict[str, Any]) -> pyodbc.Connection:
@@ -124,7 +128,7 @@ async def list_sage_societes(
     def _fetch():
         return execute_central(
             """
-            SELECT code_societe, nom_societe, serveur_sage, base_sage, etl_enabled
+            SELECT code_societe, nom_societe, agent_id, etl_enabled
             FROM APP_DWH_Sources
             WHERE dwh_code = ? AND actif = 1
             ORDER BY nom_societe

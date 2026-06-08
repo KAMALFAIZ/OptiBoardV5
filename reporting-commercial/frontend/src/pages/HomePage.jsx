@@ -4,11 +4,15 @@ import Loading from '../components/common/Loading'
 import { getBuilderDashboards } from '../services/api'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { useGlobalFilters } from '../context/GlobalFilterContext'
+import { useDWH } from '../context/DWHContext'
 import OnboardingWizard from '../components/onboarding/OnboardingWizard'
 import {
   LayoutGrid, Star, Clock, Table, BarChart2, GitBranch,
-  ChevronRight, StarOff, Users
+  ChevronRight, StarOff, Users, TrendingUp, TrendingDown,
+  Package, Percent, Calendar
 } from 'lucide-react'
+import { COLORS, perfClass } from '../utils/colors'
 
 const REPORT_ICONS = {
   gridview: Table,
@@ -65,6 +69,86 @@ function ReportCard({ item, onRemoveFav, isFavorite }) {
           <StarOff className="w-3.5 h-3.5" />
         </button>
       )}
+    </div>
+  )
+}
+
+// ── Bande KPIs avancés ───────────────────────────────────────────────────────
+function KpiStrip() {
+  const { filters } = useGlobalFilters()
+  const { activeDWH } = useDWH()
+  const [kpis, setKpis] = useState(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      periode: 'annee_courante',
+      date_debut: filters.dateDebut,
+      date_fin: filters.dateFin,
+    })
+    if (activeDWH?.code) params.set('dwh_code', activeDWH.code)
+
+    api.get(`/dashboard/kpis-advanced?${params}`)
+      .then(r => setKpis(r.data?.kpis || null))
+      .catch(() => setKpis(null))
+  }, [filters.dateDebut, filters.dateFin, activeDWH?.code])
+
+  if (!kpis) return null
+
+  const items = [
+    {
+      key: 'taux_marge_brute',
+      icon: Percent,
+      color: kpis.taux_marge_brute?.value >= 30 ? COLORS.success : COLORS.warning,
+    },
+    {
+      key: 'dpo_fournisseurs',
+      icon: Calendar,
+      color: kpis.dpo_fournisseurs?.value <= 60 ? COLORS.success : COLORS.danger,
+    },
+    {
+      key: 'taux_recouvrement_m',
+      icon: TrendingUp,
+      color: kpis.taux_recouvrement_m?.value >= 80 ? COLORS.success : COLORS.warning,
+    },
+    {
+      key: 'couverture_stock',
+      icon: Package,
+      color: COLORS.neutral,
+    },
+    {
+      key: 'resultat_net_estime',
+      icon: kpis.resultat_net_estime?.value >= 0 ? TrendingUp : TrendingDown,
+      color: kpis.resultat_net_estime?.value >= 0 ? COLORS.success : COLORS.danger,
+    },
+  ]
+
+  const fmt = (v, unite) => {
+    if (v == null) return '—'
+    if (unite === 'MAD') {
+      return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v) + ' MAD'
+    }
+    return `${Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} ${unite}`
+  }
+
+  return (
+    <div className="grid grid-cols-5 gap-3">
+      {items.map(({ key, icon: Icon, color }) => {
+        const kpi = kpis[key]
+        if (!kpi) return null
+        return (
+          <div key={key} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-3 flex items-center gap-3">
+            <span className="flex-shrink-0 p-2 rounded-lg" style={{ background: `${color}18` }}>
+              <Icon size={16} style={{ color }} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{kpi.label}</p>
+              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                {fmt(kpi.value, kpi.unite)}
+              </p>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -186,22 +270,25 @@ export default function HomePage() {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Vos rapports et tableaux de bord</p>
       </div>
 
-      {/* Tabs */}
+      {/* Bande KPIs avancés (Phase 3 — U-03) */}
+      <KpiStrip />
+
+      {/* Tabs — indicateur absolu pour éviter tout layout shift */}
       <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex gap-1">
+        <nav className="flex gap-1">
           {TABS.map(({ id, label, icon: Icon }) => {
             const isActive = activeTab === id
             return (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
+                className={`relative inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
                   ${isActive
-                    ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
+                    ? 'text-primary-600 dark:text-primary-400'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                   }`}
               >
-                <Icon className={`w-4 h-4 ${id === 'favs' && isActive ? 'fill-primary-500' : ''}`} />
+                <Icon className={`w-4 h-4 flex-shrink-0 ${id === 'favs' && isActive ? 'fill-primary-500' : ''}`} />
                 {label}
                 {counts[id] > 0 && (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium
@@ -213,58 +300,64 @@ export default function HomePage() {
                     {counts[id]}
                   </span>
                 )}
+                {/* Indicateur actif : absolu, ne déplace pas le layout */}
+                <span className={`absolute bottom-0 left-0 right-0 h-0.5 rounded-t transition-opacity
+                  ${isActive ? 'bg-primary-500 opacity-100' : 'opacity-0'}`}
+                />
               </button>
             )
           })}
         </nav>
       </div>
 
-      {/* Contenu de l'onglet actif */}
-      {activeTab === 'role' && (
-        roleReports.length > 0 ? (
-          <div className="grid grid-cols-4 gap-4">
-            {roleReports.map(item => (
-              <ReportCard key={`role-${item.report_type}-${item.report_id}`} item={item} />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
-            <Users className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-            <p className="font-medium text-gray-500 dark:text-gray-400">Aucun tableau de bord assigné à votre rôle</p>
-          </div>
-        )
-      )}
+      {/* Contenu de l'onglet actif — min-height pour éviter le saut de page */}
+      <div className="min-h-[420px]">
+        {activeTab === 'role' && (
+          roleReports.length > 0 ? (
+            <div className="grid grid-cols-4 gap-4">
+              {roleReports.map(item => (
+                <ReportCard key={`role-${item.report_type}-${item.report_id}`} item={item} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
+              <Users className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              <p className="font-medium text-gray-500 dark:text-gray-400">Aucun tableau de bord assigné à votre rôle</p>
+            </div>
+          )
+        )}
 
-      {activeTab === 'favs' && (
-        favorites.length > 0 ? (
-          <div className="grid grid-cols-4 gap-4">
-            {favorites.map(item => (
-              <ReportCard key={item.id} item={item} isFavorite onRemoveFav={removeFavorite} />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
-            <Star className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-            <p className="font-medium text-gray-500 dark:text-gray-400">Aucun favori pour l'instant</p>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Cliquez sur ⭐ dans un rapport pour l'ajouter ici</p>
-          </div>
-        )
-      )}
+        {activeTab === 'favs' && (
+          favorites.length > 0 ? (
+            <div className="grid grid-cols-4 gap-4">
+              {favorites.map(item => (
+                <ReportCard key={item.id} item={item} isFavorite onRemoveFav={removeFavorite} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
+              <Star className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              <p className="font-medium text-gray-500 dark:text-gray-400">Aucun favori pour l'instant</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Cliquez sur ⭐ dans un rapport pour l'ajouter ici</p>
+            </div>
+          )
+        )}
 
-      {activeTab === 'recents' && (
-        recentNotInFav.length > 0 ? (
-          <div className="grid grid-cols-4 gap-4">
-            {recentNotInFav.map(item => (
-              <ReportCard key={`${item.report_type}-${item.report_id}`} item={item} />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
-            <Clock className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-            <p className="font-medium text-gray-500 dark:text-gray-400">Aucune visite récente</p>
-          </div>
-        )
-      )}
+        {activeTab === 'recents' && (
+          recentNotInFav.length > 0 ? (
+            <div className="grid grid-cols-4 gap-4">
+              {recentNotInFav.map(item => (
+                <ReportCard key={`${item.report_type}-${item.report_id}`} item={item} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-10 text-center">
+              <Clock className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              <p className="font-medium text-gray-500 dark:text-gray-400">Aucune visite récente</p>
+            </div>
+          )
+        )}
+      </div>
     </div>
   )
 }

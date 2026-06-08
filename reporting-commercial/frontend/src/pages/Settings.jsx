@@ -101,9 +101,13 @@ export default function Settings() {
   }
 
   const providerModels = {
-    openai: ['gpt-4o', 'gpt-4-turbo', 'gpt-4o-mini', 'gpt-3.5-turbo'],
-    anthropic: ['claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
-    ollama: ['llama3.2', 'mistral', 'codellama', 'mixtral'],
+    anthropic: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
+    openai: ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o4-mini', 'gpt-4.1'],
+    google: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+    mistral: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'codestral-latest'],
+    groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
+    deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+    ollama: ['llama3.2', 'mistral', 'codellama', 'phi3', 'mixtral', 'qwen2.5'],
   }
 
   const handleChange = (key, value) => {

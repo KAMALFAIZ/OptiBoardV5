@@ -17,10 +17,17 @@ const ICONS = {
 }
 
 // ─── Composant champ individuel ──────────────────────────────────────────────
-function EnvField({ field, value, sensitiveKeys, onChange }) {
+function EnvField({ field, value, sensitiveKeys, onChange, allValues }) {
   const [showSecret, setShowSecret] = useState(false)
   const isSensitive = sensitiveKeys.includes(field.key)
   const isPassword   = field.type === 'password'
+
+  if (field.visible_when && allValues) {
+    const visible = Object.entries(field.visible_when).every(([depKey, allowed]) =>
+      allowed.includes(allValues[depKey])
+    )
+    if (!visible) return null
+  }
 
   if (field.type === 'boolean') {
     const checked = String(value).toLowerCase() === 'true'
@@ -38,6 +45,34 @@ function EnvField({ field, value, sensitiveKeys, onChange }) {
           <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
             ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
         </button>
+      </div>
+    )
+  }
+
+  if (field.type === 'model_select') {
+    const provider = allValues?.AI_PROVIDER || ''
+    const models = field.models?.[provider] || []
+    const listId = `models-${provider}`
+    return (
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          {field.label}
+        </label>
+        <input
+          type="text"
+          list={listId}
+          value={value || ''}
+          placeholder="Sélectionner ou saisir un modèle"
+          onChange={e => onChange(field.key, e.target.value)}
+          className="w-full rounded-lg border border-gray-300 dark:border-gray-600
+                     bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                     px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        />
+        <datalist id={listId}>
+          {models.map(m => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
       </div>
     )
   }
@@ -184,6 +219,19 @@ function EnvSection({ section, values, sensitiveKeys, onSave, onChange }) {
     }
   }
 
+  const handleTestAI = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res = await api.post('/env/test-ai')
+      setTestResult(res.data)
+    } catch (e) {
+      setTestResult({ success: false, message: e.response?.data?.detail || e.message })
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const [smtpTestEmail, setSmtpTestEmail] = useState('')
 
   const handleTestSMTP = async () => {
@@ -224,6 +272,7 @@ function EnvSection({ section, values, sensitiveKeys, onSave, onChange }) {
                 value={values[field.key] ?? ''}
                 sensitiveKeys={sensitiveKeys}
                 onChange={onChange}
+                allValues={values}
               />
             ))}
           </div>
@@ -261,6 +310,18 @@ function EnvSection({ section, values, sensitiveKeys, onSave, onChange }) {
               >
                 {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
                 Tester le serveur
+              </button>
+            )}
+
+            {section.testable && section.id === 'ai' && (
+              <button
+                onClick={handleTestAI}
+                disabled={testing}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700
+                           disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                Tester connexion IA
               </button>
             )}
 

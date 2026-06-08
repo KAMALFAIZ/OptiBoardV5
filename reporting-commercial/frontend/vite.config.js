@@ -9,7 +9,17 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8084',
-        changeOrigin: true
+        changeOrigin: true,
+        // Retry automatique si le backend n'est pas encore prêt au démarrage
+        configure: (proxy) => {
+          proxy.on('error', (err, req, res) => {
+            // Réponse JSON 503 propre au lieu d'un crash Vite
+            if (!res.headersSent) {
+              res.writeHead(503, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'Backend indisponible', detail: err.message }))
+            }
+          })
+        }
       }
     }
   }

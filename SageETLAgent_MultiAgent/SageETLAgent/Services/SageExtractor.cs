@@ -23,14 +23,22 @@ namespace SageETLAgent.Services
 
         public bool UsePersistentConnection { get; set; } = true;
 
-        public SageExtractor(string server, string database, string username, string password, string? agentName = null)
+        public bool ForceWindowsAuth { get; set; } = false;
+
+        public SageExtractor(string server, string database, string username, string password, string? agentName = null, bool forceWindowsAuth = false)
         {
             _agentName = agentName ?? "";
-            // Pour les serveurs locaux, utiliser Windows Auth (Integrated Security)
-            // pour contourner les problemes d'auth SQL (sa desactive en TCP, etc.)
-            string auth = IsLocalServer(server)
+            ForceWindowsAuth = forceWindowsAuth;
+            // Windows Auth uniquement si explicitement demande OU si serveur local sans credentials
+            bool useWindowsAuth = forceWindowsAuth
+                || (IsLocalServer(server) && string.IsNullOrWhiteSpace(username));
+            string auth = useWindowsAuth
                 ? "Integrated Security=True;Trusted_Connection=True"
                 : $"User Id={username};Password={password}";
+            if (useWindowsAuth && !forceWindowsAuth && IsLocalServer(server))
+                _logger.Warn(LogCategory.CONNEXION,
+                    $"Serveur local '{server}' sans username: Windows Auth implicite. Definir ForceWindowsAuth=true pour etre explicite.",
+                    _agentName);
             _connectionString = $"Server={server};Database={database};{auth};" +
                               $"TrustServerCertificate=True;Connection Timeout=60;" +
                               $"Packet Size=32768;Application Name=SageETL_Extractor";
@@ -826,6 +834,36 @@ namespace SageETLAgent.Services
         }
 
         /// <summary>
+        /// Obtient les noms de colonnes d'une requete sans charger les donnees (SELECT TOP 0)
+        /// Utilise pour creer la table DWH meme quand la requete retourne 0 lignes
+        /// </summary>
+        public async Task<List<string>> GetQueryColumnsAsync(
+            string query,
+            CancellationToken cancellationToken = default)
+        {
+            var columns = new List<string>();
+            try
+            {
+                var conn = await GetConnectionAsync(cancellationToken);
+                // Nettoyer le point-virgule terminal et BOM avant d'envelopper
+                var cleanQuery = query.Trim('﻿', '​', ' ', '\t', '\r', '\n')
+                                      .TrimEnd(';').TrimEnd();
+                // Envelopper dans SELECT TOP 0 pour obtenir les colonnes sans charger les donnees
+                var top0Query = $"SELECT TOP 0 * FROM ({cleanQuery}) AS _schema_probe";
+                using var cmd = new SqlCommand(top0Query, conn);
+                cmd.CommandTimeout = 30;
+                using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                for (int i = 0; i < reader.FieldCount; i++)
+                    columns.Add(reader.GetName(i));
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(LogCategory.EXTRACTION, $"GetQueryColumnsAsync echoue: {ex.Message}", _agentName);
+            }
+            return columns;
+        }
+
+        /// <summary>
         /// Obtient les cles primaires d'une table
         /// </summary>
         public async Task<List<string>> GetPrimaryKeysAsync(
@@ -855,6 +893,241 @@ namespace SageETLAgent.Services
             }
 
             return pks;
+        }
+
+        /// <summary>
+        /// Diagnostic: detecte les lignes exclues par les JOINs de la requete d'extraction.
+        /// Compare COUNT(*) sur la table source brute vs COUNT de la requete avec JOINs.
+        /// </summary>
+        public async Task<(int baseCount, int queryCount, int excluded)> DiagnoseJoinExclusionsAsync(
+            string tableName,
+            string? customQuery,
+            string? whereClause,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                var conn = await GetConnectionAsync(ct);
+
+                // 1. Count base table (with WHERE if applicable)
+                string baseTableName = tableName;
+                // Extract base table from FROM clause if possible
+                if (!string.IsNullOrEmpty(customQuery))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(
+                        customQuery, @"FROM\s+(\[?\w+\]?)\s",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (match.Success)
+                        baseTableName = match.Groups[1].Value.Trim('[', ']');
+                }
+
+                string baseCountQuery;
+                if (!string.IsNullOrEmpty(whereClause))
+                    baseCountQuery = $"SELECT COUNT(*) FROM [{baseTableName}] WHERE {whereClause}";
+                else
+                {
+                    // Try to extract WHERE from custom query
+                    var whereMatch = System.Text.RegularExpressions.Regex.Match(
+                        customQuery ?? "", @"\bWHERE\b(.+?)(?:ORDER\s+BY|$)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+                    if (whereMatch.Success)
+                        baseCountQuery = $"SELECT COUNT(*) FROM [{baseTableName}] WHERE {whereMatch.Groups[1].Value.TrimEnd(';').Trim()}";
+                    else
+                        baseCountQuery = $"SELECT COUNT(*) FROM [{baseTableName}]";
+                }
+
+                int baseCount;
+                using (var cmd1 = new SqlCommand(baseCountQuery, conn))
+                {
+                    cmd1.CommandTimeout = 120;
+                    baseCount = (int)(await cmd1.ExecuteScalarAsync(ct) ?? 0);
+                }
+
+                // 2. Count via full query (with JOINs)
+                int queryCount = baseCount;
+                if (!string.IsNullOrEmpty(customQuery))
+                {
+                    var cleanQuery = customQuery.Trim('﻿', '​', ' ', '\t', '\r', '\n')
+                                                .TrimEnd(';').TrimEnd();
+                    var countSql = $"SELECT COUNT(*) FROM ({cleanQuery}) AS _diag";
+                    try
+                    {
+                        using var cmd2 = new SqlCommand(countSql, conn);
+                        cmd2.CommandTimeout = 300;
+                        queryCount = (int)(await cmd2.ExecuteScalarAsync(ct) ?? 0);
+                    }
+                    catch
+                    {
+                        // Complex query (CTE etc) - skip diagnostic
+                        return (baseCount, -1, -1);
+                    }
+                }
+
+                int excluded = baseCount - queryCount;
+                if (excluded > 0)
+                {
+                    _logger.Warn(LogCategory.EXTRACTION,
+                        $"[DIAGNOSTIC] [{tableName}] JOINs excluent {excluded:N0} lignes ({baseCount:N0} base vs {queryCount:N0} avec JOINs)",
+                        _agentName);
+                }
+
+                return (baseCount, queryCount, excluded);
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug(LogCategory.EXTRACTION,
+                    $"[DIAGNOSTIC] [{tableName}] Echec diagnostic: {ex.Message}", _agentName);
+                return (-1, -1, -1);
+            }
+        }
+
+        /// <summary>
+        /// Extrait les valeurs des informations libres Sage en format EAV.
+        /// Lit cbSysLibre pour decouvrir les champs, puis pour chaque table parente,
+        /// construit dynamiquement un UNPIVOT via CROSS APPLY VALUES.
+        /// </summary>
+        public async Task<List<Dictionary<string, object?>>> ExtractInfoLibresValuesAsync(
+            IProgress<int>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            var results = new List<Dictionary<string, object?>>();
+
+            var conn = await GetConnectionAsync(cancellationToken);
+
+            // 1. Lire les definitions d'info libres depuis cbSysLibre
+            var definitions = new List<(string CbFile, string CbName)>();
+            using (var cmd = new SqlCommand("SELECT [CB_File], [CB_Name] FROM [cbSysLibre] WHERE [CB_Name] IS NOT NULL AND [CB_Name] <> ''", conn))
+            {
+                cmd.CommandTimeout = 60;
+                using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var cbFile = reader["CB_File"]?.ToString()?.Trim() ?? "";
+                    var cbName = reader["CB_Name"]?.ToString()?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(cbFile) && !string.IsNullOrEmpty(cbName))
+                        definitions.Add((cbFile, cbName));
+                }
+            }
+
+            if (!definitions.Any())
+            {
+                _logger.Info(LogCategory.EXTRACTION, "Aucune information libre trouvee dans cbSysLibre", _agentName);
+                return results;
+            }
+
+            _logger.Info(LogCategory.EXTRACTION,
+                $"Info libres: {definitions.Count} champs trouves dans {definitions.Select(d => d.CbFile).Distinct().Count()} tables",
+                _agentName);
+
+            // 2. Grouper par table parente
+            var grouped = definitions.GroupBy(d => d.CbFile);
+
+            int totalRows = 0;
+
+            foreach (var group in grouped)
+            {
+                var tableName = group.Key;
+                var fields = group.Select(g => g.CbName).Distinct().ToList();
+
+                // Verifier quels champs existent reellement comme colonnes dans la table
+                var existingColumns = new List<string>();
+                try
+                {
+                    using var schemaCmd = new SqlCommand(
+                        $"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @table",
+                        conn);
+                    schemaCmd.Parameters.AddWithValue("@table", tableName);
+                    schemaCmd.CommandTimeout = 30;
+                    using var schemaReader = await schemaCmd.ExecuteReaderAsync(cancellationToken);
+                    var allColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    while (await schemaReader.ReadAsync(cancellationToken))
+                    {
+                        allColumns.Add(schemaReader["COLUMN_NAME"]?.ToString() ?? "");
+                    }
+
+                    existingColumns = fields.Where(f => allColumns.Contains(f)).ToList();
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn(LogCategory.EXTRACTION,
+                        $"Info libres: impossible de lire le schema de [{tableName}]: {ex.Message}",
+                        _agentName);
+                    continue;
+                }
+
+                if (!existingColumns.Any())
+                {
+                    _logger.Debug(LogCategory.EXTRACTION,
+                        $"Info libres: aucune colonne correspondante dans [{tableName}] (champs: {string.Join(", ", fields)})",
+                        _agentName);
+                    continue;
+                }
+
+                // 3. Construire la requete CROSS APPLY VALUES pour UNPIVOT
+                // SELECT 'F_COMPTET' as CB_File, CAST(cbMarq AS VARCHAR(50)) as entity_key,
+                //        il.field_name as CB_Name, il.field_value as CB_Value
+                // FROM [F_COMPTET]
+                // CROSS APPLY (VALUES
+                //     ('CA', CAST([CA] AS NVARCHAR(500))),
+                //     ('CHAUFFEUR', CAST([CHAUFFEUR] AS NVARCHAR(500)))
+                // ) AS il(field_name, field_value)
+                // WHERE il.field_value IS NOT NULL AND il.field_value <> ''
+
+                var valuesClause = string.Join(",\n    ",
+                    existingColumns.Select(col =>
+                        $"(N'{col.Replace("'", "''")}', CAST([{col}] AS NVARCHAR(500)))"));
+
+                var query = $@"SELECT
+    N'{tableName.Replace("'", "''")}' AS [CB_File],
+    CAST(cbMarq AS VARCHAR(50)) AS [entity_key],
+    il.field_name AS [CB_Name],
+    il.field_value AS [CB_Value]
+FROM [{tableName}]
+CROSS APPLY (VALUES
+    {valuesClause}
+) AS il(field_name, field_value)
+WHERE il.field_value IS NOT NULL AND LTRIM(RTRIM(CAST(il.field_value AS NVARCHAR(500)))) <> ''";
+
+                try
+                {
+                    using var dataCmd = new SqlCommand(query, conn);
+                    dataCmd.CommandTimeout = 300;
+                    using var dataReader = await dataCmd.ExecuteReaderAsync(cancellationToken);
+
+                    while (await dataReader.ReadAsync(cancellationToken))
+                    {
+                        var row = new Dictionary<string, object?>
+                        {
+                            ["CB_File"] = dataReader["CB_File"],
+                            ["entity_key"] = dataReader["entity_key"],
+                            ["CB_Name"] = dataReader["CB_Name"],
+                            ["CB_Value"] = dataReader["CB_Value"]
+                        };
+                        results.Add(row);
+                        totalRows++;
+
+                        if (totalRows % 1000 == 0)
+                            progress?.Report(totalRows);
+                    }
+
+                    _logger.Info(LogCategory.EXTRACTION,
+                        $"Info libres [{tableName}]: {existingColumns.Count} champs, {results.Count - (totalRows - results.Count)} lignes extraites",
+                        _agentName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn(LogCategory.EXTRACTION,
+                        $"Info libres [{tableName}]: extraction echouee: {ex.Message}",
+                        _agentName);
+                }
+            }
+
+            progress?.Report(totalRows);
+            _logger.Info(LogCategory.EXTRACTION,
+                $"Info libres total: {totalRows} valeurs extraites de {grouped.Count()} tables",
+                _agentName);
+
+            return results;
         }
 
         public void Dispose()

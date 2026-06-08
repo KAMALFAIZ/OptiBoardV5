@@ -359,6 +359,15 @@ export default function Recouvrement() {
         />
       </div>
 
+      {/* État vide harmonisé */}
+      {!loading && !data?.encours_total && !data?.nb_clients && (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <CreditCard className="mx-auto mb-3 opacity-30" size={48} />
+          <p className="text-lg font-medium text-gray-500">Aucune donnée de recouvrement</p>
+          <p className="text-sm mt-1 text-gray-400">Élargissez la plage de dates ou vérifiez la synchronisation ETL</p>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-4">

@@ -82,13 +82,17 @@ import {
   Bell,
   GitBranch,
   ShieldCheck,
+  Check,
   Sparkles,
   MessageCircle,
+  Search,
 } from 'lucide-react'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { getUserMenus } from '../../services/api'
 import { useSettings } from '../../context/SettingsContext'
 import { useDataSource } from '../../context/DataSourceContext'
+import { useDWH } from '../../context/DWHContext'
+import { useAuth } from '../../context/AuthContext'
 import ChatWidget from '../ai/ChatWidget'
 import AlertBell from './AlertBell'
 import Watermark from './Watermark'
@@ -471,23 +475,35 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
   const location = useLocation()
   const navigate = useNavigate()
   const { settings } = useSettings()
-  const { dataSource, toggleDataSource, isSageDirect } = useDataSource()
-  // Lire le DWH courant depuis localStorage (pas de DWHProvider dans l'arbre)
-  const [currentDWH, setCurrentDWH] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('currentDWH')) } catch { return null }
-  })
+  const { isSageDirect, toggleDataSource } = useDataSource()
+  const { user: authUser } = useAuth()
+  const { currentDWH, dwhList, switchDWH, loading: dwhLoading } = useDWH()
+  const [dwhDropdownOpen, setDwhDropdownOpen] = useState(false)
+  const dwhDropdownRef = useRef(null)
+
   useEffect(() => {
-    const handleStorage = () => {
-      try { setCurrentDWH(JSON.parse(localStorage.getItem('currentDWH'))) } catch { setCurrentDWH(null) }
+    const handleClickOutside = (e) => {
+      if (dwhDropdownRef.current && !dwhDropdownRef.current.contains(e.target)) {
+        setDwhDropdownOpen(false)
+      }
     }
-    window.addEventListener('storage', handleStorage)
-    return () => window.removeEventListener('storage', handleStorage)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const handleDWHSwitch = async (code) => {
+    if (!authUser?.id || code === currentDWH?.code) { setDwhDropdownOpen(false); return }
+    const result = await switchDWH(authUser.id, code)
+    if (result?.success) { setDwhDropdownOpen(false); window.location.reload() }
+  }
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin/'))
   const [adminSubMenus, setAdminSubMenus] = useState({})
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef(null)
 
   // Menu dynamique
   const [dynamicMenus, setDynamicMenus] = useState([])
@@ -517,6 +533,18 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
   useEffect(() => {
     loadUserMenus()
   }, [user, currentDWH?.code]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        openSearch()
+      }
+      if (e.key === 'Escape') closeSearch()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle menu ouvert/ferme
   const toggleMenuOpen = (menuId) => {
@@ -596,6 +624,41 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
       return item
     })
   const showAdminSection = filteredAdminNavigation.length > 0
+
+  // Aplatir les menus dynamiques pour la recherche
+  const flatMenuItems = useMemo(() => {
+    const items = []
+    const flatten = (menu) => {
+      if (menu.type && menu.type !== 'folder' && menu.target_id) {
+        items.push(menu)
+      }
+      if (menu.children) menu.children.forEach(flatten)
+    }
+    dynamicMenus.forEach(flatten)
+    return items
+  }, [dynamicMenus])
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q || q.length < 2) return []
+    return flatMenuItems.filter(m => m.nom?.toLowerCase().includes(q)).slice(0, 12)
+  }, [searchQuery, flatMenuItems])
+
+  const openSearch = () => {
+    setSearchOpen(true)
+    setSearchQuery('')
+    setTimeout(() => searchInputRef.current?.focus(), 50)
+  }
+
+  const closeSearch = () => {
+    setSearchOpen(false)
+    setSearchQuery('')
+  }
+
+  const handleSearchNavigate = (menu) => {
+    closeSearch()
+    navigateToMenu(menu)
+  }
 
   return (
     <div className="h-screen flex overflow-hidden" style={{ minHeight: 0 }}>
@@ -876,20 +939,54 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
             </div>
 
             <div className="flex items-center gap-1">
-              {/* Toggle DWH / Sage Direct */}
-              <button
-                onClick={toggleDataSource}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 border ${
-                  isSageDirect
-                    ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700'
-                    : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                }`}
-                title={isSageDirect ? 'Mode Sage Direct (live) — cliquer pour DWH' : 'Mode DWH (synchronisé) — cliquer pour Sage Direct'}
-              >
-                <Database className="w-3.5 h-3.5" />
-                <span>{isSageDirect ? 'Sage Live' : 'DWH'}</span>
-                <span className={`w-1.5 h-1.5 rounded-full ${isSageDirect ? 'bg-orange-500 animate-pulse' : 'bg-blue-500'}`} />
-              </button>
+              {/* Sélecteur DWH (si plusieurs DWH accessibles) */}
+              {dwhList.length > 1 && currentDWH && (
+                <div className="relative" ref={dwhDropdownRef}>
+                  <button
+                    onClick={() => setDwhDropdownOpen(!dwhDropdownOpen)}
+                    disabled={dwhLoading}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 border bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border-primary-200 dark:border-primary-700 hover:bg-primary-100 dark:hover:bg-primary-900/50 cursor-pointer"
+                    title="Changer de DWH"
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span className="max-w-[100px] truncate">{currentDWH.code}</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${dwhDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {dwhDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
+                      <div className="py-1 max-h-60 overflow-y-auto">
+                        {dwhList.map((dwh) => (
+                          <button
+                            key={dwh.code}
+                            onClick={() => handleDWHSwitch(dwh.code)}
+                            className={`w-full px-3 py-2 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${dwh.code === currentDWH?.code ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}
+                          >
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">{dwh.code}</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[160px]">{dwh.nom}</div>
+                            </div>
+                            {dwh.code === currentDWH?.code && <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Toggle source données */}
+                      <div className="border-t border-gray-100 dark:border-gray-700 p-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleDataSource() }}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            isSageDirect
+                              ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300'
+                              : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                          }`}
+                        >
+                          <Database className="w-3.5 h-3.5" />
+                          <span>{isSageDirect ? '🔥 Sage Live — cliquer pour DWH' : '💾 DWH synchronisé — cliquer pour Sage Live'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Cloche alertes KPI */}
               <AlertBell />
@@ -917,6 +1014,15 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
                 ) : (
                   <Moon className="w-4 h-4" style={{ color: 'var(--color-primary-500)' }} />
                 )}
+              </button>
+
+              {/* Recherche rapide */}
+              <button
+                onClick={openSearch}
+                className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="Rechercher un rapport (Ctrl+K)"
+              >
+                <Search className="w-4 h-4" style={{ color: 'var(--color-primary-500)' }} />
               </button>
 
               {/* User menu */}
@@ -999,6 +1105,66 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
           {children}
         </main>
       </div>
+
+      {/* Modal de recherche rapide */}
+      {searchOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+            onClick={closeSearch}
+          />
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              {/* Input */}
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Rechercher un rapport..."
+                  className="flex-1 text-sm bg-transparent outline-none text-gray-900 dark:text-white placeholder-gray-400"
+                />
+                <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-400 border border-gray-200 dark:border-gray-600">Esc</kbd>
+              </div>
+
+              {/* Résultats */}
+              <div className="max-h-72 overflow-y-auto">
+                {searchQuery.trim().length >= 2 ? (
+                  searchResults.length > 0 ? (
+                    <ul className="py-2">
+                      {searchResults.map((menu) => {
+                        const Icon = TYPE_ICONS[menu.type] || Folder
+                        return (
+                          <li key={menu.id}>
+                            <button
+                              onClick={() => handleSearchNavigate(menu)}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left"
+                            >
+                              <Icon className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--color-primary-500)' }} />
+                              <span className="flex-1 truncate">{menu.nom}</span>
+                              <span className="text-xs text-gray-400 capitalize">{menu.type}</span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <div className="py-10 text-center text-sm text-gray-400">
+                      Aucun rapport trouvé pour « {searchQuery.trim()} »
+                    </div>
+                  )
+                ) : (
+                  <div className="py-8 text-center text-xs text-gray-400">
+                    Tapez au moins 2 caractères pour rechercher
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* AI Chat Widget (floating) */}
       <ChatWidget />

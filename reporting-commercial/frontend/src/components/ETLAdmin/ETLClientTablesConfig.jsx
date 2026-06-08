@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import {
   getPublishedETLTables,
-  toggleETLTable,
+  togglePublishedETLTable,
   getClientCustomETLTables,
   createClientCustomETLTable,
   updateClientCustomETLTable,
@@ -114,7 +114,7 @@ export default function ETLClientTablesConfig({ agents = [], onSyncFromOptiBoard
     setToggling(table.code)
     setError(null)
     try {
-      await toggleETLTable(table.code, !table.is_enabled)
+      await togglePublishedETLTable(table.code, !table.is_enabled)
       setKasoftTables(prev =>
         prev.map(t => t.code === table.code ? { ...t, is_enabled: !t.is_enabled } : t)
       )

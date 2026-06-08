@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Server, Database, RefreshCw, Plus, Settings, Activity,
   CheckCircle, XCircle, AlertTriangle, Clock, Pause, Play,
-  Trash2, Eye, Download, Upload, Zap, Layers, BarChart3, Columns3
+  Trash2, Eye, Download, Upload, Zap, Layers, BarChart3
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import Loading from '../components/common/Loading'
@@ -26,7 +26,6 @@ import {
 } from '../services/etlApi'
 
 // Onglets de l'administration ETL
-// Tabs communs (agents + monitoring) + tabs éditeur uniquement (tables, colonnes)
 const ETL_TABS_CLIENT = [
   { id: 'agents',     label: 'Agents',      icon: Server   },
   { id: 'monitoring', label: 'Monitoring',  icon: BarChart3 },
@@ -35,7 +34,6 @@ const ETL_TABS_EDITOR = [
   { id: 'agents',     label: 'Agents',      icon: Server   },
   { id: 'monitoring', label: 'Monitoring',  icon: BarChart3 },
   { id: 'tables',     label: 'Tables ETL',  icon: Database  },
-  { id: 'colonnes',   label: 'Colonnes',    icon: Columns3  },
 ]
 
 export default function ETLAdmin() {
@@ -124,10 +122,23 @@ export default function ETLAdmin() {
 
   useEffect(() => {
     loadData()
-    // Refresh automatique toutes les 30 secondes
     const interval = setInterval(loadData, 30000)
     return () => clearInterval(interval)
   }, [loadData])
+
+  // Auto-dismiss toasts
+  useEffect(() => {
+    if (successMsg) {
+      const t = setTimeout(() => setSuccessMsg(null), 5000)
+      return () => clearTimeout(t)
+    }
+  }, [successMsg])
+  useEffect(() => {
+    if (error) {
+      const t = setTimeout(() => setError(null), 8000)
+      return () => clearTimeout(t)
+    }
+  }, [error])
 
   const handleRefresh = () => {
     setRefreshing(true)
@@ -147,6 +158,7 @@ export default function ETLAdmin() {
   const handleTriggerSync = async (agent) => {
     try {
       await triggerSync(agent.agent_id)
+      setSuccessMsg(`Synchronisation declenchee pour ${agent.name}`)
       setTimeout(loadData, 1000)
     } catch (error) {
       console.error('Erreur sync:', error)
@@ -156,14 +168,17 @@ export default function ETLAdmin() {
 
   const handlePauseResume = async (agent) => {
     try {
-      if (agent.status === 'active' || agent.status === 'syncing') {
+      const isPausing = agent.status === 'active' || agent.status === 'syncing'
+      if (isPausing) {
         await pauseAgent(agent.agent_id)
       } else {
         await resumeAgent(agent.agent_id)
       }
+      setSuccessMsg(`Agent ${agent.name} ${isPausing ? 'mis en pause' : 'repris'}`)
       setTimeout(loadData, 1000)
     } catch (error) {
       console.error('Erreur pause/resume:', error)
+      setError('Erreur lors du changement de statut de l\'agent')
     }
   }
 
@@ -171,8 +186,7 @@ export default function ETLAdmin() {
     try {
       const res = await syncPublishedTables(agent.agent_id)
       const { added, updated } = res.data
-      setSuccessMsg(`✅ Tables récupérées depuis OptiBoard : ${added} nouvelle(s) ajoutée(s), ${updated} mise(s) à jour`)
-      setTimeout(() => setSuccessMsg(null), 5000)
+      setSuccessMsg(`Tables recuperees depuis OptiBoard : ${added} nouvelle(s) ajoutee(s), ${updated} mise(s) a jour`)
       await loadData()
     } catch (error) {
       console.error('Erreur récupération tables OptiBoard:', error)
@@ -183,6 +197,7 @@ export default function ETLAdmin() {
   const handleDeleteAgent = async (agent) => {
     try {
       await deleteAgent(agent.agent_id)
+      setSuccessMsg(`Agent ${agent.name} supprime`)
       await loadData()
     } catch (error) {
       console.error('Erreur suppression agent:', error)
@@ -262,25 +277,31 @@ export default function ETLAdmin() {
         ))}
       </div>
 
-      {/* Erreur */}
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700">
-            <XCircle size={20} />
-          </button>
-        </div>
-      )}
-
-      {/* Succès */}
-      {successMsg && (
-        <div className="mb-4 p-4 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg flex items-center justify-between">
-          <span>{successMsg}</span>
-          <button onClick={() => setSuccessMsg(null)} className="text-green-500 hover:text-green-700">
-            <XCircle size={20} />
-          </button>
-        </div>
-      )}
+      {/* Toast notifications (fixed bottom-right) */}
+      <div className="fixed bottom-4 right-4 z-50 space-y-2 max-w-md">
+        {error && (
+          <div className="p-4 bg-red-100 dark:bg-red-900/80 text-red-700 dark:text-red-300 rounded-lg shadow-lg flex items-center justify-between animate-slide-in border border-red-200 dark:border-red-700">
+            <div className="flex items-center gap-2">
+              <XCircle size={16} className="flex-shrink-0" />
+              <span className="text-sm">{error}</span>
+            </div>
+            <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 ml-3 flex-shrink-0">
+              <XCircle size={16} />
+            </button>
+          </div>
+        )}
+        {successMsg && (
+          <div className="p-4 bg-green-100 dark:bg-green-900/80 text-green-700 dark:text-green-300 rounded-lg shadow-lg flex items-center justify-between animate-slide-in border border-green-200 dark:border-green-700">
+            <div className="flex items-center gap-2">
+              <CheckCircle size={16} className="flex-shrink-0" />
+              <span className="text-sm">{successMsg}</span>
+            </div>
+            <button onClick={() => setSuccessMsg(null)} className="text-green-500 hover:text-green-700 ml-3 flex-shrink-0">
+              <XCircle size={16} />
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Contenu selon l'onglet actif */}
       {activeTab === 'agents' && (
@@ -408,23 +429,6 @@ export default function ETLAdmin() {
           : <ETLTablesAdmin />
       )}
 
-      {/* Onglet Colonnes — redirige vers la page dediee */}
-      {activeTab === 'colonnes' && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Columns3 className="w-12 h-12 text-blue-500 mb-4" />
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">Gestion des colonnes ETL</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-5 max-w-sm">
-            Definissez les colonnes du catalogue et les choix par client.
-          </p>
-          <a
-            href="/admin/etl-colonnes"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow"
-          >
-            <Columns3 className="w-4 h-4" />
-            Ouvrir le gestionnaire de colonnes
-          </a>
-        </div>
-      )}
 
       {/* Modals */}
       {showCreateModal && (

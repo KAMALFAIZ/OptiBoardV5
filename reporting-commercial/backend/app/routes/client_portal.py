@@ -25,24 +25,28 @@ router = APIRouter(prefix="/api/client", tags=["client-portal"])
 class ClientSourceCreate(BaseModel):
     code_societe: str
     nom_societe: str
-    serveur_sage: str = "."   # défaut = serveur local (client autonome)
-    base_sage: str
-    user_sage: str = ""
-    password_sage: str = ""
     etl_enabled: bool = True
     etl_mode: str = "incremental"
     etl_schedule: str = "*/15 * * * *"
-
-
-class ClientSourceUpdate(BaseModel):
-    nom_societe: Optional[str] = None
+    # Champs credentials conservés pour rétrocompatibilité — ignorés (v2 architecture).
+    # Les credentials Sage doivent être configurés dans l'agent ETL (APP_ETL_Agents).
     serveur_sage: Optional[str] = None
     base_sage: Optional[str] = None
     user_sage: Optional[str] = None
     password_sage: Optional[str] = None
+
+
+class ClientSourceUpdate(BaseModel):
+    nom_societe: Optional[str] = None
     etl_enabled: Optional[bool] = None
     etl_mode: Optional[str] = None
     etl_schedule: Optional[str] = None
+    # Champs credentials conservés pour rétrocompatibilité — ignorés (v2 architecture).
+    # Les credentials Sage doivent être mis à jour via l'agent ETL correspondant.
+    serveur_sage: Optional[str] = None
+    base_sage: Optional[str] = None
+    user_sage: Optional[str] = None
+    password_sage: Optional[str] = None
 
 
 class ClientSmtpConfig(BaseModel):
@@ -103,13 +107,13 @@ async def get_client_dwh_info(
 async def get_client_dwh_sources(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
-    """Liste les sources Sage du DWH client."""
+    """Liste les sources Sage du DWH client (metadata uniquement — pas de credentials)."""
     code = _require_dwh(dwh_code)
     try:
         def _fetch():
             return execute_central(
-                "SELECT code_societe, nom_societe, serveur_sage, base_sage, "
-                "user_sage, etl_enabled, etl_mode, etl_schedule, last_sync, last_sync_status, actif "
+                "SELECT code_societe, nom_societe, agent_id, "
+                "etl_enabled, etl_mode, etl_schedule, last_sync, last_sync_status, actif "
                 "FROM APP_DWH_Sources WHERE dwh_code = ? ORDER BY code_societe",
                 (code,),
                 use_cache=False,
@@ -132,8 +136,15 @@ async def create_client_dwh_source(
     data: ClientSourceCreate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
-    """Ajoute une source Sage pour le DWH client."""
+    """Ajoute une source Sage (entrée monitoring) pour le DWH client.
+    Les credentials Sage doivent être configurés dans l'agent ETL (APP_ETL_Agents).
+    """
     code = _require_dwh(dwh_code)
+    if data.serveur_sage or data.base_sage or data.user_sage or data.password_sage:
+        logger.warning(
+            f"[CLIENT PORTAL] POST /dwh-sources {code}/{data.code_societe}: "
+            "champs credentials reçus mais ignorés (v2 arch — configurer via agent ETL)"
+        )
     try:
         def _insert():
             # Vérifier si la source existe déjà
@@ -146,11 +157,9 @@ async def create_client_dwh_source(
                 raise ValueError(f"Source '{data.code_societe}' existe déjà pour ce DWH")
             write_central(
                 "INSERT INTO APP_DWH_Sources "
-                "(dwh_code, code_societe, nom_societe, serveur_sage, base_sage, "
-                "user_sage, password_sage, etl_enabled, etl_mode, etl_schedule) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "(dwh_code, code_societe, nom_societe, etl_enabled, etl_mode, etl_schedule) "
+                "VALUES (?,?,?,?,?,?)",
                 (code, data.code_societe, data.nom_societe,
-                 data.serveur_sage, data.base_sage, data.user_sage, data.password_sage,
                  1 if data.etl_enabled else 0, data.etl_mode, data.etl_schedule),
             )
         await asyncio.to_thread(_insert)
@@ -170,21 +179,23 @@ async def update_client_dwh_source(
     data: ClientSourceUpdate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
-    """Met à jour une source Sage du DWH client."""
+    """Met à jour une source Sage du DWH client (metadata uniquement).
+    Les credentials Sage doivent être mis à jour via l'agent ETL correspondant.
+    """
     code = _require_dwh(dwh_code)
+    if data.serveur_sage or data.base_sage or data.user_sage or data.password_sage:
+        logger.warning(
+            f"[CLIENT PORTAL] PUT /dwh-sources/{code_societe}: "
+            "champs credentials reçus mais ignorés (v2 arch — mettre à jour via agent ETL)"
+        )
     try:
         def _update():
-            # Construire dynamiquement les champs à mettre à jour
+            # Construire dynamiquement les champs à mettre à jour (metadata uniquement)
             fields, vals = [], []
-            if data.nom_societe   is not None: fields.append("nom_societe=?");   vals.append(data.nom_societe)
-            if data.serveur_sage  is not None: fields.append("serveur_sage=?");  vals.append(data.serveur_sage)
-            if data.base_sage     is not None: fields.append("base_sage=?");     vals.append(data.base_sage)
-            if data.user_sage     is not None: fields.append("user_sage=?");     vals.append(data.user_sage)
-            if data.password_sage is not None and data.password_sage != "":
-                fields.append("password_sage=?"); vals.append(data.password_sage)
-            if data.etl_enabled   is not None: fields.append("etl_enabled=?");  vals.append(1 if data.etl_enabled else 0)
-            if data.etl_mode      is not None: fields.append("etl_mode=?");      vals.append(data.etl_mode)
-            if data.etl_schedule  is not None: fields.append("etl_schedule=?");  vals.append(data.etl_schedule)
+            if data.nom_societe is not None: fields.append("nom_societe=?"); vals.append(data.nom_societe)
+            if data.etl_enabled is not None: fields.append("etl_enabled=?"); vals.append(1 if data.etl_enabled else 0)
+            if data.etl_mode    is not None: fields.append("etl_mode=?");    vals.append(data.etl_mode)
+            if data.etl_schedule is not None: fields.append("etl_schedule=?"); vals.append(data.etl_schedule)
             if not fields:
                 raise ValueError("Aucun champ à mettre à jour")
             vals += [code, code_societe]

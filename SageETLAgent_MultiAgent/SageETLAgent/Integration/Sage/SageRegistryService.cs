@@ -246,35 +246,28 @@ namespace SageETLAgent.Integration.Sage
 
                 if (key == null) return false;
 
-                bool isUrlType = !string.IsNullOrEmpty(entry.Url);
+                // Type Sage unique qui fonctionne : 0x70726F67 ("prog")
+                // Confirmé par les 212 entrées fonctionnelles dans Gestion commerciale v5.00.
+                // Les types "ulnk" (0x756c6e6b) et "url " (0x75726C20) sont IGNORÉS par Sage.
+                const int TypeProg = 0x70726F67;  // "prog" en ASCII big-endian
 
-                // Types Sage (REG_DWORD) — valeurs ASCII big-endian :
-                //   0x756c6e6b ("ulnk") = Lien Internet
-                //   0x66696c65 ("file") = Programme externe
-                const uint TypeLienInternet    = 0x756c6e6b;
-                const uint TypeProgrammeExterne = 0x66696c65;
-                uint sageType = isUrlType ? TypeLienInternet : TypeProgrammeExterne;
+                bool isUrlEntry = !string.IsNullOrEmpty(entry.Url);
+
+                // Pour les URLs : on utilise "explorer.exe <url>" comme Path
+                // explorer.exe ouvre l'URL dans le navigateur par défaut
+                string path       = isUrlEntry ? "explorer.exe" : entry.ExecutablePath;
+                string parameters = isUrlEntry ? entry.Url      : entry.Parameters;
 
                 key.SetValue("Attente",           (int)entry.WaitForExit,  RegistryValueKind.DWord);
                 key.SetValue("Contexte",          (int)entry.Context,      RegistryValueKind.DWord);
                 key.SetValue("Fermeture société", (int)entry.CloseDossier, RegistryValueKind.DWord);
                 key.SetValue("Nom",               entry.Caption,           RegistryValueKind.String);
-                key.SetValue("Type",              (int)sageType,           RegistryValueKind.DWord);
+                key.SetValue("Type",              TypeProg,                 RegistryValueKind.DWord);
+                key.SetValue("Path",              path,                    RegistryValueKind.String);
+                key.SetValue("Paramètres",        parameters,              RegistryValueKind.String);
 
-                if (isUrlType)
-                {
-                    // Lien Internet : clé "Url" uniquement
-                    key.DeleteValue("Paramètres", throwOnMissingValue: false);
-                    key.DeleteValue("Path",       throwOnMissingValue: false);
-                    key.SetValue("Url", entry.Url, RegistryValueKind.String);
-                }
-                else
-                {
-                    // Programme externe : clé "Path" + "Paramètres"
-                    key.DeleteValue("Url", throwOnMissingValue: false);
-                    key.SetValue("Paramètres", entry.Parameters,     RegistryValueKind.String);
-                    key.SetValue("Path",        entry.ExecutablePath, RegistryValueKind.String);
-                }
+                // Nettoyer l'ancienne clé "Url" si elle existe (migration)
+                key.DeleteValue("Url", throwOnMissingValue: false);
 
                 _logger.Log(LogLevel.DEBUG, LogCategory.GENERAL,
                     $"[SageRegistry] Programme externe écrit : [{entry.Id}] {entry.Caption}");

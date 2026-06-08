@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
   X, Server, Settings, Database, RefreshCw, Trash2, Key,
-  CheckCircle, XCircle, Clock, Save, Power, PowerOff, Edit3, Plus
+  CheckCircle, XCircle, Clock, Save, Power, PowerOff, Edit3, Plus, Filter
 } from 'lucide-react'
 import {
   getAgent, updateAgent, deleteAgent, regenerateApiKey,
   getAgentTables, triggerTableSync, getAvailableETLTables,
-  deleteETLTable, toggleETLTable, syncAgentTablesWithConfig, deleteAllAgentTables,
+  deleteETLTable, toggleAgentTable, syncAgentTablesWithConfig, deleteAllAgentTables,
   updateETLTable, createETLTable
 } from '../../services/etlApi'
 import { extractErrorMessage } from '../../services/api'
@@ -34,6 +34,9 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
   const [editingTable, setEditingTable] = useState(null)
   const [tableEditData, setTableEditData] = useState({})
   const [showAddTable, setShowAddTable] = useState(false)
+
+  // Filtre tables: 'all' | 'enabled' | 'disabled'
+  const [tableFilter, setTableFilter] = useState('all')
 
   useEffect(() => {
     loadData()
@@ -63,9 +66,23 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
       if (availableRes.status === 'rejected')
         console.warn('Tables disponibles non chargees:', availableRes.reason)
 
+      // Merger le is_enabled per-agent dans les tables disponibles
+      const agentTablesArr = Array.isArray(tablesData) ? tablesData : []
+      const agentTableMap = {}
+      agentTablesArr.forEach(t => { agentTableMap[t.table_name] = t })
+
+      const mergedAvailable = (Array.isArray(availableData) ? availableData : []).map(t => {
+        const agentT = agentTableMap[t.name]
+        return {
+          ...t,
+          agent_table_id: agentT?.id,
+          is_enabled: agentT ? (agentT.is_enabled !== false && agentT.is_enabled !== 0) : t.is_enabled
+        }
+      })
+
       setAgent(agentData)
-      setTables(Array.isArray(tablesData) ? tablesData : [])
-      setAvailableTables(Array.isArray(availableData) ? availableData : [])
+      setTables(agentTablesArr)
+      setAvailableTables(mergedAvailable)
       setEditData({
         name: agentData.name || agentData.nom || '',
         description: agentData.description || '',
@@ -152,10 +169,29 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
     }
   }
 
-  const handleToggleTable = async (tableName) => {
+  const handleToggleTable = async (table) => {
     try {
-      await toggleETLTable(tableName)
-      setSuccess(`Table ${tableName} mise a jour`)
+      let tableId = table.agent_table_id
+      let newEnabled = !table.is_enabled
+
+      // Si la table n'est pas encore dans APP_ETL_Agent_Tables, sync d'abord
+      if (!tableId) {
+        await syncAgentTablesWithConfig(agent.agent_id)
+        // Recharger pour obtenir les IDs
+        const refreshed = await getAgentTables(agent.agent_id)
+        const refreshedData = refreshed.data?.data || refreshed.data || []
+        const match = refreshedData.find(t => t.table_name === table.name)
+        if (!match?.id) {
+          setError(`Impossible de configurer "${table.name}" pour cet agent`)
+          setTimeout(() => setError(null), 4000)
+          return
+        }
+        tableId = match.id
+        newEnabled = false
+      }
+
+      await toggleAgentTable(agent.agent_id, tableId, newEnabled)
+      setSuccess(`Table ${table.name} ${newEnabled ? 'activee' : 'desactivee'} pour cet agent`)
       loadData()
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
@@ -262,6 +298,12 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
       setLoading(false)
     }
   }
+
+  const filteredTables = availableTables.filter(t => {
+    if (tableFilter === 'enabled') return t.is_enabled !== false
+    if (tableFilter === 'disabled') return t.is_enabled === false
+    return true
+  })
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -419,13 +461,49 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
 
               {/* Liste des tables ETL disponibles */}
               <div className="space-y-2">
-                <h4 className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                  <Database size={16} />
-                  Tables ETL ({availableTables.length})
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
+                    <Database size={16} />
+                    Tables ETL ({filteredTables.length}{tableFilter !== 'all' ? ` / ${availableTables.length}` : ''})
+                  </h4>
+                  <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setTableFilter('all')}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                        tableFilter === 'all'
+                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      Tous
+                    </button>
+                    <button
+                      onClick={() => setTableFilter('enabled')}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                        tableFilter === 'enabled'
+                          ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      <Power size={10} />
+                      Actifs ({availableTables.filter(t => t.is_enabled !== false).length})
+                    </button>
+                    <button
+                      onClick={() => setTableFilter('disabled')}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                        tableFilter === 'disabled'
+                          ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      <PowerOff size={10} />
+                      Inactifs ({availableTables.filter(t => t.is_enabled === false).length})
+                    </button>
+                  </div>
+                </div>
 
                 <div className="space-y-2">
-                  {availableTables.map(availTable => {
+                  {filteredTables.map(availTable => {
                     // Trouver le statut de sync pour cet agent
                     const agentTableStatus = tables.find(t => t.table_name === availTable.name)
 
@@ -510,7 +588,7 @@ export default function AgentDetailModal({ agent: initialAgent, onClose, onUpdat
                                   ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50'
                                   : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                               }`}
-                              onClick={() => handleToggleTable(availTable.name)}
+                              onClick={() => handleToggleTable(availTable)}
                               title={availTable.is_enabled !== false ? 'Desactiver la table' : 'Activer la table'}
                             >
                               {availTable.is_enabled !== false ? <Power size={12} /> : <PowerOff size={12} />}

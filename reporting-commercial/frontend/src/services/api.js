@@ -129,6 +129,13 @@ export const getFicheClientHealthScore = (codeClient, params = {}) => api.get(`/
 export const getFicheFournisseurListe = () => api.get('/fiche-fournisseur/liste')
 export const getFicheFournisseur = (nomFournisseur, params = {}) => api.get(`/fiche-fournisseur/${encodeURIComponent(nomFournisseur)}`, { params })
 
+// Dettes Fournisseurs APIs
+export const getDettesFournisseurs = (params = {}) => api.get('/dettes-fournisseurs', { params })
+export const getBalanceAgeeFournisseurs = (params = {}) => api.get('/dettes-fournisseurs/balance-agee', { params })
+export const getFournisseurDettes = (code) => api.get(`/dettes-fournisseurs/fournisseur/${encodeURIComponent(code)}`)
+export const getFournisseursParTranche = (tranche, params = {}) => api.get(`/dettes-fournisseurs/tranche/${encodeURIComponent(tranche)}`, { params })
+export const getEcheancesDettesFournisseurs = (params = {}) => api.get('/dettes-fournisseurs/echeances', { params })
+
 // Recouvrement APIs
 export const getRecouvrement = (params = {}) => api.get('/recouvrement', { params })
 export const getDSO = (params = {}) => api.get('/recouvrement/dso', { params })

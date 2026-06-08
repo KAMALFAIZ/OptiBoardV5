@@ -55,13 +55,27 @@ ENV_SCHEMA = [
         "id": "ai",
         "label": "Module IA",
         "icon": "bot",
+        "testable": True,
         "fields": [
             {"key": "AI_ENABLED",               "label": "IA activée",              "type": "boolean"},
             {"key": "AI_PROVIDER",              "label": "Fournisseur",              "type": "select",
-             "options": ["anthropic", "ollama", "openai"]},
-            {"key": "AI_MODEL",                 "label": "Modèle",                   "type": "text",    "placeholder": "claude-sonnet-4-5..."},
-            {"key": "AI_API_KEY",               "label": "Clé API",                  "type": "password","placeholder": "sk-ant-..."},
-            {"key": "AI_OLLAMA_URL",            "label": "URL Ollama",               "type": "text",    "placeholder": "http://localhost:11434"},
+             "options": ["anthropic", "openai", "google", "mistral", "groq", "deepseek", "ollama"]},
+            {"key": "AI_MODEL",                 "label": "Modèle",                   "type": "model_select",
+             "models": {
+                 "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
+                 "openai":    ["gpt-4o", "gpt-4o-mini", "o3-mini", "o4-mini", "gpt-4.1"],
+                 "google":    ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+                 "mistral":   ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "codestral-latest"],
+                 "groq":      ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+                 "deepseek":  ["deepseek-chat", "deepseek-reasoner"],
+                 "ollama":    ["llama3.2", "mistral", "codellama", "phi3", "mixtral", "qwen2.5"],
+             }},
+            {"key": "AI_API_KEY",               "label": "Clé API",                  "type": "password","placeholder": "sk-...",
+             "visible_when": {"AI_PROVIDER": ["anthropic", "openai", "google", "mistral", "groq", "deepseek"]}},
+            {"key": "AI_BASE_URL",              "label": "URL API (optionnel)",      "type": "text",    "placeholder": "Auto-détecté si vide",
+             "visible_when": {"AI_PROVIDER": ["openai", "google", "mistral", "groq", "deepseek"]}},
+            {"key": "AI_OLLAMA_URL",            "label": "URL Ollama",               "type": "text",    "placeholder": "http://localhost:11434",
+             "visible_when": {"AI_PROVIDER": ["ollama"]}},
             {"key": "AI_MAX_TOKENS",            "label": "Tokens max",               "type": "number",  "min": 256,   "max": 32000},
             {"key": "AI_TEMPERATURE",           "label": "Température",              "type": "number",  "min": 0,     "max": 2,    "step": 0.1},
             {"key": "AI_SQL_MAX_ROWS",          "label": "Lignes max SQL",           "type": "number",  "min": 10,    "max": 10000},
@@ -299,6 +313,30 @@ async def test_smtp(req: TestSMTPRequest):
         return {"success": False, "message": "Authentification echouee. Verifiez App Password Gmail."}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+@router.post("/test-ai")
+async def test_ai_provider():
+    """Teste la connexion au fournisseur IA configuré dans .env."""
+    try:
+        from ..services.ai_provider import get_ai_provider, AIMessage, AIProviderError
+        provider = get_ai_provider()
+        if not provider:
+            return {"success": False, "message": "IA désactivée ou fournisseur non configuré"}
+        test_messages = [
+            AIMessage("system", "Tu es un assistant de test."),
+            AIMessage("user", "Réponds uniquement 'OK' en un seul mot.")
+        ]
+        response = await provider.chat(test_messages)
+        return {
+            "success": True,
+            "message": f"Connexion réussie — {provider.get_provider_name()}",
+            "response": response[:100],
+        }
+    except AIProviderError as e:
+        return {"success": False, "message": f"Erreur fournisseur : {e}"}
+    except Exception as e:
+        return {"success": False, "message": f"Erreur : {e}"}
 
 
 @router.post("/restart")

@@ -20,6 +20,7 @@ class AIConfigRequest(BaseModel):
     AI_PROVIDER: str = ""
     AI_MODEL: str = ""
     AI_API_KEY: str = ""
+    AI_BASE_URL: str = ""
     AI_OLLAMA_URL: str = "http://localhost:11434"
     AI_MAX_TOKENS: int = 4096
     AI_TEMPERATURE: float = 0.2
@@ -654,11 +655,16 @@ async def init_central_database_tables():
                         id INT IDENTITY(1,1) PRIMARY KEY,
                         dwh_code VARCHAR(50) NOT NULL,
                         code_societe VARCHAR(50) NOT NULL,
-                        nom_societe NVARCHAR(200) NOT NULL,
-                        serveur_sage VARCHAR(200) NOT NULL,
-                        base_sage VARCHAR(100) NOT NULL,
-                        user_sage VARCHAR(100) NOT NULL,
-                        password_sage VARCHAR(200) NOT NULL,
+                        nom_societe NVARCHAR(200) NULL,
+                        -- Lien vers l'agent ETL proprietaire des credentials (APP_ETL_Agents.agent_id)
+                        -- Les credentials (serveur_sage, base_sage, user_sage, password_sage) sont
+                        -- conserves ci-dessous pour retrocompatibilite mais sont NULL quand un agent
+                        -- ETL est configure — la source de verite est APP_ETL_Agents (base client).
+                        agent_id NVARCHAR(100) NULL,
+                        serveur_sage VARCHAR(200) NULL,
+                        base_sage VARCHAR(100) NULL,
+                        user_sage VARCHAR(100) NULL,
+                        password_sage VARCHAR(200) NULL,
                         etl_enabled BIT DEFAULT 1,
                         etl_mode VARCHAR(20) DEFAULT 'incremental',
                         etl_schedule VARCHAR(50) DEFAULT '*/15 * * * *',
@@ -1226,6 +1232,25 @@ async def init_central_database_tables():
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Pivots_V2') AND name='code') ALTER TABLE APP_Pivots_V2 ADD code VARCHAR(100) NULL",
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Dashboards') AND name='code') ALTER TABLE APP_Dashboards ADD code VARCHAR(100) NULL",
                     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DataSources') AND name='code') ALTER TABLE APP_DataSources ADD code VARCHAR(100) NULL",
+                    # ---- CredentialResolver v2 : APP_DWH_Sources devient table de monitoring/planning ----
+                    # Ajouter agent_id pour lier la source a l'agent ETL proprietaire des credentials
+                    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='agent_id') ALTER TABLE APP_DWH_Sources ADD agent_id NVARCHAR(100) NULL",
+                    # Rendre les colonnes credentials nullable (etape intermediaire avant suppression)
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='serveur_sage' AND is_nullable=0) ALTER TABLE APP_DWH_Sources ALTER COLUMN serveur_sage VARCHAR(200) NULL",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='base_sage'    AND is_nullable=0) ALTER TABLE APP_DWH_Sources ALTER COLUMN base_sage    VARCHAR(100) NULL",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='user_sage'    AND is_nullable=0) ALTER TABLE APP_DWH_Sources ALTER COLUMN user_sage    VARCHAR(100) NULL",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='password_sage' AND is_nullable=0) ALTER TABLE APP_DWH_Sources ALTER COLUMN password_sage VARCHAR(200) NULL",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='nom_societe'  AND is_nullable=0) ALTER TABLE APP_DWH_Sources ALTER COLUMN nom_societe  NVARCHAR(200) NULL",
+                    # ---- Phase 3 : Supprimer les colonnes credentials de APP_DWH_Sources ----
+                    # Les credentials sont desormais exclusivement dans APP_ETL_Agents (base client).
+                    # Guard : ne supprimer que si la colonne est bien NULL (toutes lignes migrées)
+                    # => on vérifie d'abord que agent_id est défini pour toutes les lignes avec une base_sage
+                    #    via une mise à NULL préalable des lignes déjà orphelines (sans agent correspondant)
+                    # Suppression de password_sage en premier (donnée la plus sensible)
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='password_sage') ALTER TABLE APP_DWH_Sources DROP COLUMN password_sage",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='user_sage')     ALTER TABLE APP_DWH_Sources DROP COLUMN user_sage",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='serveur_sage')  ALTER TABLE APP_DWH_Sources DROP COLUMN serveur_sage",
+                    "IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH_Sources') AND name='base_sage')     ALTER TABLE APP_DWH_Sources DROP COLUMN base_sage",
                 ]
                 for stmt in alter_statements:
                     try:
@@ -1833,10 +1858,83 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
                 except Exception as e:
                     result["errors"].append(f"Admin client (base {client_db}): {e}")
 
-            # 5. Source Sage (optionnel) - INSERT INTO APP_DWH_Sources
-            if sage_server and sage_database and sage_username:
+            # 5. Source Sage (optionnel)
+            # Phase 3 : credentials stockés dans APP_ETL_Agents (base client, source de vérité).
+            # APP_DWH_Sources ne reçoit que les métadonnées de planning/monitoring (sans credentials).
+            if sage_server and sage_database:
                 societe_code = (sage_societe_code or code).strip().upper()[:50]
-                societe_nom = (sage_societe_nom or nom).strip()[:200]
+                societe_nom  = (sage_societe_nom  or nom).strip()[:200]
+                setup_agent_id = None
+
+                # 5a. Pré-enregistrer l'agent Sage dans la base client (APP_ETL_Agents)
+                try:
+                    import uuid as _uuid
+                    setup_agent_id = str(_uuid.uuid4())
+                    conn_agent_str = (
+                        f"DRIVER={driver};SERVER={server};DATABASE={client_db};"
+                        f"UID={user};PWD={password};TrustServerCertificate=yes"
+                    )
+                    with pyodbc.connect(conn_agent_str, autocommit=True, timeout=30) as conn_a:
+                        cur_a = conn_a.cursor()
+                        # Créer la table APP_ETL_Agents si absente (wizard = première installation)
+                        cur_a.execute("""
+                            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Agents' AND xtype='U')
+                            CREATE TABLE APP_ETL_Agents (
+                                id              INT IDENTITY(1,1) PRIMARY KEY,
+                                agent_id        NVARCHAR(100) UNIQUE NOT NULL,
+                                nom             NVARCHAR(200),
+                                description     NVARCHAR(500),
+                                sage_server     VARCHAR(200),
+                                sage_database   VARCHAR(100),
+                                sage_username   VARCHAR(100),
+                                sage_password   VARCHAR(200),
+                                code_societe    VARCHAR(100),
+                                nom_societe     NVARCHAR(200),
+                                api_key_hash    VARCHAR(200),
+                                api_key_prefix  VARCHAR(10),
+                                statut          VARCHAR(20) DEFAULT 'inactif',
+                                is_active       BIT DEFAULT 1,
+                                auto_start      BIT DEFAULT 1,
+                                sync_interval_secondes       INT DEFAULT 300,
+                                heartbeat_interval_secondes  INT DEFAULT 60,
+                                batch_size      INT DEFAULT 10000,
+                                last_heartbeat  DATETIME NULL,
+                                last_error      NVARCHAR(MAX) NULL,
+                                agent_version   VARCHAR(50) NULL,
+                                created_at      DATETIME DEFAULT GETDATE(),
+                                updated_at      DATETIME DEFAULT GETDATE()
+                            )
+                        """)
+                        # Eviter le doublon si la source existe déjà
+                        cur_a.execute(
+                            "SELECT agent_id FROM APP_ETL_Agents WHERE code_societe = ? OR sage_database = ?",
+                            (societe_code, sage_database)
+                        )
+                        existing_agent = cur_a.fetchone()
+                        if existing_agent:
+                            setup_agent_id = existing_agent[0]
+                        else:
+                            cur_a.execute("""
+                                INSERT INTO APP_ETL_Agents (
+                                    agent_id, nom, description,
+                                    sage_server, sage_database, sage_username, sage_password,
+                                    code_societe, nom_societe,
+                                    is_active, auto_start, statut, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'inactif', GETDATE(), GETDATE())
+                            """, (
+                                setup_agent_id,
+                                f"Agent {societe_nom}",
+                                "Pre-configure par le wizard de setup",
+                                sage_server, sage_database,
+                                sage_username or "", sage_password or "",
+                                societe_code, societe_nom
+                            ))
+                            result["sage_agent_id"] = setup_agent_id
+                except Exception as agent_err:
+                    result["errors"].append(f"APP_ETL_Agents (base client) : {agent_err}")
+                    setup_agent_id = None
+
+                # 5b. Enregistrer les métadonnées de monitoring dans APP_DWH_Sources (base centrale, sans credentials)
                 cur.execute(
                     "SELECT id FROM APP_DWH_Sources WHERE dwh_code = ? AND code_societe = ?",
                     (code, societe_code)
@@ -1846,13 +1944,10 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
                 else:
                     cur.execute("""
                         INSERT INTO APP_DWH_Sources
-                            (dwh_code, code_societe, nom_societe,
-                             serveur_sage, base_sage, user_sage, password_sage,
+                            (dwh_code, code_societe, nom_societe, agent_id,
                              etl_enabled, etl_mode, actif)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'incremental', 1)
-                    """, (code, societe_code, societe_nom,
-                          sage_server, sage_database, sage_username,
-                          sage_password or ''))
+                        VALUES (?, ?, ?, ?, 1, 'incremental', 1)
+                    """, (code, societe_code, societe_nom, setup_agent_id))
                     result["sage_source_inserted"] = True
                     result["sage_societe_code"] = societe_code
     except Exception as e:

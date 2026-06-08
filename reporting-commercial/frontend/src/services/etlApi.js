@@ -202,15 +202,6 @@ export const deleteAgentTable = (agentId, tableId) => {
 }
 
 /**
- * Active/Desactive une table
- * @param {string} agentId - ID de l'agent
- * @param {string} tableId - ID de la table
- */
-export const toggleAgentTable = (agentId, tableId) => {
-  return api.post(`/admin/etl/agents/${agentId}/tables/${tableId}/toggle`)
-}
-
-/**
  * Importe les tables ETL disponibles
  * @param {string} agentId - ID de l'agent
  */
@@ -262,6 +253,34 @@ export const getSyncDashboard = () => {
   return api.get('/admin/etl/sync-dashboard')
 }
 
+/**
+ * Alertes ETL — agents hors ligne, echecs consecutifs, erreurs recentes
+ */
+export const getETLAlerts = (thresholdMinutes = 5) => {
+  return api.get('/admin/etl/alerts', { params: { threshold_minutes: thresholdMinutes } })
+}
+
+/**
+ * Historique des erreurs d'un agent
+ */
+export const getAgentErrors = (agentId, page = 1, pageSize = 50) => {
+  return api.get(`/admin/etl/agents/${agentId}/errors`, { params: { page, page_size: pageSize } })
+}
+
+/**
+ * Dead-letter queue : lignes echouees
+ */
+export const getFailedRows = (params = {}) => {
+  return api.get('/admin/etl/failed-rows', { params })
+}
+
+/**
+ * Marquer une ligne echouee comme resolue
+ */
+export const resolveFailedRow = (rowId) => {
+  return api.post(`/admin/etl/failed-rows/${rowId}/resolve`)
+}
+
 // ============================================================
 // DWH
 // ============================================================
@@ -286,6 +305,16 @@ export const downloadAgentPackage = () => {
  */
 export const getAgentConfigFile = (agentId) => {
   return api.get(`/admin/etl/agents/${agentId}/config-file`)
+}
+
+/**
+ * Active/Desactive une table pour un agent specifique
+ * @param {string} agentId - ID de l'agent
+ * @param {number} tableId - ID de la table dans APP_ETL_Agent_Tables
+ * @param {boolean} isEnabled - Nouvel etat
+ */
+export const toggleAgentTable = (agentId, tableId, isEnabled) => {
+  return api.put(`/admin/etl/agents/${agentId}/tables/${tableId}`, { is_enabled: isEnabled })
 }
 
 /**
@@ -340,10 +369,19 @@ export const deleteETLTable = (tableName) => {
 }
 
 /**
- * Active/Desactive une table ETL
+ * Active/Desactive une table ETL (config globale admin)
  * @param {string} tableName - Nom de la table
  */
-export const toggleETLTable = (code, is_enabled) => {
+export const toggleETLTable = (tableName) => {
+  return api.patch(`/etl/config/tables/${encodeURIComponent(tableName)}/toggle`)
+}
+
+/**
+ * Active/Desactive une table ETL publiee (cote client)
+ * @param {string} code - Code de la table
+ * @param {boolean} is_enabled - Nouvel etat
+ */
+export const togglePublishedETLTable = (code, is_enabled) => {
   return api.patch(`/etl-tables/client/${code}/toggle`, { is_enabled })
 }
 
@@ -518,6 +556,10 @@ export default {
   getAgentStats,
   getETLStats,
   getSyncDashboard,
+  getETLAlerts,
+  getAgentErrors,
+  getFailedRows,
+  resolveFailedRow,
 
   // DWH
   getDWHList,

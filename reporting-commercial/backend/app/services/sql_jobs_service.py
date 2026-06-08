@@ -369,7 +369,7 @@ def check_infrastructure_status(dwh_code: str) -> Dict[str, Any]:
             # 3. Config data dans OptiBoard
             settings = get_central_settings()
             try:
-                cursor.execute(f"SELECT COUNT(*) AS cnt FROM [{settings.CENTRAL_DB_NAME}].dbo.ETL_Tables_Config")
+                cursor.execute(f"SELECT COUNT(*) AS cnt FROM [{settings.CENTRAL_DB_NAME or settings.DB_NAME}].dbo.ETL_Tables_Config")
                 row = cursor.fetchone()
                 config_count = row.cnt if row else 0
             except Exception:
@@ -471,8 +471,9 @@ def parameterize_script(sql_content: str, dwh_code: str, extra_params: dict = No
     dwh_info = _get_dwh_db_info(dwh_code)
     settings = get_central_settings()
 
+    central_db = settings.CENTRAL_DB_NAME or settings.DB_NAME
     sql = sql_content.replace("{DWH_NAME}", dwh_info["base_dwh"])
-    sql = sql.replace("{OPTIBOARD_DB}", settings.CENTRAL_DB_NAME)
+    sql = sql.replace("{OPTIBOARD_DB}", central_db)
 
     # Parametres supplementaires (ex: Linked Server)
     if extra_params:
@@ -492,7 +493,7 @@ def preview_script(script_name: str, dwh_code: str, extra_params: dict = None) -
 
     placeholders = {
         "DWH_NAME": dwh_info["base_dwh"],
-        "OPTIBOARD_DB": settings.CENTRAL_DB_NAME
+        "OPTIBOARD_DB": settings.CENTRAL_DB_NAME or settings.DB_NAME
     }
     if extra_params:
         placeholders.update(extra_params)
@@ -559,7 +560,7 @@ def _check_prerequisites(script_name: str, dwh_code: str) -> Optional[str]:
         try:
             if prereq["database"] == "optiboard":
                 settings = get_central_settings()
-                cursor.execute(f"USE [{settings.CENTRAL_DB_NAME}]")
+                cursor.execute(f"USE [{settings.CENTRAL_DB_NAME or settings.DB_NAME}]")
             # else: DWH is already the default database
 
             cursor.execute(prereq["check"])

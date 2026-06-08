@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Database, HardDrive, Rows3, ArrowUpCircle, ArrowRightLeft,
   RefreshCw, AlertTriangle, ChevronDown, ChevronUp, Clock,
-  Server, BarChart3
+  Server, BarChart3, Bell, XCircle, WifiOff
 } from 'lucide-react'
-import { getSyncDashboard } from '../../services/etlApi'
+import { getSyncDashboard, getETLAlerts } from '../../services/etlApi'
 
 function formatNumber(num) {
   if (num === null || num === undefined) return '-'
@@ -188,9 +188,57 @@ function DWHRow({ dwh, expanded, onToggle }) {
   )
 }
 
+function AlertsBanner({ alerts }) {
+  const [dismissed, setDismissed] = useState(false)
+  if (dismissed || !alerts || alerts.length === 0) return null
+
+  const critical = alerts.filter(a => a.severity === 'critical')
+  const warnings = alerts.filter(a => a.severity === 'warning')
+
+  const severityIcon = { offline: WifiOff, consecutive_failures: AlertTriangle, error: XCircle }
+
+  return (
+    <div className={`mb-4 rounded-lg border p-3 ${
+      critical.length > 0
+        ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+        : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+    }`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Bell size={14} className={critical.length > 0 ? 'text-red-600' : 'text-yellow-600'} />
+          <span className={critical.length > 0 ? 'text-red-700 dark:text-red-300' : 'text-yellow-700 dark:text-yellow-300'}>
+            {critical.length > 0 ? `${critical.length} alerte(s) critique(s)` : `${warnings.length} avertissement(s)`}
+          </span>
+        </div>
+        <button onClick={() => setDismissed(true)} className="text-gray-400 hover:text-gray-600">
+          <XCircle size={14} />
+        </button>
+      </div>
+      <div className="space-y-1">
+        {alerts.slice(0, 5).map((alert, i) => {
+          const Icon = severityIcon[alert.type] || AlertTriangle
+          return (
+            <div key={i} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+              <Icon size={12} className={alert.severity === 'critical' ? 'text-red-500' : 'text-yellow-500'} />
+              <span className="font-medium">{alert.agent_name || alert.agent_id?.slice(0, 8)}</span>
+              <span>{alert.message}</span>
+            </div>
+          )
+        })}
+        {alerts.length > 5 && (
+          <div className="text-xs text-gray-500 dark:text-gray-400 pl-5">
+            + {alerts.length - 5} autre(s) alerte(s)
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function SyncMonitoringDashboard() {
   const [data, setData] = useState([])
   const [totals, setTotals] = useState({})
+  const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [expandedDwh, setExpandedDwh] = useState(null)
@@ -198,10 +246,14 @@ export default function SyncMonitoringDashboard() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await getSyncDashboard()
-      const result = res.data
+      const [dashRes, alertsRes] = await Promise.all([
+        getSyncDashboard(),
+        getETLAlerts().catch(() => ({ data: { data: [] } }))
+      ])
+      const result = dashRes.data
       setData(result.data || [])
       setTotals(result.totals || {})
+      setAlerts(alertsRes.data?.data || [])
       setError(null)
     } catch (err) {
       console.error('Erreur chargement monitoring:', err)
@@ -255,6 +307,8 @@ export default function SyncMonitoringDashboard() {
           {error}
         </div>
       )}
+
+      <AlertsBanner alerts={alerts} />
 
       {/* Cartes resumees */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

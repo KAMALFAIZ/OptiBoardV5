@@ -25,6 +25,15 @@ import ExecutiveSummaryModal from '../components/common/ExecutiveSummaryModal'
 import AnomalyBadge from '../components/common/AnomalyBadge'
 import ForecastModal from '../components/common/ForecastModal'
 
+/** Valide une date ISO YYYY-MM-DD — année entre 2000 et 2099 — sinon retourne fallback */
+function sanitizeDateValue(d, fallback = '') {
+  if (!d || typeof d !== 'string') return fallback
+  if (d.length !== 10 || d[4] !== '-' || d[7] !== '-') return fallback
+  const y = parseInt(d.slice(0, 4), 10)
+  if (isNaN(y) || y < 2000 || y > 2099) return fallback
+  return d
+}
+
 // Résoudre les macros de dates en valeurs réelles (format YYYY-MM-DD)
 function resolveDateMacro(macroOrValue) {
   if (!macroOrValue || typeof macroOrValue !== 'string') return macroOrValue
@@ -391,7 +400,11 @@ export default function GridViewDisplay() {
               if (p.type === 'multiselect') {
                 defaults[p.name] = []
               } else if (p.type === 'date') {
-                defaults[p.name] = resolveDateMacro(p.default) || (globalVal ? String(globalVal) : '')
+                const today = new Date()
+                const currentYear = today.getFullYear()
+                const rawDate = resolveDateMacro(p.default) || sanitizeDateValue(globalVal ? String(globalVal) : '', '')
+                // Défaut intelligent : si vide ou invalide → utiliser l'année courante
+                defaults[p.name] = sanitizeDateValue(rawDate) || `${currentYear}-01-01`
               } else {
                 defaults[p.name] = p.default || (globalVal != null ? String(globalVal) : '')
               }

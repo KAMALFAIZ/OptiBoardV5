@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Diagnostics;
@@ -19,7 +19,7 @@ namespace SageETLAgent.Forms
     {
         private readonly ParallelSyncManager _syncManager;
         private List<AgentProfile> _agents = new();
-        private string _serverUrl = "http://kasoft.selfip.net:50231";
+        private string _serverUrl = "http://optiboard.kasoft.ma";
         private string _dwhCode = "";
 
         // ── Theme Colors (Professional — tons clairs) ──
@@ -147,58 +147,148 @@ namespace SageETLAgent.Forms
         {
             var btn = new Button
             {
-                Text = text,
-                Width = width,
-                Height = height,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                Text = text, Width = width, Height = height,
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 8.5F),
+                BackColor = bgColor, ForeColor = fgColor
             };
-
-            if (isOutline)
-            {
-                btn.BackColor = ThemeBgCard;
-                btn.ForeColor = bgColor;
-                btn.FlatAppearance.BorderColor = ThemeBorder;
-                btn.FlatAppearance.BorderSize = 1;
-                btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, bgColor);
-            }
-            else
-            {
-                btn.BackColor = bgColor;
-                btn.ForeColor = fgColor;
-                btn.FlatAppearance.BorderSize = 0;
-                btn.FlatAppearance.MouseOverBackColor = ControlPaint.Dark(bgColor, 0.08f);
-                btn.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(bgColor, 0.15f);
-            }
+            btn.FlatAppearance.BorderSize = 0;
+            btn.FlatAppearance.MouseOverBackColor = ControlPaint.Dark(bgColor, 0.08f);
+            btn.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(bgColor, 0.15f);
             return btn;
         }
 
-        // ── Helper: icon-only button with tooltip ──
-        private Button CreateIconButton(string icon, string tooltip, int size, Color bgColor, Color fgColor, bool isOutline = false)
+        // Ghost icon button — transparent bg, accent on hover, no border
+        private Button CreateIconButton(string icon, string tooltip, int size, Color accentColor, Color fgColor, bool isOutline = false)
         {
-            var btn = CreateStyledButton(icon, size, size, bgColor, fgColor, isOutline);
-            btn.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
-            btn.Padding = Padding.Empty;
-            btn.TextAlign = ContentAlignment.MiddleCenter;
+            var btn = new Button
+            {
+                Text = icon, Width = size, Height = size,
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", size >= 28 ? 10F : 9F),
+                Padding = Padding.Empty, TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                ForeColor = isOutline ? accentColor : fgColor
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(22, accentColor);
+            btn.FlatAppearance.MouseDownBackColor = Color.FromArgb(40, accentColor);
             _toolTip.SetToolTip(btn, tooltip);
             return btn;
         }
 
-        // ── Helper: GroupBox with rounded border ──
-        private GroupBox CreateSection(string title)
+        // ── Helper: Modern card panel (replaces GroupBox) ──
+        // ── Modern card panel ──
+        private Panel CreateSection(string title)
         {
-            var grp = new GroupBox
+            var card = new Panel
             {
                 Dock = DockStyle.Fill,
-                Text = title,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = ThemePrimaryDarker,
                 BackColor = ThemeBgCard,
-                Margin = new Padding(0, 2, 0, 2),
-                Padding = new Padding(6, 4, 6, 4)
+                Margin = new Padding(2),
+                Padding = new Padding(8, 22, 8, 4)
             };
-            return grp;
+
+            card.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var bounds = new Rectangle(0, 0, card.Width - 1, card.Height - 1);
+                using var path = CreateRoundedRect(bounds, 6);
+                using var fillBrush = new SolidBrush(ThemeBgCard);
+                g.FillPath(fillBrush, path);
+                using var borderPen = new Pen(ThemeBorder, 1);
+                g.DrawPath(borderPen, path);
+                using var accentBrush = new SolidBrush(ThemePrimary);
+                g.FillRectangle(accentBrush, 8, 6, 3, 12);
+                using var titleFont = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold);
+                using var titleBrush = new SolidBrush(ThemeTextDark);
+                g.DrawString(title, titleFont, titleBrush, 16, 5);
+                using var hairlinePen = new Pen(ThemeBorderLight, 1);
+                g.DrawLine(hairlinePen, 8, 21, card.Width - 9, 21);
+            };
+            card.Resize += (s, e) => card.Invalidate();
+            return card;
+        }
+
+        // ── Helper: Top application header banner ──
+        private Panel CreateHeaderBanner()
+        {
+            var banner = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = ThemeBgCard,
+                Margin = new Padding(4, 4, 4, 0)
+            };
+
+            var lblTitle = new Label
+            {
+                Text = "Agent ETL Sage",
+                Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold),
+                ForeColor = ThemeTextDark,
+                AutoSize = true,
+                Location = new Point(48, 6),
+                BackColor = Color.Transparent
+            };
+            var lblSubtitle = new Label
+            {
+                Text = "Synchronisation multi-agent vers OptiBoard",
+                Font = new Font("Segoe UI", 7.5F),
+                ForeColor = ThemeTextMuted,
+                AutoSize = true,
+                Location = new Point(49, 26),
+                BackColor = Color.Transparent
+            };
+            banner.Controls.Add(lblTitle);
+            banner.Controls.Add(lblSubtitle);
+
+            var lblVersion = new Label
+            {
+                Text = "v2.0",
+                Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
+                ForeColor = ThemePrimaryDark,
+                BackColor = ThemePrimaryLight,
+                Padding = new Padding(6, 2, 6, 2),
+                AutoSize = true,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            banner.Controls.Add(lblVersion);
+            banner.Resize += (s, e) =>
+            {
+                lblVersion.Location = new Point(banner.Width - lblVersion.Width - 16, 12);
+            };
+
+            banner.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var bounds = new Rectangle(0, 0, banner.Width - 1, banner.Height - 1);
+
+                // Rounded card background
+                using var path = CreateRoundedRect(bounds, 8);
+                using var fillBrush = new LinearGradientBrush(
+                    bounds,
+                    ThemeBgCard,
+                    ThemePrimary50,
+                    LinearGradientMode.Horizontal);
+                g.FillPath(fillBrush, path);
+                using var borderPen = new Pen(ThemeBorder, 1);
+                g.DrawPath(borderPen, path);
+
+                // Logo disc with letter
+                var discRect = new Rectangle(10, 8, 30, 30);
+                using var discBrush = new LinearGradientBrush(
+                    discRect, ThemePrimaryDark, ThemePrimaryDarker, LinearGradientMode.Vertical);
+                g.FillEllipse(discBrush, discRect);
+                using var letterFont = new Font("Segoe UI Semibold", 11F, FontStyle.Bold);
+                using var letterBrush = new SolidBrush(Color.White);
+                var letterSize = g.MeasureString("S", letterFont);
+                g.DrawString("S", letterFont, letterBrush,
+                    discRect.X + (discRect.Width - letterSize.Width) / 2,
+                    discRect.Y + (discRect.Height - letterSize.Height) / 2);
+            };
+            banner.Resize += (s, e) => banner.Invalidate();
+            return banner;
         }
 
         private static GraphicsPath CreateRoundedRect(Rectangle bounds, int radius)
@@ -213,6 +303,103 @@ namespace SageETLAgent.Forms
             return path;
         }
 
+        private TabControl _tabControl = null!;
+
+        // ── Owner-draw flat modern tabs ──
+        private void TabControl_DrawItem(object? sender, DrawItemEventArgs e)
+        {
+            var tc = (TabControl)sender!;
+            var tab = tc.TabPages[e.Index];
+            var bounds = tc.GetTabRect(e.Index);
+            bool selected = (e.Index == tc.SelectedIndex);
+
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            using var bgBrush = new SolidBrush(selected ? ThemeBgCard : ThemeBg);
+            g.FillRectangle(bgBrush, bounds);
+
+            if (selected)
+            {
+                using var accentBrush = new SolidBrush(ThemePrimaryDark);
+                using var accentPath = CreateRoundedRect(new Rectangle(bounds.X + 12, bounds.Bottom - 4, bounds.Width - 24, 4), 2);
+                g.FillPath(accentBrush, accentPath);
+            }
+
+            using var font = new Font("Segoe UI Semibold", 9F, selected ? FontStyle.Bold : FontStyle.Regular);
+            using var textBrush = new SolidBrush(selected ? ThemePrimaryDarker : ThemeTextMuted);
+            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            g.DrawString(tab.Text, font, textBrush, bounds, sf);
+        }
+
+        // ── Tool card button for Outils tab ──
+        private Button CreateToolCard(string icon, string title, string description, Color accentColor)
+        {
+            var btn = new Button
+            {
+                Width = 260,
+                Height = 100,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = ThemeBgCard,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(12, 8, 12, 8),
+                Margin = new Padding(8),
+                Font = new Font("Segoe UI", 9F)
+            };
+            btn.FlatAppearance.BorderColor = ThemeBorder;
+            btn.FlatAppearance.BorderSize = 1;
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(20, accentColor);
+
+            btn.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+                using var accentBrush = new SolidBrush(accentColor);
+                g.FillRectangle(accentBrush, 0, 10, 4, btn.Height - 20);
+
+                using var iconFont = new Font("Segoe UI", 20F);
+                g.DrawString(icon, iconFont, accentBrush, 16, 18);
+
+                using var titleFont = new Font("Segoe UI Semibold", 10.5F, FontStyle.Bold);
+                using var titleBrush = new SolidBrush(ThemeTextDark);
+                g.DrawString(title, titleFont, titleBrush, 60, 18);
+
+                using var descFont = new Font("Segoe UI", 8.5F);
+                using var descBrush = new SolidBrush(ThemeTextMuted);
+                var descRect = new RectangleF(60, 42, btn.Width - 76, btn.Height - 52);
+                g.DrawString(description, descFont, descBrush, descRect);
+            };
+            return btn;
+        }
+
+        // ── Styled action button with text ──
+        private Button CreateActionButton(string icon, string text, Color bgColor, Color fgColor)
+        {
+            var btn = new Button
+            {
+                Text = $" {icon}  {text}",
+                Height = 26,
+                AutoSize = true,
+                MinimumSize = new Size(90, 26),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                BackColor = bgColor,
+                ForeColor = fgColor,
+                Padding = new Padding(8, 0, 8, 0),
+                Margin = new Padding(0, 0, 6, 0),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            btn.FlatAppearance.MouseOverBackColor = ControlPaint.Dark(bgColor, 0.08f);
+            btn.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(bgColor, 0.15f);
+            return btn;
+        }
+
         private void InitializeComponent()
         {
             _toolTip = new ToolTip { InitialDelay = 300, ReshowDelay = 200, AutoPopDelay = 3000 };
@@ -222,89 +409,167 @@ namespace SageETLAgent.Forms
             this.StartPosition = FormStartPosition.CenterScreen;
             this.Font = new Font("Segoe UI", 9F);
             this.BackColor = ThemeBg;
+            this.DoubleBuffered = true;
 
-            var mainPanel = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                RowCount = 4,
-                ColumnCount = 1,
-                Padding = new Padding(8, 8, 8, 4),
-                BackColor = ThemeBg
-            };
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 35));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 65));
-
-            // ═══ Row 0: Configuration ═══
-            var configGroup = CreateSection("\u2699  Configuration");
-            var configInner = new TableLayoutPanel
+            // ═══ Outer layout: Header + Config + TabControl ═══
+            var outerPanel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 RowCount = 2,
                 ColumnCount = 1,
-                Padding = new Padding(4, 2, 4, 0),
-                BackColor = Color.Transparent
+                Padding = new Padding(8, 2, 8, 2),
+                BackColor = ThemeBg
             };
-            configInner.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-            configInner.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            outerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 108));  // Header+Config combined
+            outerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // TabControl
 
-            // Ligne 1: Serveur
+
+            // ═══ Combined Header + Config ═══
+            var topPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                RowCount = 3,
+                ColumnCount = 1,
+                BackColor = ThemeBgCard,
+                Margin = new Padding(2),
+                Padding = new Padding(10, 6, 10, 2)
+            };
+            topPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));  // Title row
+            topPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));   // Server row
+            topPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));   // Mode row
+
+            // Paint rounded card
+            topPanel.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var bounds = new Rectangle(0, 0, topPanel.Width - 1, topPanel.Height - 1);
+                using var path = CreateRoundedRect(bounds, 6);
+                using var borderPen = new Pen(ThemeBorder, 1);
+                g.DrawPath(borderPen, path);
+            };
+            topPanel.Resize += (s, e) => topPanel.Invalidate();
+
+            // Title row: logo + title + version
+            var titleRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = Color.Transparent };
+            titleRow.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var discRect = new Rectangle(2, 4, 22, 22);
+                using var discBrush = new LinearGradientBrush(discRect, ThemePrimaryDark, ThemePrimaryDarker, LinearGradientMode.Vertical);
+                g.FillEllipse(discBrush, discRect);
+                using var lf = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+                using var lb = new SolidBrush(Color.White);
+                var ls = g.MeasureString("S", lf);
+                g.DrawString("S", lf, lb, discRect.X + (discRect.Width - ls.Width) / 2, discRect.Y + (discRect.Height - ls.Height) / 2);
+            };
+            titleRow.Controls.Add(new Panel { Width = 28, Height = 1 }); // spacer for disc
+            titleRow.Controls.Add(new Label { Text = "Agent ETL Sage", AutoSize = true, Margin = new Padding(2, 5, 0, 0), Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold), ForeColor = ThemeTextDark, BackColor = Color.Transparent });
+            titleRow.Controls.Add(new Label { Text = "—  Synchronisation multi-agent", AutoSize = true, Margin = new Padding(6, 7, 0, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted, BackColor = Color.Transparent });
+            var lblVersion = new Label { Text = "v2.0", AutoSize = true, Margin = new Padding(12, 6, 0, 0), Font = new Font("Segoe UI Semibold", 7F, FontStyle.Bold), ForeColor = ThemePrimaryDark, BackColor = ThemePrimaryLight, Padding = new Padding(5, 2, 5, 2) };
+            titleRow.Controls.Add(lblVersion);
+            topPanel.Controls.Add(titleRow, 0, 0);
+
+            // Server row
             var serverPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = Color.Transparent };
-            serverPanel.Controls.Add(new Label { Text = "Serveur", AutoSize = true, Margin = new Padding(0, 5, 6, 0), Font = new Font("Segoe UI", 8.5F), ForeColor = ThemeTextMuted });
-            txtServerUrl = new TextBox { Text = _serverUrl, Width = 280, Font = new Font("Segoe UI", 8.5F), BorderStyle = BorderStyle.FixedSingle };
+            serverPanel.Controls.Add(new Label { Text = "Serveur", AutoSize = true, Margin = new Padding(0, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
+            txtServerUrl = new TextBox { Text = _serverUrl, Width = 260, Font = new Font("Segoe UI", 8F), BorderStyle = BorderStyle.FixedSingle };
             serverPanel.Controls.Add(txtServerUrl);
-            btnTestConnection = CreateIconButton("\u26A1", "Tester la connexion", 28, ThemePrimary, Color.White, true);
-            btnTestConnection.Margin = new Padding(8, 1, 3, 0);
+            btnTestConnection = CreateIconButton("⚡", "Tester la connexion", 24, ThemePrimary, Color.White, true);
+            btnTestConnection.Margin = new Padding(6, 0, 2, 0);
             serverPanel.Controls.Add(btnTestConnection);
-            btnLoadAgents = CreateIconButton("\u21BB", "Charger les agents", 28, ThemePrimary, Color.White);
-            btnLoadAgents.Margin = new Padding(3, 1, 0, 0);
+            btnLoadAgents = CreateIconButton("↻", "Charger les agents", 24, ThemePrimary, Color.White);
+            btnLoadAgents.Margin = new Padding(2, 0, 0, 0);
             serverPanel.Controls.Add(btnLoadAgents);
-            serverPanel.Controls.Add(new Label { Text = "  DWH Code", AutoSize = true, Margin = new Padding(16, 5, 6, 0), Font = new Font("Segoe UI", 8.5F), ForeColor = ThemeTextMuted });
-            txtDwhCode = new TextBox { Text = _dwhCode, Width = 120, Font = new Font("Segoe UI", 8.5F), BorderStyle = BorderStyle.FixedSingle, ReadOnly = true, BackColor = Color.FromArgb(240, 240, 240), ForeColor = ThemeTextMuted };
-            _toolTip.SetToolTip(txtDwhCode, "Code DWH — chargé automatiquement via le bouton 📂 (import config).");
+            serverPanel.Controls.Add(new Label { Text = "DWH", AutoSize = true, Margin = new Padding(12, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
+            txtDwhCode = new TextBox { Text = _dwhCode, Width = 80, Font = new Font("Segoe UI", 8F), BorderStyle = BorderStyle.FixedSingle, ReadOnly = true, BackColor = Color.FromArgb(240, 240, 240), ForeColor = ThemeTextMuted };
             serverPanel.Controls.Add(txtDwhCode);
-            btnImportConfig = CreateIconButton("\U0001F4C2", "Importer config depuis fichier agent_config_XXX.json", 28, ThemeTextMuted, Color.White, true);
-            btnImportConfig.Margin = new Padding(6, 1, 0, 0);
-            _toolTip.SetToolTip(btnImportConfig, "Importer serveur + code DWH depuis un fichier agent_config_XXX.json");
+            btnImportConfig = CreateIconButton("\U0001F4C2", "Importer config", 24, ThemeTextMuted, Color.White, true);
+            btnImportConfig.Margin = new Padding(4, 0, 0, 0);
             serverPanel.Controls.Add(btnImportConfig);
-            configInner.Controls.Add(serverPanel, 0, 0);
+            topPanel.Controls.Add(serverPanel, 0, 1);
 
-            // Ligne 2: Mode
+            // Mode row
             var modePanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = Color.Transparent };
-            modePanel.Controls.Add(new Label { Text = "Mode", AutoSize = true, Margin = new Padding(0, 5, 6, 0), Font = new Font("Segoe UI", 8.5F), ForeColor = ThemeTextMuted });
-            cmbSyncMode = new ComboBox { Width = 95, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 0), Font = new Font("Segoe UI", 8.5F) };
+            modePanel.Controls.Add(new Label { Text = "Mode", AutoSize = true, Margin = new Padding(0, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
+            cmbSyncMode = new ComboBox { Width = 85, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 0, 4, 0), Font = new Font("Segoe UI", 8F) };
             cmbSyncMode.Items.AddRange(new[] { "Manuel", "Continu" });
             cmbSyncMode.SelectedIndex = 0;
             modePanel.Controls.Add(cmbSyncMode);
-            btnStartContinuous = CreateIconButton("\u25B6", "Demarrer le mode continu", 28, ThemeSuccess, Color.White);
-            btnStartContinuous.Margin = new Padding(6, 1, 3, 0); btnStartContinuous.Enabled = false;
+            btnStartContinuous = CreateStyledButton("▶", 24, 24, ThemeSuccess, Color.White); btnStartContinuous.Font = new Font("Segoe UI", 9F); _toolTip.SetToolTip(btnStartContinuous, "Demarrer le mode continu");
+            btnStartContinuous.Margin = new Padding(4, 0, 2, 0); btnStartContinuous.Enabled = false;
             modePanel.Controls.Add(btnStartContinuous);
-            btnStopContinuous = CreateIconButton("\u25A0", "Arreter le mode continu", 28, ThemeDanger, Color.White);
-            btnStopContinuous.Margin = new Padding(3, 1, 3, 0); btnStopContinuous.Enabled = false;
+            btnStopContinuous = CreateStyledButton("■", 24, 24, ThemeDanger, Color.White); btnStopContinuous.Font = new Font("Segoe UI", 9F); _toolTip.SetToolTip(btnStopContinuous, "Arreter le mode continu");
+            btnStopContinuous.Margin = new Padding(2, 0, 2, 0); btnStopContinuous.Enabled = false;
             modePanel.Controls.Add(btnStopContinuous);
-            btnPause = CreateIconButton("\u23F8", "Mettre en pause", 28, ThemeTextMuted, Color.White, true);
-            btnPause.Margin = new Padding(6, 1, 3, 0); btnPause.Enabled = false;
+            btnPause = CreateIconButton("⏸", "Pause", 24, ThemeTextMuted, Color.White, true);
+            btnPause.Margin = new Padding(4, 0, 2, 0); btnPause.Enabled = false;
             modePanel.Controls.Add(btnPause);
-            btnResume = CreateIconButton("\u25B6", "Reprendre", 28, ThemeTextMuted, Color.White, true);
-            btnResume.Margin = new Padding(3, 1, 6, 0); btnResume.Enabled = false;
+            btnResume = CreateIconButton("▶", "Reprendre", 24, ThemeTextMuted, Color.White, true);
+            btnResume.Margin = new Padding(2, 0, 4, 0); btnResume.Enabled = false;
             modePanel.Controls.Add(btnResume);
-            lblContinuousStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(10, 5, 0, 0), ForeColor = ThemeTextMuted, Font = new Font("Segoe UI", 8F) };
+            lblContinuousStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(6, 4, 0, 0), ForeColor = ThemeTextMuted, Font = new Font("Segoe UI", 7.5F) };
             modePanel.Controls.Add(lblContinuousStatus);
-
-            modePanel.Controls.Add(new Label { Text = "  Sage", AutoSize = true, Margin = new Padding(16, 5, 4, 0), Font = new Font("Segoe UI", 8.5F), ForeColor = ThemeTextMuted });
-            cmbSageVersion = new ComboBox { Width = 200, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 0, 0), Font = new Font("Segoe UI", 8.5F) };
+            modePanel.Controls.Add(new Label { Text = "Sage", AutoSize = true, Margin = new Padding(10, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
+            cmbSageVersion = new ComboBox { Width = 190, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 0, 0, 0), Font = new Font("Segoe UI", 8F) };
             cmbSageVersion.Items.Add("— Toutes les versions —");
             cmbSageVersion.SelectedIndex = 0;
-            _toolTip.SetToolTip(cmbSageVersion, "Choisir la version Sage cible pour l'intégration registre");
             modePanel.Controls.Add(cmbSageVersion);
+            topPanel.Controls.Add(modePanel, 0, 2);
 
-            configInner.Controls.Add(modePanel, 0, 1);
-            configGroup.Controls.Add(configInner);
-            mainPanel.Controls.Add(configGroup, 0, 0);
+            outerPanel.Controls.Add(topPanel, 0, 0);
 
-            // ═══ Row 1: Agents ═══
-            var agentsGroup = CreateSection("\U0001F4CB  Agents Configures");
+            // ═══ TabControl (owner-drawn) ═══
+            _tabControl = new TabControl
+            {
+                Dock = DockStyle.Fill,
+                DrawMode = TabDrawMode.OwnerDrawFixed,
+                SizeMode = TabSizeMode.Fixed,
+                ItemSize = new Size(130, 34),
+                Padding = new Point(12, 5),
+                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
+                Margin = new Padding(0)
+            };
+            _tabControl.DrawItem += TabControl_DrawItem;
+
+            // ── Tab 1: Agents ──
+            var tabAgents = new TabPage("  ○  Agents") { BackColor = ThemeBgCard, Padding = new Padding(0) };
+            var agentsOuter = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                RowCount = 2,
+                ColumnCount = 1,
+                BackColor = ThemeBgCard,
+                Padding = new Padding(0)
+            };
+            agentsOuter.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            agentsOuter.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            // Toolbar
+            var toolbar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = ThemeBg,
+                Padding = new Padding(8, 2, 8, 2)
+            };
+            btnSyncSelected = CreateActionButton("⇄", "Sync sélection", ThemePrimaryDark, Color.White);
+            toolbar.Controls.Add(btnSyncSelected);
+            btnSyncAll = CreateActionButton("⇄", "Sync tout", ThemeSuccess, Color.White);
+            toolbar.Controls.Add(btnSyncAll);
+            btnCancel = CreateActionButton("✖", "Annuler", ThemeDanger, Color.White);
+            btnCancel.Enabled = false;
+            toolbar.Controls.Add(btnCancel);
+
+            // Separator
+            toolbar.Controls.Add(new Panel { Width = 1, Height = 24, BackColor = ThemeBorder, Margin = new Padding(6, 3, 6, 0) });
+
+            btnPointage = CreateActionButton("✔", "Pointage", ThemeWarning, Color.White);
+            toolbar.Controls.Add(btnPointage);
+
+            agentsOuter.Controls.Add(toolbar, 0, 0);
 
             dgvAgents = new DataGridView
             {
@@ -316,127 +581,137 @@ namespace SageETLAgent.Forms
                 MultiSelect = true,
                 ReadOnly = false,
                 RowHeadersVisible = false,
-                BackgroundColor = ThemePrimary50,
-                GridColor = ThemePrimaryLight,
+                BackgroundColor = ThemeBgCard,
+                GridColor = ThemeBorderLight,
                 BorderStyle = BorderStyle.None,
-                CellBorderStyle = DataGridViewCellBorderStyle.Single,
-                ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single,
+                CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
+                ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None,
                 EnableHeadersVisualStyles = false,
-                ColumnHeadersHeight = 30,
-                RowTemplate = { Height = 28 }
+                ColumnHeadersHeight = 36,
+                RowTemplate = { Height = 34 }
             };
             dgvAgents.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = ThemePrimaryLight,
-                ForeColor = ThemePrimaryDark,
-                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                BackColor = ThemeBgCard,
+                ForeColor = ThemeTextMuted,
+                Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
                 Alignment = DataGridViewContentAlignment.MiddleLeft,
-                Padding = new Padding(4, 0, 4, 0)
+                Padding = new Padding(8, 0, 8, 0)
             };
             dgvAgents.DefaultCellStyle = new DataGridViewCellStyle
             {
-                Font = new Font("Segoe UI", 8.5F),
+                Font = new Font("Segoe UI", 9F),
                 ForeColor = ThemeTextDark,
                 BackColor = ThemeBgCard,
                 SelectionBackColor = ThemePrimaryLight,
-                SelectionForeColor = ThemePrimaryDark,
-                Padding = new Padding(3, 0, 3, 0)
+                SelectionForeColor = ThemePrimaryDarker,
+                Padding = new Padding(6, 0, 6, 0)
             };
             dgvAgents.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
             {
-                BackColor = Color.FromArgb(250, 251, 254),
+                BackColor = Color.FromArgb(252, 253, 255),
                 SelectionBackColor = ThemePrimaryLight,
-                SelectionForeColor = ThemePrimaryDark
+                SelectionForeColor = ThemePrimaryDarker
             };
 
-            dgvAgents.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colSelected", HeaderText = "", Width = 30, DataPropertyName = "IsSelected" });
-            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName", HeaderText = "Nom Agent", Width = 130, DataPropertyName = "Name", ReadOnly = true });
+            dgvAgents.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colSelected", HeaderText = "", Width = 36, DataPropertyName = "IsSelected" });
+            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName", HeaderText = "Nom Agent", Width = 160, DataPropertyName = "Name", ReadOnly = true });
             dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colDwhCode", HeaderText = "DWH", Width = 70, DataPropertyName = "DwhCode", ReadOnly = true });
-            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSageDb", HeaderText = "Base Sage", Width = 130, DataPropertyName = "SageDatabase", ReadOnly = true });
-            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus", HeaderText = "Statut", Width = 70, DataPropertyName = "Status", ReadOnly = true });
-            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colLastSync", HeaderText = "Derniere Sync", Width = 120, DataPropertyName = "LastSync", ReadOnly = true });
-            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTotalRows", HeaderText = "Total Lignes", Width = 80, DataPropertyName = "TotalRowsSynced", ReadOnly = true });
-            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colSync", HeaderText = "", Text = "\u21C4", UseColumnTextForButtonValue = true, Width = 32, FlatStyle = FlatStyle.Flat });
-            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colContinuous", HeaderText = "", Text = "\u221E", UseColumnTextForButtonValue = true, Width = 32, FlatStyle = FlatStyle.Flat });
-            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colTestConn", HeaderText = "", Text = "\u26A1", UseColumnTextForButtonValue = true, Width = 32, FlatStyle = FlatStyle.Flat });
-            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colConfig", HeaderText = "", Text = "\u2699", UseColumnTextForButtonValue = true, Width = 32, FlatStyle = FlatStyle.Flat });
-            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colDelete", HeaderText = "", Text = "\u2716", UseColumnTextForButtonValue = true, Width = 32, FlatStyle = FlatStyle.Flat });
+            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colSageDb", HeaderText = "Base Sage", Width = 160, DataPropertyName = "SageDatabase", ReadOnly = true });
+            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus", HeaderText = "Statut", Width = 80, DataPropertyName = "Status", ReadOnly = true });
+            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colLastSync", HeaderText = "Dernière Sync", Width = 140, DataPropertyName = "LastSync", ReadOnly = true });
+            dgvAgents.Columns.Add(new DataGridViewTextBoxColumn { Name = "colTotalRows", HeaderText = "Total Lignes", Width = 100, DataPropertyName = "TotalRowsSynced", ReadOnly = true });
+            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colSync", HeaderText = "", Text = "⇄", UseColumnTextForButtonValue = true, Width = 36, FlatStyle = FlatStyle.Flat });
+            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colContinuous", HeaderText = "", Text = "∞", UseColumnTextForButtonValue = true, Width = 36, FlatStyle = FlatStyle.Flat });
+            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colTestConn", HeaderText = "", Text = "⚡", UseColumnTextForButtonValue = true, Width = 36, FlatStyle = FlatStyle.Flat });
+            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colConfig", HeaderText = "", Text = "⚙", UseColumnTextForButtonValue = true, Width = 36, FlatStyle = FlatStyle.Flat });
+            dgvAgents.Columns.Add(new DataGridViewButtonColumn { Name = "colDelete", HeaderText = "", Text = "✖", UseColumnTextForButtonValue = true, Width = 36, FlatStyle = FlatStyle.Flat });
 
             dgvAgents.CellPainting += DgvAgents_CellPainting;
             dgvAgents.ShowCellToolTips = true;
             dgvAgents.CellMouseEnter += DgvAgents_CellMouseEnter;
-            agentsGroup.Controls.Add(dgvAgents);
-            mainPanel.Controls.Add(agentsGroup, 0, 1);
+            agentsOuter.Controls.Add(dgvAgents, 0, 1);
 
-            // ═══ Row 2: Progression ═══
-            var progressGroup = CreateSection("\u23F3  Progression");
-            pnlProgress = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(4), BackColor = Color.Transparent };
-            progressGroup.Controls.Add(pnlProgress);
-            mainPanel.Controls.Add(progressGroup, 0, 2);
+            tabAgents.Controls.Add(agentsOuter);
+            _tabControl.TabPages.Add(tabAgents);
 
-            // ═══ Row 3: Logs + Buttons ═══
-            var logsLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = Color.Transparent };
-            logsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            logsLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));
+            // ── Tab 2: Progression ──
+            var tabProgress = new TabPage("  ○  Progression") { BackColor = ThemeBgCard, Padding = new Padding(8) };
+            pnlProgress = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(8), BackColor = ThemeBgCard };
+            tabProgress.Controls.Add(pnlProgress);
+            _tabControl.TabPages.Add(tabProgress);
 
-            var logsGroup = CreateSection("\U0001F4DD  Logs");
+            // ── Tab 3: Logs ──
+            var tabLogs = new TabPage("  ○  Logs") { BackColor = ThemeBgCard, Padding = new Padding(0) };
+            var logsOuter = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                RowCount = 2,
+                ColumnCount = 1,
+                BackColor = ThemeBgCard,
+                Padding = new Padding(0)
+            };
+            logsOuter.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            logsOuter.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var logsToolbar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = ThemeBg,
+                Padding = new Padding(8, 4, 8, 4)
+            };
+            var btnClearLogs = CreateActionButton("✂", "Effacer les logs", ThemeTextMuted, Color.White);
+            btnClearLogs.Click += (s, e) => rtbLogs.Clear();
+            logsToolbar.Controls.Add(btnClearLogs);
+            logsOuter.Controls.Add(logsToolbar, 0, 0);
+
             rtbLogs = new RichTextBox
             {
                 Dock = DockStyle.Fill,
                 ReadOnly = true,
-                Font = new Font("Consolas", 9F),
+                Font = new Font("Cascadia Code, Consolas", 9.5F),
                 BackColor = Color.FromArgb(24, 24, 27),
                 ForeColor = Color.FromArgb(212, 212, 216),
-                BorderStyle = BorderStyle.None
+                BorderStyle = BorderStyle.None,
+                Margin = new Padding(0)
             };
-            logsGroup.Controls.Add(rtbLogs);
-            logsLayout.Controls.Add(logsGroup, 0, 0);
-
+            logsOuter.Controls.Add(rtbLogs, 0, 1);
             SyncLogger.Instance.AttachRichTextBox(rtbLogs);
 
-            // Buttons panel — icon-only with tooltips
-            var buttonsPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, Padding = new Padding(6, 2, 0, 0), BackColor = Color.Transparent };
+            tabLogs.Controls.Add(logsOuter);
+            _tabControl.TabPages.Add(tabLogs);
 
-            btnSyncSelected = CreateIconButton("\u21C4", "Synchroniser la selection", 36, ThemePrimary, Color.White);
-            btnSyncSelected.Margin = new Padding(0, 4, 0, 4);
-            buttonsPanel.Controls.Add(btnSyncSelected);
+            // ── Tab 4: Outils ──
+            var tabTools = new TabPage("  ○  Outils") { BackColor = ThemeBgCard, Padding = new Padding(16) };
+            var toolsFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                BackColor = Color.Transparent,
+                Padding = new Padding(8)
+            };
 
-            btnSyncAll = CreateIconButton("\u21C4", "Synchroniser TOUS les agents", 36, ThemeSuccess, Color.White);
-            btnSyncAll.Margin = new Padding(0, 4, 0, 4);
-            buttonsPanel.Controls.Add(btnSyncAll);
-
-            btnCancel = CreateIconButton("\u2716", "Annuler la synchronisation", 36, ThemeDanger, Color.White);
-            btnCancel.Margin = new Padding(0, 4, 0, 4);
-            btnCancel.Enabled = false;
-            buttonsPanel.Controls.Add(btnCancel);
-
-            btnPointage = CreateIconButton("\u2714", "Lancer le pointage", 36, ThemeWarning, Color.White);
-            btnPointage.Margin = new Padding(0, 12, 0, 4);
-            buttonsPanel.Controls.Add(btnPointage);
-
-            var btnClearLogs = CreateIconButton("\u2702", "Effacer les logs", 36, ThemeTextMuted, Color.White, true);
-            btnClearLogs.Margin = new Padding(0, 12, 0, 4);
-            btnClearLogs.Click += (s, e) => rtbLogs.Clear();
-            buttonsPanel.Controls.Add(btnClearLogs);
-
-            var btnScheduleTask = CreateIconButton("\uD83D\uDD52", "Tache planifiee au demarrage", 36, ThemePrimaryDark, Color.White);
-            btnScheduleTask.Margin = new Padding(0, 4, 0, 4);
+            var btnScheduleTask = CreateToolCard("\U0001F552", "Tâche planifiée", "Créer une tâche Windows pour lancer l'agent au démarrage", ThemePrimaryDark);
             btnScheduleTask.Click += (s, e) => ConfigureScheduledTask();
-            buttonsPanel.Controls.Add(btnScheduleTask);
+            toolsFlow.Controls.Add(btnScheduleTask);
 
-            btnSageSync = CreateIconButton("\uD83D\uDD17", "Integrer dans Sage (registre)", 36, Color.FromArgb(34, 197, 94), Color.White);
-            btnSageSync.Margin = new Padding(0, 4, 0, 4);
-            buttonsPanel.Controls.Add(btnSageSync);
+            btnSageSync = CreateToolCard("\U0001F517", "Intégration Sage", "Intégrer l'agent comme programme externe dans Sage", Color.FromArgb(34, 197, 94));
+            toolsFlow.Controls.Add(btnSageSync);
 
-            logsLayout.Controls.Add(buttonsPanel, 1, 0);
-            mainPanel.Controls.Add(logsLayout, 0, 3);
+            tabTools.Controls.Add(toolsFlow);
+            _tabControl.TabPages.Add(tabTools);
+
+            outerPanel.Controls.Add(_tabControl, 0, 1);
 
             // Status bar
             statusStrip = new StatusStrip { BackColor = ThemeBgCard, SizingGrip = false };
-            lblStatus = new ToolStripStatusLabel("Pret") { ForeColor = ThemeTextMuted, Font = new Font("Segoe UI", 8F) };
+            lblStatus = new ToolStripStatusLabel("Prêt") { ForeColor = ThemeTextMuted, Font = new Font("Segoe UI", 8F) };
             statusStrip.Items.Add(lblStatus);
 
-            this.Controls.Add(mainPanel);
+            this.Controls.Add(outerPanel);
             this.Controls.Add(statusStrip);
 
             // ═══ System Tray ═══

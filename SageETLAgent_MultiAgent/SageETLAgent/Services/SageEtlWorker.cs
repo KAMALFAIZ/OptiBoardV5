@@ -241,7 +241,7 @@ namespace SageETLAgent.Services
         /// URL du serveur API
         /// </summary>
         [JsonProperty("ServerUrl")]
-        public string ServerUrl { get; set; } = "http://kasoft.selfip.net:50231";
+        public string ServerUrl { get; set; } = "http://optiboard.kasoft.ma";
 
         /// <summary>
         /// Code DWH client (X-DWH-Code header).

@@ -2,8 +2,9 @@ import { useState } from 'react'
 import {
   Building2, Plus, Edit2, Database, Mail, Save, X,
   MapPin, TestTube, Loader2, CheckCircle, AlertCircle, XCircle, Trash2, Server,
-  Lock, ChevronDown, ChevronRight
+  Lock, ChevronDown, ChevronRight, Zap, HardDrive
 } from 'lucide-react'
+import { getDWHDataSource, setDWHDataSource } from '../../context/DataSourceContext'
 
 function SSHTunnelSection({ formData, setFormData }) {
   const [open, setOpen] = useState(!!formData.ssh_enabled)
@@ -86,6 +87,53 @@ function SSHTunnelSection({ formData, setFormData }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function DataSourceToggle({ dwhCode }) {
+  const [value, setValue] = useState(() => getDWHDataSource(dwhCode))
+
+  const toggle = (newVal) => {
+    setValue(newVal)
+    setDWHDataSource(dwhCode, newVal)
+  }
+
+  return (
+    <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4">
+      <h3 className="text-sm font-medium text-indigo-800 dark:text-indigo-300 mb-3 flex items-center gap-2">
+        <Database size={16} />
+        Source de données par défaut
+      </h3>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => toggle('dwh')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+            value === 'dwh'
+              ? 'bg-blue-600 border-blue-600 text-white'
+              : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-blue-400'
+          }`}
+        >
+          <HardDrive size={15} />
+          DWH synchronisé
+        </button>
+        <button
+          type="button"
+          onClick={() => toggle('sage')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+            value === 'sage'
+              ? 'bg-orange-500 border-orange-500 text-white'
+              : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-orange-400'
+          }`}
+        >
+          <Zap size={15} />
+          Sage Live
+        </button>
+      </div>
+      <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-2">
+        Choix appliqué automatiquement lors du switch vers ce DWH
+      </p>
     </div>
   )
 }
@@ -369,6 +417,11 @@ export default function DWHFormModal({
 
               {/* Tunnel SSH */}
               <SSHTunnelSection formData={formData} setFormData={setFormData} />
+
+              {/* Source de données par défaut */}
+              {(modalMode === 'edit') && formData.code && (
+                <DataSourceToggle dwhCode={formData.code} />
+              )}
 
               {/* Statut */}
               <label className="flex items-center gap-2 cursor-pointer">

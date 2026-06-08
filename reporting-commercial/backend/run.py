@@ -40,7 +40,6 @@ from app.routes import (
     client_portal,                        # Portail client (admin_client)
 )
 from app.routes.etl_tables import router as etl_tables_router       # ETL Tables publication
-from app.routes.etl_colonnes import router as etl_colonnes_router   # ETL Colonnes catalogue + choix client
 from app.routes.client_users import router as client_users_router   # Users & UserDWH locaux
 from app.routes.update_manager import router as update_manager_router  # Module MAJ clients
 from app.routes.client_package import router as client_package_router  # Package installation client
@@ -60,6 +59,7 @@ from app.routes.fiche_client import router as fiche_client_router               
 from app.routes.fiche_fournisseur import router as fiche_fournisseur_router                    # Fiche Fournisseur 360°
 from app.routes.demo_portal import router as demo_portal_router                                 # Portail Demo AgentETL
 from app.routes.comptabilite import router as comptabilite_router                               # Module Comptabilité
+from app.routes.dettes_fournisseurs import router as dettes_fournisseurs_router                  # Dettes Fournisseurs
 from app.routes.sage_direct import router as sage_direct_router                                 # Accès direct Sage (lecture seule)
 from app.routes.weekly_digest import router as weekly_digest_router                             # Digest IA hebdomadaire
 from app.routes.two_factor import router as two_factor_router                                   # 2FA TOTP
@@ -68,6 +68,8 @@ from app.routes.ai_deck import router as ai_deck_router, init_deck_tables       
 from app.routes.sage_config_admin import router as sage_config_admin_router                       # Admin Sage Direct config
 from app.routes.spreadsheet_builder import router as spreadsheet_builder_router, init_spreadsheet_tables  # Spreadsheet Builder (FortuneSheet)
 from app.routes.whatsapp_bot import router as whatsapp_bot_router, init_whatsapp_tables              # WhatsApp Business Cloud API (Meta)
+from app.routes.comptabilite_analytique import router as comptabilite_analytique_router              # Comptabilité Analytique (Phase 4)
+from app.routes.budget import router as budget_router                                                # Budget vs Réalisé + Masse Salariale (Phase 5)
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -149,7 +151,6 @@ app.include_router(ai_learning.router)
 app.include_router(ai_prompts.router)
 app.include_router(master_publish.router)
 app.include_router(etl_tables_router)       # ETL Tables : publication central → clients
-app.include_router(etl_colonnes_router)     # ETL Colonnes : catalogue central + choix client
 app.include_router(client_users_router)     # Users & UserDWH locaux client
 app.include_router(update_manager_router)   # Module MAJ : check/pull updates depuis central
 app.include_router(roles_router)            # Gestion rôles & permissions
@@ -169,6 +170,7 @@ app.include_router(fiche_client_router)         # Fiche Client 360°
 app.include_router(fiche_fournisseur_router)    # Fiche Fournisseur 360°
 app.include_router(demo_portal_router)          # Portail Demo AgentETL
 app.include_router(comptabilite_router)         # Module Comptabilité
+app.include_router(dettes_fournisseurs_router)  # Dettes Fournisseurs
 app.include_router(sage_direct_router)          # Accès direct Sage (lecture seule, sans ETL)
 app.include_router(weekly_digest_router)        # Digest IA hebdomadaire (direction)
 app.include_router(two_factor_router)          # 2FA TOTP (admins)
@@ -177,6 +179,8 @@ app.include_router(ai_deck_router)            # Deck IA interactif (plan + donn�
 app.include_router(sage_config_admin_router)   # Admin Sage Direct mappings
 app.include_router(spreadsheet_builder_router) # Spreadsheet Builder (FortuneSheet)
 app.include_router(whatsapp_bot_router)        # WhatsApp Business Cloud API (Meta)
+app.include_router(comptabilite_analytique_router)  # Comptabilité Analytique (Phase 4)
+app.include_router(budget_router)              # Budget vs Réalisé + Masse Salariale (Phase 5)
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -443,17 +447,46 @@ async def api_root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check : base centrale, ETL delay, cache stats."""
     from app.config import reload_settings
-    # Recharger les settings pour avoir les valeurs actuelles du .env
+    from datetime import datetime
     reload_settings()
-    db_status = test_connection()
-    cache_stats = query_cache.get_stats()
-    return {
-        "status": "healthy" if db_status else "unhealthy",
-        "database": "connected" if db_status else "disconnected",
-        "cache": cache_stats
-    }
+
+    checks: dict = {}
+
+    # Connexion base centrale
+    db_ok = test_connection()
+    checks["db_centrale"] = "ok" if db_ok else "error"
+
+    # Délai ETL (dernière sync réussie)
+    if db_ok:
+        try:
+            from app.database_unified import execute_central
+            rows = execute_central(
+                "SELECT MAX(last_run) AS last_run FROM APP_ETL_Agents WHERE last_status='success'",
+                use_cache=False,
+            )
+            last_run = rows[0].get("last_run") if rows else None
+            if last_run:
+                delay_h = int((datetime.now() - last_run).total_seconds() // 3600)
+                checks["etl_delay_hours"] = delay_h
+                checks["etl_status"] = "ok" if delay_h < 24 else "warning"
+            else:
+                checks["etl_delay_hours"] = None
+                checks["etl_status"] = "warning"
+        except Exception as e:
+            checks["etl_status"] = "error"
+            checks["etl_error"] = str(e)
+
+    # Statistiques cache
+    checks["cache"] = query_cache.get_stats()
+
+    # Statut global : degraded si au moins une valeur est "error"
+    non_cache = {k: v for k, v in checks.items() if k != "cache"}
+    all_ok = all(v in ("ok", "warning") for v in non_cache.values() if isinstance(v, str))
+    status = "ok" if all_ok else "degraded"
+
+    return {"status": status, **checks}
 
 
 @app.get("/api/cache/stats")

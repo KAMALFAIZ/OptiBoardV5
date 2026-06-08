@@ -187,20 +187,21 @@ namespace SageETLAgent.Services
             }
 
             // Nettoyer le point-virgule terminal et BOM
-            var cleanQuery = customQuery.TrimEnd().TrimEnd(';').TrimEnd();
-            var trimmed = cleanQuery.Trim('\uFEFF', '\u200B', ' ', '\t', '\r', '\n');
+            var cleanQuery = customQuery.Trim('\uFEFF', '\u200B', ' ', '\t', '\r', '\n')
+                                        .TrimEnd(';').TrimEnd();
 
             // Detecter si c'est un CTE (WITH ... AS ...)
             bool isCte = Regex.IsMatch(
-                trimmed, @"^WITH\s+[\w\[\]]+\s+AS\s*\(",
+                cleanQuery, @"^WITH\s+[\w\[\]]+\s+AS\s*\(",
                 RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-            string countQuery;
+            // Strategie 1: construire une requete COUNT optimisee
+            string? countQuery = null;
 
             if (isCte)
             {
-                // CTE: trouver le SELECT principal et l'encapsuler
-                var upperQuery = cleanQuery.ToUpper();
+                // CTE: trouver le dernier SELECT au niveau depth=0 (SELECT principal)
+                var upperQuery = cleanQuery.ToUpperInvariant();
                 int depth = 0;
                 int lastSelectPos = -1;
                 for (int i = 0; i < upperQuery.Length - 6; i++)
@@ -219,26 +220,65 @@ namespace SageETLAgent.Services
                 if (lastSelectPos > 0)
                 {
                     var ctePart = cleanQuery.Substring(0, lastSelectPos).TrimEnd().TrimEnd(',');
-                    var selectPart = cleanQuery.Substring(lastSelectPos);
+                    var selectPart = RemoveTrailingOrderBy(cleanQuery.Substring(lastSelectPos));
                     countQuery = $"{ctePart}, _count_cte AS (\n{selectPart}\n)\nSELECT COUNT(*) AS cnt FROM _count_cte";
-                }
-                else
-                {
-                    countQuery = $"SELECT COUNT(*) AS cnt FROM ({cleanQuery}) AS _count_src";
                 }
             }
             else
             {
-                countQuery = $"SELECT COUNT(*) AS cnt FROM ({cleanQuery}) AS _count_src";
+                var noOrder = RemoveTrailingOrderBy(cleanQuery);
+                countQuery = $"SELECT COUNT(*) AS cnt FROM ({noOrder}) AS _count_src";
             }
 
-            // Executer via ExtractTableWithQueryAsync pour reutiliser la gestion de connexion
-            var rows = await extractor.ExtractTableWithQueryAsync(countQuery, 1, null, ct);
-            if (rows.Any() && rows[0].ContainsKey("cnt"))
+            // Essayer la requete COUNT optimisee
+            if (countQuery != null)
             {
-                return Convert.ToInt32(rows[0]["cnt"]);
+                try
+                {
+                    var rows = await extractor.ExtractTableWithQueryAsync(countQuery, 1, null, ct);
+                    if (rows.Any() && rows[0].ContainsKey("cnt"))
+                    {
+                        return Convert.ToInt32(rows[0]["cnt"]);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Debug(LogCategory.POINTAGE,
+                        $"[{tableName}] COUNT optimise echoue ({ex.Message}), fallback comptage complet");
+                }
             }
-            return 0;
+
+            // Strategie 2 (fallback): executer la requete source et compter en C#
+            var allRows = await extractor.ExtractTableWithQueryAsync(cleanQuery, 5000, null, ct);
+            return allRows.Count;
+        }
+
+        /// <summary>
+        /// Supprime la clause ORDER BY terminale d'une requete SQL (invalide dans les sous-requetes/CTE)
+        /// </summary>
+        private static string RemoveTrailingOrderBy(string sql)
+        {
+            // Chercher le dernier ORDER BY au niveau depth=0 (pas dans une sous-requete)
+            var upper = sql.ToUpperInvariant();
+            int depth = 0;
+            int lastOrderByPos = -1;
+
+            for (int i = 0; i < upper.Length - 8; i++)
+            {
+                if (upper[i] == '(') depth++;
+                else if (upper[i] == ')') depth--;
+                else if (depth == 0 && i + 8 <= upper.Length && upper.Substring(i, 8) == "ORDER BY")
+                {
+                    bool isWordStart = (i == 0 || !char.IsLetterOrDigit(upper[i - 1]));
+                    if (isWordStart)
+                        lastOrderByPos = i;
+                }
+            }
+
+            if (lastOrderByPos > 0)
+                return sql.Substring(0, lastOrderByPos).TrimEnd();
+
+            return sql;
         }
 
         private List<string> ParsePrimaryKeys(string? primaryKeyColumns)

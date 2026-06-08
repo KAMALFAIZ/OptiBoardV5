@@ -118,11 +118,26 @@ query_cache = QueryCache(default_ttl=300)  # 5 minutes par défaut
 
 # TTL spécifiques par type de requête (en secondes)
 CACHE_TTL = {
-    "dashboard": 300,      # 5 minutes - données agrégées
+    "dashboard": 900,      # 15 minutes - données stables intraday
     "evolution": 300,      # 5 minutes
     "comparatif": 600,     # 10 minutes - change peu
     "ventes": 180,         # 3 minutes
-    "stocks": 300,         # 5 minutes
-    "recouvrement": 300,   # 5 minutes
-    "balance_agee": 600,   # 10 minutes - change peu
+    "stocks": 300,         # 5 minutes - mouvements fréquents
+    "recouvrement": 600,   # 10 minutes - sensible aux règlements
+    "balance_agee": 1800,  # 30 minutes - màj comptable peu fréquente
+    "comptabilite": 1800,  # 30 minutes
+    "analytique": 900,     # 15 minutes
+    "etl_status": 30,      # 30 secondes - temps réel requis
 }
+
+
+def cache_invalidate_prefix(prefix: str) -> int:
+    """Invalide toutes les entrées de cache associées à un DWH ou un préfixe donné.
+
+    Utilisé après chaque ETL réussi pour purger les données du DWH concerné.
+    Le préfixe est typiquement le dwh_code (ex : 'SG', 'MA').
+    """
+    keys_to_delete = [k for k in query_cache._cache if prefix.lower() in k.lower()]
+    for k in keys_to_delete:
+        del query_cache._cache[k]
+    return len(keys_to_delete)
