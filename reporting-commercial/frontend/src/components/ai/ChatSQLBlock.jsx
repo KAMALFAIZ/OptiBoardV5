@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { sessionHeaders } from '../../utils/authHeaders'
 import { Code, Table, BarChart3, Copy, Check, AlertCircle, Database, LayoutGrid, Loader2, Pencil, X, Play } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -59,7 +60,7 @@ export default function ChatSQLBlock({ sql, results, columns, sqlError, executio
     try {
       const response = await fetch('/api/ai/sql/execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getDwhHeaders() },
+        headers: { 'Content-Type': 'application/json', ...getDwhHeaders(), ...sessionHeaders() },
         body: JSON.stringify({ query })
       })
       const data = await response.json()

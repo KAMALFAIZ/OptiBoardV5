@@ -12,15 +12,26 @@ Pour chaque base client active :
 
 Les agents actifs sont identifies via APP_ETL_Agents_Monitoring.
 """
+import os
+import sys
 import pyodbc
 from datetime import datetime
 
-CENTRAL_CONN = 'DRIVER={SQL Server};SERVER=kasoft.selfip.net;DATABASE=OptiBoard_SaaS;UID=sa;PWD=SQL@2019'
+# Secrets lus dans l'environnement — jamais en dur dans le code.
+_SRV = os.environ.get("DB_SERVER", "kasoft.selfip.net")
+_USR = os.environ.get("DB_USER", "sa")
+_PWD = os.environ.get("DB_PASSWORD")
+if not _PWD:
+    sys.exit("ERREUR: definissez DB_PASSWORD dans l'environnement avant d'executer ce script.")
+
+CENTRAL_CONN = f'DRIVER={{SQL Server}};SERVER={_SRV};DATABASE=OptiBoard_SaaS;UID={_USR};PWD={_PWD}'
 
 def get_central_conn():
     return pyodbc.connect(CENTRAL_CONN, autocommit=False)
 
-def get_client_conn(server, db, user='sa', pwd='SQL@2019'):
+def get_client_conn(server, db, user=None, pwd=None):
+    user = user or _USR
+    pwd = pwd or _PWD
     return pyodbc.connect(f'DRIVER={{SQL Server}};SERVER={server};DATABASE={db};UID={user};PWD={pwd}', autocommit=False)
 
 def get_master_tables(cursor):

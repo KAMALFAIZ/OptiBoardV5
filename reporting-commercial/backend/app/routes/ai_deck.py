@@ -188,7 +188,7 @@ Règles :
 
 
 @router.post("")
-async def create_deck(
+def create_deck(
     req: SaveDeckRequest,
     dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
     user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
@@ -206,7 +206,7 @@ async def create_deck(
 
 
 @router.get("")
-async def list_decks(
+def list_decks(
     user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
 ):
     uid = int(user_id_hdr) if user_id_hdr else None
@@ -219,7 +219,7 @@ async def list_decks(
 
 
 @router.get("/{deck_id}")
-async def get_deck(deck_id: int):
+def get_deck(deck_id: int):
     rows = execute_query("SELECT * FROM APP_AI_Decks WHERE id=?", (deck_id,), use_cache=False)
     if not rows:
         raise HTTPException(404, "Deck non trouvé")
@@ -230,7 +230,7 @@ async def get_deck(deck_id: int):
 
 
 @router.put("/{deck_id}")
-async def update_deck(deck_id: int, req: UpdateDeckRequest):
+def update_deck(deck_id: int, req: UpdateDeckRequest):
     from ..database_unified import write_central as _wc
     parts, params = ["updated_at=GETDATE()"], []
     if req.slides is not None:
@@ -431,7 +431,7 @@ Réponds TOUJOURS en JSON strict :
 
 
 @router.delete("/{deck_id}")
-async def delete_deck(deck_id: int):
+def delete_deck(deck_id: int):
     from ..database_unified import write_central as _wc
     _wc("DELETE FROM APP_AI_Decks WHERE id=?", (deck_id,))
     return {"success": True}

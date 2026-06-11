@@ -14,7 +14,7 @@ TABLE_CREANCES = "[dbo].[Balance_Agee_Clients_Groupe]"
 
 
 @router.get("/kpis")
-async def get_kpis(
+def get_kpis(
     societe: Optional[str] = Query(None, description="Filtre par societe"),
     representant: Optional[str] = Query(None, description="Filtre par representant"),
     region: Optional[str] = Query(None, description="Filtre par region"),
@@ -189,7 +189,7 @@ async def get_kpis(
 
 
 @router.get("/top-clients-ca")
-async def get_top_clients_ca(
+def get_top_clients_ca(
     societe: Optional[str] = Query(None),
     representant: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
@@ -283,7 +283,7 @@ async def get_top_clients_ca(
 
 
 @router.get("/top-clients-creances")
-async def get_top_clients_creances(
+def get_top_clients_creances(
     societe: Optional[str] = Query(None),
     representant: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
@@ -341,7 +341,7 @@ async def get_top_clients_creances(
 
 
 @router.get("/ca-par-mois")
-async def get_ca_par_mois(
+def get_ca_par_mois(
     societe: Optional[str] = Query(None),
     representant: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
@@ -437,7 +437,7 @@ async def get_ca_par_mois(
 
 
 @router.get("/ca-par-commercial")
-async def get_ca_par_commercial(
+def get_ca_par_commercial(
     societe: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
     groupe: Optional[str] = Query(None),
@@ -520,7 +520,7 @@ async def get_ca_par_commercial(
 
 
 @router.get("/balance-agee-tranche")
-async def get_balance_agee_tranche(
+def get_balance_agee_tranche(
     societe: Optional[str] = Query(None),
     representant: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
@@ -622,7 +622,7 @@ async def get_balance_agee_tranche(
 
 
 @router.get("/balance-agee-detail")
-async def get_balance_agee_detail(
+def get_balance_agee_detail(
     societe: Optional[str] = Query(None),
     representant: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
@@ -709,7 +709,7 @@ async def get_balance_agee_detail(
 
 
 @router.get("/filtres")
-async def get_filtres():
+def get_filtres():
     """Recupere les filtres disponibles"""
     try:
         # Societes depuis CA

@@ -120,7 +120,7 @@ def _get_report_name(report_type: str, report_id: int) -> str:
 # ==================== CRUD ====================
 
 @router.get("/rules")
-async def get_rules(source_type: Optional[str] = None, source_id: Optional[int] = None):
+def get_rules(source_type: Optional[str] = None, source_id: Optional[int] = None):
     """Retourne les règles drill-through, filtrables par source."""
     try:
         init_drillthrough_tables()
@@ -149,7 +149,7 @@ async def get_rules(source_type: Optional[str] = None, source_id: Optional[int] 
 
 
 @router.get("/rules/by-source")
-async def get_rules_by_source(source_type: str, source_id: Optional[int] = None):
+def get_rules_by_source(source_type: str, source_id: Optional[int] = None):
     """Retourne les règles actives pour une source donnée, groupées par colonne.
     Pour les pages fixes (singleton), source_id est omis ou vaut 0."""
     try:
@@ -186,7 +186,7 @@ async def get_rules_by_source(source_type: str, source_id: Optional[int] = None)
 
 
 @router.post("/rules")
-async def create_rule(rule: DrillThroughRule):
+def create_rule(rule: DrillThroughRule):
     """Crée une nouvelle règle drill-through."""
     try:
         init_drillthrough_tables()
@@ -209,7 +209,7 @@ async def create_rule(rule: DrillThroughRule):
 
 
 @router.put("/rules/{rule_id}")
-async def update_rule(rule_id: int, rule: DrillThroughRuleUpdate):
+def update_rule(rule_id: int, rule: DrillThroughRuleUpdate):
     """Met à jour une règle."""
     try:
         updates, params = [], []
@@ -239,7 +239,7 @@ async def update_rule(rule_id: int, rule: DrillThroughRuleUpdate):
 
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int):
+def delete_rule(rule_id: int):
     """Supprime une règle."""
     try:
         with central_cursor() as cur:
@@ -250,7 +250,7 @@ async def delete_rule(rule_id: int):
 
 
 @router.post("/rules/{rule_id}/toggle")
-async def toggle_rule(rule_id: int):
+def toggle_rule(rule_id: int):
     """Active/désactive une règle."""
     try:
         with central_cursor() as cur:
@@ -269,7 +269,7 @@ async def toggle_rule(rule_id: int):
 # ==================== RAPPORTS DISPONIBLES ====================
 
 @router.get("/available-reports")
-async def get_available_reports():
+def get_available_reports():
     """Liste tous les rapports disponibles comme source ou cible."""
     try:
         gridviews = execute_central("SELECT id, nom FROM APP_GridViews ORDER BY nom", use_cache=False)
@@ -298,7 +298,7 @@ async def get_available_reports():
 
 
 @router.get("/columns/{report_id}")
-async def get_gridview_columns(report_id: int):
+def get_gridview_columns(report_id: int):
     """Retourne les colonnes d'un GridView (pour la sélection de la colonne source)."""
     try:
         rows = execute_central("SELECT columns_config FROM APP_GridViews WHERE id = ?", (report_id,), use_cache=False)

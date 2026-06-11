@@ -50,7 +50,7 @@ def log_delivery(sub_id, user_email, report_nom, channel, status, error_msg=None
 # ==================== STATS ====================
 
 @router.get("/stats")
-async def get_stats():
+def get_stats():
     """KPIs globaux : total abonnés, actifs, livrés aujourd'hui, échecs."""
     init_delivery_logs_table()
     try:
@@ -107,7 +107,7 @@ async def get_stats():
 # ==================== LISTE ADMIN ====================
 
 @router.get("")
-async def list_all_subscriptions(
+def list_all_subscriptions(
     channel: Optional[str] = None,
     frequency: Optional[str] = None,
     is_active: Optional[int] = None,
@@ -157,7 +157,7 @@ async def list_all_subscriptions(
 # ==================== LOGS ====================
 
 @router.get("/logs")
-async def get_delivery_logs(
+def get_delivery_logs(
     sub_id: Optional[int] = None,
     channel: Optional[str] = None,
     status: Optional[str] = None,
@@ -202,7 +202,7 @@ async def get_delivery_logs(
 
 
 @router.get("/logs/summary")
-async def get_logs_summary(days: int = 30):
+def get_logs_summary(days: int = 30):
     """Résumé quotidien des livraisons (pour graphique)."""
     init_delivery_logs_table()
     try:
@@ -229,7 +229,7 @@ class RescheduleBody(BaseModel):
 
 
 @router.post("/{sub_id}/deliver-now")
-async def admin_deliver_now(sub_id: int, background_tasks: BackgroundTasks):
+def admin_deliver_now(sub_id: int, background_tasks: BackgroundTasks):
     """Force la livraison immédiate d'un abonnement."""
     from .subscriptions import deliver_due_subscriptions
     from ..database_unified import execute_central
@@ -253,7 +253,7 @@ async def admin_deliver_now(sub_id: int, background_tasks: BackgroundTasks):
 
 
 @router.put("/{sub_id}/reschedule")
-async def reschedule_subscription(sub_id: int, body: RescheduleBody):
+def reschedule_subscription(sub_id: int, body: RescheduleBody):
     """Reprogramme la prochaine livraison d'un abonnement."""
     try:
         dt = datetime.fromisoformat(body.next_send.replace("Z", ""))
@@ -267,7 +267,7 @@ async def reschedule_subscription(sub_id: int, body: RescheduleBody):
 
 
 @router.put("/{sub_id}/toggle")
-async def admin_toggle(sub_id: int):
+def admin_toggle(sub_id: int):
     """Active/désactive un abonnement (admin)."""
     try:
         _write(
@@ -285,7 +285,7 @@ async def admin_toggle(sub_id: int):
 
 
 @router.delete("/{sub_id}")
-async def admin_delete(sub_id: int):
+def admin_delete(sub_id: int):
     """Supprime définitivement un abonnement (admin)."""
     try:
         _write("DELETE FROM APP_UserSubscriptions WHERE id=?", (sub_id,))
@@ -295,7 +295,7 @@ async def admin_delete(sub_id: int):
 
 
 @router.post("/deliver-all")
-async def deliver_all_due(background_tasks: BackgroundTasks):
+def deliver_all_due(background_tasks: BackgroundTasks):
     """Déclenche manuellement la livraison de tous les abonnements échus."""
     from .subscriptions import deliver_due_subscriptions
     background_tasks.add_task(deliver_due_subscriptions)

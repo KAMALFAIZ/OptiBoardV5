@@ -49,7 +49,7 @@ async def trigger_digest_for_dwh(dwh_code: str):
 
 
 @router.get("/status")
-async def digest_job_status():
+def digest_job_status():
     """Retourne le statut du job digest dans le scheduler."""
     from ..services.scheduler_service import scheduler
     job = scheduler.get_job("weekly_ai_digest")

@@ -53,7 +53,7 @@ class ResetSyncRequest(BaseModel):
 # =====================================================
 
 @router.get("/dwh-list")
-async def list_dwh():
+def list_dwh():
     """Liste les DWH disponibles pour selection"""
     try:
         data = svc.get_dwh_list()
@@ -64,7 +64,7 @@ async def list_dwh():
 
 
 @router.get("/{dwh_code}/status")
-async def get_dwh_status(dwh_code: str):
+def get_dwh_status(dwh_code: str):
     """Statut complet du DWH : connexion, SQL Agent, infrastructure, config Sage"""
     try:
         sage_cfg = svc.get_sage_config(dwh_code)
@@ -84,7 +84,7 @@ async def get_dwh_status(dwh_code: str):
 
 
 @router.get("/{dwh_code}/infrastructure")
-async def get_infrastructure(dwh_code: str):
+def get_infrastructure(dwh_code: str):
     """Detail de l'infrastructure ETL"""
     try:
         data = svc.check_infrastructure_status(dwh_code)
@@ -105,7 +105,7 @@ class SageConfigRequest(BaseModel):
 
 
 @router.get("/{dwh_code}/sage-config")
-async def get_sage_config(dwh_code: str):
+def get_sage_config(dwh_code: str):
     """Recupere la config Sage du DWH"""
     try:
         data = svc.get_sage_config(dwh_code)
@@ -116,7 +116,7 @@ async def get_sage_config(dwh_code: str):
 
 
 @router.put("/{dwh_code}/sage-config")
-async def update_sage_config(dwh_code: str, req: SageConfigRequest):
+def update_sage_config(dwh_code: str, req: SageConfigRequest):
     """Sauvegarde les infos de connexion Sage dans APP_DWH"""
     try:
         result = svc.update_sage_config(dwh_code, req.sage_server, req.sage_user, req.sage_pwd)
@@ -136,7 +136,7 @@ async def update_sage_config(dwh_code: str, req: SageConfigRequest):
 # =====================================================
 
 @router.get("/{dwh_code}/script-preview/{script_name}")
-async def preview_script(dwh_code: str, script_name: str):
+def preview_script(dwh_code: str, script_name: str):
     """Preview du SQL parametrise avant execution"""
     try:
         data = svc.preview_script(script_name, dwh_code)
@@ -151,7 +151,7 @@ async def preview_script(dwh_code: str, script_name: str):
 
 
 @router.post("/{dwh_code}/execute-script")
-async def execute_script(dwh_code: str, req: ExecuteScriptRequest):
+def execute_script(dwh_code: str, req: ExecuteScriptRequest):
     """Execute un script SQL sur le DWH"""
     try:
         # Scripts 06 et 07 : executent SUR le serveur Sage (pas le DWH)
@@ -202,7 +202,7 @@ async def execute_script(dwh_code: str, req: ExecuteScriptRequest):
 # =====================================================
 
 @router.get("/{dwh_code}/sources")
-async def list_sources(dwh_code: str):
+def list_sources(dwh_code: str):
     """Liste les sources ETL du DWH"""
     try:
         data = svc.get_etl_sources(dwh_code)
@@ -213,7 +213,7 @@ async def list_sources(dwh_code: str):
 
 
 @router.post("/{dwh_code}/sources")
-async def add_source(dwh_code: str, req: AddSourceRequest):
+def add_source(dwh_code: str, req: AddSourceRequest):
     """Ajoute une source Sage via SP_ETL_Setup_Source"""
     try:
         result = svc.add_etl_source(dwh_code, req.dict())
@@ -229,7 +229,7 @@ async def add_source(dwh_code: str, req: AddSourceRequest):
 
 
 @router.put("/{dwh_code}/sources/{source_code}")
-async def update_source(dwh_code: str, source_code: str, req: AddSourceRequest):
+def update_source(dwh_code: str, source_code: str, req: AddSourceRequest):
     """Met a jour une source Sage existante"""
     try:
         result = svc.update_etl_source(dwh_code, source_code, req.dict())
@@ -245,7 +245,7 @@ async def update_source(dwh_code: str, source_code: str, req: AddSourceRequest):
 
 
 @router.delete("/{dwh_code}/sources/{source_code}")
-async def delete_source(dwh_code: str, source_code: str):
+def delete_source(dwh_code: str, source_code: str):
     """Supprime une source ETL"""
     try:
         result = svc.delete_etl_source(dwh_code, source_code)
@@ -261,7 +261,7 @@ async def delete_source(dwh_code: str, source_code: str):
 
 
 @router.patch("/{dwh_code}/sources/{source_code}/toggle")
-async def toggle_source(dwh_code: str, source_code: str):
+def toggle_source(dwh_code: str, source_code: str):
     """Active/desactive une source ETL"""
     try:
         result = svc.toggle_source(dwh_code, source_code)
@@ -272,7 +272,7 @@ async def toggle_source(dwh_code: str, source_code: str):
 
 
 @router.post("/{dwh_code}/sources/{source_code}/test")
-async def test_source(dwh_code: str, source_code: str):
+def test_source(dwh_code: str, source_code: str):
     """Teste la connexion vers une source Sage"""
     try:
         result = svc.test_source_connection(dwh_code, source_code)
@@ -287,7 +287,7 @@ async def test_source(dwh_code: str, source_code: str):
 # =====================================================
 
 @router.get("/{dwh_code}/linked-servers")
-async def list_linked_servers(dwh_code: str):
+def list_linked_servers(dwh_code: str):
     """Liste les Linked Servers existants"""
     try:
         data = svc.get_linked_servers(dwh_code)
@@ -298,7 +298,7 @@ async def list_linked_servers(dwh_code: str):
 
 
 @router.delete("/{dwh_code}/linked-servers/{ls_name}")
-async def drop_linked_server(dwh_code: str, ls_name: str):
+def drop_linked_server(dwh_code: str, ls_name: str):
     """Supprime un Linked Server"""
     try:
         result = svc.drop_linked_server(dwh_code, ls_name)
@@ -318,7 +318,7 @@ async def drop_linked_server(dwh_code: str, ls_name: str):
 # =====================================================
 
 @router.get("/{dwh_code}/jobs")
-async def get_jobs(dwh_code: str):
+def get_jobs(dwh_code: str):
     """Statut des SQL Agent Jobs"""
     try:
         data = svc.get_jobs_status(dwh_code)
@@ -329,7 +329,7 @@ async def get_jobs(dwh_code: str):
 
 
 @router.post("/{dwh_code}/jobs/start")
-async def start_job(dwh_code: str, req: JobActionRequest):
+def start_job(dwh_code: str, req: JobActionRequest):
     """Demarre un SQL Agent Job"""
     try:
         result = svc.start_job(dwh_code, req.job_name)
@@ -345,7 +345,7 @@ async def start_job(dwh_code: str, req: JobActionRequest):
 
 
 @router.post("/{dwh_code}/jobs/stop")
-async def stop_job(dwh_code: str, req: JobActionRequest):
+def stop_job(dwh_code: str, req: JobActionRequest):
     """Arrete un SQL Agent Job"""
     try:
         result = svc.stop_job(dwh_code, req.job_name)
@@ -361,7 +361,7 @@ async def stop_job(dwh_code: str, req: JobActionRequest):
 
 
 @router.post("/{dwh_code}/agent-service")
-async def control_agent_service(dwh_code: str, req: AgentServiceActionRequest):
+def control_agent_service(dwh_code: str, req: AgentServiceActionRequest):
     """Demarre ou arrete le service SQL Server Agent"""
     try:
         result = svc.control_sql_agent_service(dwh_code, req.action)
@@ -381,7 +381,7 @@ async def control_agent_service(dwh_code: str, req: AgentServiceActionRequest):
 # =====================================================
 
 @router.get("/{dwh_code}/sync-control")
-async def get_sync_control(dwh_code: str):
+def get_sync_control(dwh_code: str):
     """Resume du SyncControl"""
     try:
         data = svc.get_sync_control(dwh_code)
@@ -392,7 +392,7 @@ async def get_sync_control(dwh_code: str):
 
 
 @router.get("/{dwh_code}/sync-logs")
-async def get_sync_logs(dwh_code: str, limit: int = Query(50, ge=1, le=500)):
+def get_sync_logs(dwh_code: str, limit: int = Query(50, ge=1, le=500)):
     """Logs de synchronisation recents"""
     try:
         data = svc.get_sync_logs(dwh_code, limit)
@@ -403,7 +403,7 @@ async def get_sync_logs(dwh_code: str, limit: int = Query(50, ge=1, le=500)):
 
 
 @router.get("/{dwh_code}/etl-tables-config")
-async def get_etl_tables_config(dwh_code: str):
+def get_etl_tables_config(dwh_code: str):
     """Configuration des tables ETL depuis OptiBoard"""
     try:
         data = svc.get_etl_tables_config()
@@ -414,7 +414,7 @@ async def get_etl_tables_config(dwh_code: str):
 
 
 @router.post("/{dwh_code}/reset-sync/{target_table}")
-async def reset_sync(dwh_code: str, target_table: str):
+def reset_sync(dwh_code: str, target_table: str):
     """Reset SyncControl pour forcer un full sync"""
     try:
         result = svc.reset_sync_control(dwh_code, target_table if target_table != "_all" else None)
@@ -425,7 +425,7 @@ async def reset_sync(dwh_code: str, target_table: str):
 
 
 @router.post("/{dwh_code}/cleanup-logs")
-async def cleanup_logs(dwh_code: str, retention_days: int = 0):
+def cleanup_logs(dwh_code: str, retention_days: int = 0):
     """Purge les logs ETL (ETL_Sync_Log, ETL_Alerts, SyncControl orphelins)"""
     try:
         result = svc.cleanup_etl_logs(dwh_code, retention_days)

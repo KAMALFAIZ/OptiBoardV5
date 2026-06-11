@@ -36,14 +36,38 @@ build/
 *.local
 reporting-commercial/frontend/dist/
 reporting-commercial/frontend/build/
+reporting-commercial/frontend/dist.zip
 
 # .NET / C#
 SageETLAgent_MultiAgent/**/bin/
 SageETLAgent_MultiAgent/**/obj/
 SageETLAgent_MultiAgent/publish/
+SageETLAgent_MultiAgent/publish_out/
+SageETLAgent_MultiAgent/**/binpublish*/
 *.user
 *.suo
 .vs/
+
+# Installer (artefacts de build)
+# NB: installer/payload/backend/ N'est PAS ignore (squelette versionne) ;
+# les artefacts Cython (*.pyd, *.pyc) y sont deja couverts par les motifs Python.
+installer/cache/
+installer/output/
+installer/payload/python/
+installer/payload/frontend/
+installer/payload/nssm.exe
+tmpclaude-*
+
+# Backend - fichiers d'etat / sorties temporaires
+reporting-commercial/backend/.license_cache
+.license_cache
+reporting-commercial/backend/_err.txt
+reporting-commercial/backend/_out.txt
+reporting-commercial/backend/dist_client/
+tmp_*.py
+
+# Claude Code
+.claude/worktrees/
 
 # Docker
 *.pid

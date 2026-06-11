@@ -74,7 +74,7 @@ class SpreadsheetUpdate(BaseModel):
 # =============================================================================
 
 @router.get("/list")
-async def list_spreadsheets(user_id: int = Query(...)):
+def list_spreadsheets(user_id: int = Query(...)):
     """Liste les classeurs d'un utilisateur."""
     try:
         init_spreadsheet_tables()
@@ -93,7 +93,7 @@ async def list_spreadsheets(user_id: int = Query(...)):
 
 
 @router.get("/{spreadsheet_id}")
-async def get_spreadsheet(spreadsheet_id: int):
+def get_spreadsheet(spreadsheet_id: int):
     """Recupere un classeur avec ses donnees."""
     try:
         rows = execute_query(
@@ -115,7 +115,7 @@ async def get_spreadsheet(spreadsheet_id: int):
 
 
 @router.post("")
-async def create_spreadsheet(payload: SpreadsheetCreate):
+def create_spreadsheet(payload: SpreadsheetCreate):
     """Cree un nouveau classeur."""
     try:
         init_spreadsheet_tables()
@@ -136,7 +136,7 @@ async def create_spreadsheet(payload: SpreadsheetCreate):
 
 
 @router.put("/{spreadsheet_id}")
-async def update_spreadsheet(spreadsheet_id: int, payload: SpreadsheetUpdate):
+def update_spreadsheet(spreadsheet_id: int, payload: SpreadsheetUpdate):
     """Met a jour le nom et/ou les donnees d'un classeur."""
     try:
         updates: List[str] = []
@@ -166,7 +166,7 @@ async def update_spreadsheet(spreadsheet_id: int, payload: SpreadsheetUpdate):
 
 
 @router.delete("/{spreadsheet_id}")
-async def delete_spreadsheet(spreadsheet_id: int):
+def delete_spreadsheet(spreadsheet_id: int):
     """Supprime un classeur."""
     try:
         with get_db_cursor() as cursor:

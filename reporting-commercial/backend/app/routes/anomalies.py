@@ -19,7 +19,7 @@ class AnomalyRequest(BaseModel):
 
 
 @router.post("/detect")
-async def detect(req: AnomalyRequest):
+def detect(req: AnomalyRequest):
     """
     Détecte les anomalies statistiques (Z-score + IQR) dans les données.
     Paramètres configurables : zscore_critical, zscore_warning, iqr_multiplier, min_rows.

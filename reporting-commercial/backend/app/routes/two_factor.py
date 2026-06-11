@@ -120,7 +120,7 @@ def _write_totp(user_id: int, secret: str, enabled: bool, is_central: bool, dwh_
 # ── Route : générer QR code ───────────────────────────────────────────────────
 
 @router.post("/setup")
-async def setup_2fa(body: SetupRequest):
+def setup_2fa(body: SetupRequest):
     """
     Génère un secret TOTP et retourne le QR code en base64.
     N'active PAS encore le 2FA — l'utilisateur doit valider un premier code.
@@ -163,7 +163,7 @@ async def setup_2fa(body: SetupRequest):
 # ── Route : activer le 2FA ────────────────────────────────────────────────────
 
 @router.post("/activate")
-async def activate_2fa(body: ActivateRequest):
+def activate_2fa(body: ActivateRequest):
     """
     Valide le premier code TOTP et active le 2FA sur le compte.
     """
@@ -187,7 +187,7 @@ async def activate_2fa(body: ActivateRequest):
 # ── Route : désactiver le 2FA ─────────────────────────────────────────────────
 
 @router.post("/disable")
-async def disable_2fa(body: DisableRequest):
+def disable_2fa(body: DisableRequest):
     """
     Désactive le 2FA après validation du code actuel.
     """
@@ -209,7 +209,7 @@ async def disable_2fa(body: DisableRequest):
 # ── Route : vérifier le code au login ────────────────────────────────────────
 
 @router.post("/verify")
-async def verify_2fa(body: VerifyRequest):
+def verify_2fa(body: VerifyRequest):
     """
     Valide le code TOTP pendant le flux de login.
     Consomme le temp_token et retourne le LoginResponse complet si le code est valide.
@@ -238,7 +238,7 @@ async def verify_2fa(body: VerifyRequest):
 # ── Route : statut 2FA d'un utilisateur ──────────────────────────────────────
 
 @router.get("/status/{user_id}")
-async def get_2fa_status(user_id: int, is_central: bool = True, dwh_code: Optional[str] = None):
+def get_2fa_status(user_id: int, is_central: bool = True, dwh_code: Optional[str] = None):
     """Retourne si le 2FA est activé pour un utilisateur."""
     user = _get_user_totp(user_id, is_central, dwh_code)
     if not user:

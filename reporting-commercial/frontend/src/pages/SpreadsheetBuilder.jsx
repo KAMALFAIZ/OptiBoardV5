@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Workbook } from '@fortune-sheet/react'
 import '@fortune-sheet/react/dist/index.css'
+import { APP_DOT } from '../utils/applicationThemes'
 
 const TABS = [
   { id: 'general', label: 'General', icon: Settings2 },
@@ -30,17 +31,6 @@ const APPLICATION_OPTIONS = [
   { value: 'paie', label: 'Paie' },
   { value: 'tresorerie', label: 'Gestion Trésorerie' },
 ]
-
-const APP_DOT = {
-  commercial:   'bg-blue-500',
-  comptabilite: 'bg-emerald-500',
-  paie:         'bg-orange-400',
-  tresorerie:   'bg-violet-500',
-}
-const APP_LABEL = {
-  commercial: 'Commerciale', comptabilite: 'Comptabilité',
-  paie: 'Paie', tresorerie: 'Trésorerie',
-}
 
 export default function SpreadsheetBuilder() {
   const { user } = useAuth()

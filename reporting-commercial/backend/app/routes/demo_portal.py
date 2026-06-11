@@ -53,11 +53,13 @@ APP_URL = os.getenv("APP_URL", "http://localhost:8084")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3003")
 
 # ── Base dédiée demo ──────────────────────────────────────────────────────────
+# Les credentials viennent de l'environnement ou du .env (settings) — jamais en dur.
+from app.config import get_settings as _demo_settings
 DEMO_DB_NAME = "OptiBoard_Demo"
-_DB_SERVER   = os.getenv("DB_SERVER",   "kasoft.selfip.net")
-_DB_USER     = os.getenv("DB_USER",     "sa")
-_DB_PASSWORD = os.getenv("DB_PASSWORD", "SQL@2019")
-_DB_DRIVER   = os.getenv("DB_DRIVER",   "{ODBC Driver 17 for SQL Server}")
+_DB_SERVER   = os.getenv("DB_SERVER")   or _demo_settings().DB_SERVER
+_DB_USER     = os.getenv("DB_USER")     or _demo_settings().DB_USER
+_DB_PASSWORD = os.getenv("DB_PASSWORD") or _demo_settings().DB_PASSWORD
+_DB_DRIVER   = os.getenv("DB_DRIVER")   or _demo_settings().DB_DRIVER or "{ODBC Driver 17 for SQL Server}"
 
 
 def _ensure_demo_db():
@@ -145,11 +147,13 @@ def _clone_ka_to_demo(short: str, token: str):
     master_str = (f"DRIVER={_DB_DRIVER};SERVER={_DB_SERVER};DATABASE=master;"
                   f"UID={_DB_USER};PWD={_DB_PASSWORD};TrustServerCertificate=yes")
     mc = pyodbc.connect(master_str, autocommit=True, timeout=30)
-    mc.execute(
-        f"IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name=N'{dest_db}') "
-        f"CREATE DATABASE [{dest_db}]"
-    )
-    mc.close()
+    try:
+        mc.execute(
+            f"IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name=N'{dest_db}') "
+            f"CREATE DATABASE [{dest_db}]"
+        )
+    finally:
+        mc.close()
 
     rows_total  = 0
     tables_done = 0
@@ -157,28 +161,29 @@ def _clone_ka_to_demo(short: str, token: str):
     conn_str = (f"DRIVER={_DB_DRIVER};SERVER={_DB_SERVER};DATABASE={dest_db};"
                 f"UID={_DB_USER};PWD={_DB_PASSWORD};TrustServerCertificate=yes")
     conn = pyodbc.connect(conn_str, autocommit=True, timeout=300)
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    for source_name, date_col in KA_TABLES_CONFIG:
-        try:
-            cursor.execute(
-                f"IF OBJECT_ID(N'[{source_name}]', N'U') IS NOT NULL "
-                f"DROP TABLE [{source_name}]"
-            )
-            where = f"WHERE YEAR([{date_col}]) IN (2025, 2026)" if date_col else ""
-            cursor.execute(
-                f"SELECT * INTO [{source_name}] "
-                f"FROM [{ka_db}].[dbo].[{source_name}] {where}"
-            )
-            cursor.execute(f"SELECT COUNT(*) FROM [{source_name}]")
-            cnt = cursor.fetchone()[0]
-            rows_total  += cnt
-            tables_done += 1
-            logger.info(f"clone_ka: {source_name} → {dest_db} ({cnt} lignes)")
-        except Exception as e:
-            logger.error(f"clone_ka: erreur table '{source_name}': {e}")
-
-    conn.close()
+        for source_name, date_col in KA_TABLES_CONFIG:
+            try:
+                cursor.execute(
+                    f"IF OBJECT_ID(N'[{source_name}]', N'U') IS NOT NULL "
+                    f"DROP TABLE [{source_name}]"
+                )
+                where = f"WHERE YEAR([{date_col}]) IN (2025, 2026)" if date_col else ""
+                cursor.execute(
+                    f"SELECT * INTO [{source_name}] "
+                    f"FROM [{ka_db}].[dbo].[{source_name}] {where}"
+                )
+                cursor.execute(f"SELECT COUNT(*) FROM [{source_name}]")
+                cnt = cursor.fetchone()[0]
+                rows_total  += cnt
+                tables_done += 1
+                logger.info(f"clone_ka: {source_name} → {dest_db} ({cnt} lignes)")
+            except Exception as e:
+                logger.error(f"clone_ka: erreur table '{source_name}': {e}")
+    finally:
+        conn.close()
 
     write_central(
         """UPDATE APP_Demo_Sessions
@@ -422,7 +427,7 @@ def _get_table_prefix_for_token(token: str) -> str:
 # ============================================================
 
 @router.post("/register")
-async def demo_register(
+def demo_register(
     body: DemoRegisterRequest,
     background_tasks: BackgroundTasks
 ):
@@ -477,7 +482,7 @@ async def demo_register(
 
 
 @router.patch("/{token}/configure")
-async def demo_configure(token: str, cfg: DemoConfigureRequest):
+def demo_configure(token: str, cfg: DemoConfigureRequest):
     """Configure la base Sage pour la session démo (avant le premier sync)."""
     rows = execute_query(
         "SELECT 1 FROM APP_Demo_Sessions WHERE token = ? AND revoked = 0",
@@ -497,7 +502,7 @@ async def demo_configure(token: str, cfg: DemoConfigureRequest):
 
 
 @router.post("/{token}/test-connection")
-async def demo_test_connection(token: str, cfg: DemoTestConnectionRequest):
+def demo_test_connection(token: str, cfg: DemoTestConnectionRequest):
     """
     Teste la connexion à la base Sage fournie.
     Retourne succès + nb de tables trouvées, ou un message d'erreur précis.
@@ -533,22 +538,23 @@ async def demo_test_connection(token: str, cfg: DemoTestConnectionRequest):
 
     try:
         conn = pyodbc.connect(conn_str, timeout=8)
-        cursor = conn.cursor()
-        # Compter les tables utilisateur
-        cursor.execute(
-            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
-        )
-        table_count = cursor.fetchone()[0]
-        # Vérifier quelques tables Sage clés
-        sage_tables_found = []
-        for t in ["F_DOCENTETE", "F_DOCLIGNE", "F_COMPTET", "F_ARTICLE"]:
+        try:
+            cursor = conn.cursor()
+            # Compter les tables utilisateur
             cursor.execute(
-                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?", (t,)
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
             )
-            if cursor.fetchone()[0] > 0:
-                sage_tables_found.append(t)
-        cursor.close()
-        conn.close()
+            table_count = cursor.fetchone()[0]
+            # Vérifier quelques tables Sage clés
+            sage_tables_found = []
+            for t in ["F_DOCENTETE", "F_DOCLIGNE", "F_COMPTET", "F_ARTICLE"]:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?", (t,)
+                )
+                if cursor.fetchone()[0] > 0:
+                    sage_tables_found.append(t)
+        finally:
+            conn.close()
 
         if not sage_tables_found:
             return {
@@ -584,7 +590,7 @@ async def demo_test_connection(token: str, cfg: DemoTestConnectionRequest):
 
 
 @router.get("/confirm/{token}", response_class=HTMLResponse)
-async def demo_confirm(token: str, background_tasks: BackgroundTasks):
+def demo_confirm(token: str, background_tasks: BackgroundTasks):
     """
     Confirme l'email et retourne la page de telechargement de l'AgentETL.
     """
@@ -642,7 +648,7 @@ _AGENT_BASE_ZIP = Path(__file__).parent.parent.parent / "static" / "SageETLAgent
 
 
 @router.get("/{token}/download")
-async def demo_download(token: str):
+def demo_download(token: str):
     """
     Génère un ZIP contenant tout le dossier publish de SageETLAgent_MultiAgent
     avec un appsettings.json pré-configuré pour la session démo du prospect.
@@ -733,7 +739,7 @@ async def demo_download(token: str):
 # ============================================================
 
 @router.get("/{token}/tables")
-async def demo_get_tables(
+def demo_get_tables(
     token: str,
     x_demo_token: Optional[str] = Header(None, alias="X-Demo-Token")
 ):
@@ -752,7 +758,7 @@ async def demo_get_tables(
 
 
 @router.post("/{token}/heartbeat")
-async def demo_heartbeat(token: str, body: HeartbeatDemoRequest):
+def demo_heartbeat(token: str, body: HeartbeatDemoRequest):
     """Enregistre le signal de vie de l'AgentETL demo."""
     _verify_demo_token(token)
     try:
@@ -821,7 +827,7 @@ async def demo_push_data(token: str, push: PushDataDemoRequest):
 # ============================================================
 
 @router.get("/{token}/dashboard")
-async def demo_dashboard(token: str):
+def demo_dashboard(token: str):
     """
     Retourne les KPIs et données pour le tableau de bord démo.
     Interroge directement les tables DEMO_{hash}_ dans la base centrale.
@@ -928,7 +934,7 @@ async def demo_dashboard(token: str):
 # ============================================================
 
 @router.get("/{token}/status")
-async def demo_status(token: str):
+def demo_status(token: str):
     """Retourne l'etat de la session demo (pour le frontend)."""
     rows = execute_query(
         """
@@ -1040,8 +1046,9 @@ async def demo_provision(token: str):
             logger.warning(f"demo_provision: insert APP_DWH error: {e}")
 
     # --- 2. Creer l'utilisateur dans APP_Users ---
-    # Hash du mot de passe = sha256(token) — on n'expose pas le mdp, l'acces se fait par auto-login
-    pwd_hash = hashlib.sha256(token.encode()).hexdigest()
+    # Hash bcrypt — on n'expose pas le mdp, l'acces se fait par auto-login
+    from app.services.password_utils import hash_password as _demo_hash
+    pwd_hash = _demo_hash(token)
     existing_user = execute_query("SELECT 1 FROM APP_Users WHERE username = ?", (username,), use_cache=False)
     if not existing_user:
         try:
@@ -1217,7 +1224,7 @@ async def demo_auto_login(token: str):
 # ============================================================
 
 @router.get("/admin/sessions")
-async def demo_admin_sessions(
+def demo_admin_sessions(
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
     """Liste toutes les sessions demo (superadmin uniquement)."""
@@ -1238,7 +1245,7 @@ async def demo_admin_sessions(
 
 
 @router.delete("/admin/sessions/{token}")
-async def demo_revoke_session(
+def demo_revoke_session(
     token: str,
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
@@ -1253,7 +1260,7 @@ async def demo_revoke_session(
 
 
 @router.post("/admin/sessions/{token}/extend")
-async def demo_extend_session(
+def demo_extend_session(
     token: str,
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):

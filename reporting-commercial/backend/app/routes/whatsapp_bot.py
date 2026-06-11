@@ -97,7 +97,7 @@ def init_whatsapp_tables():
 # ─── Webhook Meta (public, pas d'auth) ─────────────────────────────────────────
 
 @router.get("/webhook")
-async def webhook_verify(request: Request):
+def webhook_verify(request: Request):
     """Vérification du webhook par Meta (challenge handshake)."""
     params = request.query_params
     mode = params.get("hub.mode", "")
@@ -204,7 +204,7 @@ def _get_dwh_for_phone(phone: str) -> Optional[str]:
 # ─── Config admin ───────────────────────────────────────────────────────────────
 
 @router.get("/config")
-async def get_wa_config():
+def get_wa_config():
     """Retourne la configuration WhatsApp courante (secrets masqués)."""
     s = get_settings()
     provider = getattr(s, "WA_PROVIDER", "360dialog")
@@ -229,7 +229,7 @@ async def get_wa_config():
 
 
 @router.post("/config")
-async def update_wa_config(data: WAConfigUpdate):
+def update_wa_config(data: WAConfigUpdate):
     """Sauvegarde la configuration WhatsApp dans .env."""
     try:
         env_updates = {
@@ -254,7 +254,7 @@ async def update_wa_config(data: WAConfigUpdate):
 
 
 @router.post("/test")
-async def test_wa_connection():
+def test_wa_connection():
     """Teste la connexion selon le provider configuré."""
     s = get_settings()
     provider = getattr(s, "WA_PROVIDER", "360dialog")
@@ -303,7 +303,7 @@ class WABotTestRequest(BaseModel):
 
 
 @router.post("/bot-test")
-async def bot_test(data: WABotTestRequest):
+def bot_test(data: WABotTestRequest):
     """Teste la logique du bot sans envoyer de message WhatsApp (dev/admin)."""
     try:
         reply = process_bot_command(data.text, data.dwh_code)
@@ -313,7 +313,7 @@ async def bot_test(data: WABotTestRequest):
 
 
 @router.get("/discover-tables")
-async def discover_tables(dwh_code: str = "KA"):
+def discover_tables(dwh_code: str = "KA"):
     """Découverte des tables disponibles dans un DWH (dev/admin)."""
     from app.database_unified import execute_dwh
     try:
@@ -338,7 +338,7 @@ async def discover_tables(dwh_code: str = "KA"):
 
 
 @router.get("/discover-columns")
-async def discover_columns(dwh_code: str = "KA", table: str = ""):
+def discover_columns(dwh_code: str = "KA", table: str = ""):
     """Retourne les colonnes d'une table DWH (dev/admin)."""
     from app.database_unified import execute_dwh
     if not table:
@@ -357,7 +357,7 @@ async def discover_columns(dwh_code: str = "KA", table: str = ""):
 # ─── Envoi manuel (admin) ──────────────────────────────────────────────────────
 
 @router.post("/send")
-async def send_manual(data: WASendRequest):
+def send_manual(data: WASendRequest):
     """Envoie un message manuellement (admin)."""
     s = get_settings()
     if not s.WA_PHONE_NUMBER_ID or not s.WA_ACCESS_TOKEN:
@@ -380,7 +380,7 @@ async def send_manual(data: WASendRequest):
 # ─── Historique ─────────────────────────────────────────────────────────────────
 
 @router.get("/history")
-async def get_history(limit: int = 50, phone: Optional[str] = None):
+def get_history(limit: int = 50, phone: Optional[str] = None):
     """Retourne l'historique des messages WhatsApp."""
     try:
         if phone:
@@ -402,7 +402,7 @@ async def get_history(limit: int = 50, phone: Optional[str] = None):
 # ─── Mappings numéro ↔ utilisateur ──────────────────────────────────────────────
 
 @router.get("/mappings")
-async def get_mappings():
+def get_mappings():
     """Liste les mappings numéro ↔ DWH."""
     try:
         rows = execute_central(
@@ -415,7 +415,7 @@ async def get_mappings():
 
 
 @router.post("/mappings")
-async def create_mapping(data: WAMappingCreate):
+def create_mapping(data: WAMappingCreate):
     """Associe un numéro WhatsApp à un DWH client."""
     try:
         write_central(
@@ -435,7 +435,7 @@ async def create_mapping(data: WAMappingCreate):
 
 
 @router.delete("/mappings/{phone_number}")
-async def delete_mapping(phone_number: str):
+def delete_mapping(phone_number: str):
     """Supprime un mapping numéro ↔ DWH."""
     try:
         write_central(

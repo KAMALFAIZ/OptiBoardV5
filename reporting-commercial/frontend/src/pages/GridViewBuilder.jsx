@@ -22,6 +22,7 @@ import { useToast } from '../components/common/Toast'
 import useSidebarResize from '../hooks/useSidebarResize'
 import { mapColumnsToColDefs, buildTotalsRow } from '../utils/agGridColumnMapper'
 import { AG_GRID_LOCALE_FR } from '../utils/agGridLocaleFr'
+import { APP_DOT, APP_BG } from '../utils/applicationThemes'
 
 const FORMATS = [
   { value: '', label: 'Aucun' },
@@ -36,25 +37,6 @@ const ALIGNS = [
   { value: 'center', icon: AlignCenter },
   { value: 'right', icon: AlignRight }
 ]
-
-const APP_DOT = {
-  commercial:   'bg-blue-500',
-  comptabilite: 'bg-emerald-500',
-  paie:         'bg-orange-400',
-  tresorerie:   'bg-violet-500',
-}
-const APP_TEXT = {
-  commercial:   'text-blue-600 dark:text-blue-400',
-  comptabilite: 'text-emerald-600 dark:text-emerald-400',
-  paie:         'text-orange-500 dark:text-orange-400',
-  tresorerie:   'text-violet-600 dark:text-violet-400',
-}
-const APP_BG = {
-  commercial:   'bg-blue-100 dark:bg-blue-900/30',
-  comptabilite: 'bg-emerald-100 dark:bg-emerald-900/30',
-  paie:         'bg-orange-100 dark:bg-orange-900/30',
-  tresorerie:   'bg-violet-100 dark:bg-violet-900/30',
-}
 
 export default function GridViewBuilder() {
   const { user } = useAuth()

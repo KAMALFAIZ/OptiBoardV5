@@ -38,7 +38,7 @@ async def generate_report_insights(req: InsightsRequest):
 
 
 @router.delete("/cache/{report_type}/{report_id}")
-async def clear_insights_cache(report_type: str, report_id: int):
+def clear_insights_cache(report_type: str, report_id: int):
     """Invalide le cache d'insights pour un rapport."""
     invalidate_cache(report_type, report_id)
     return {"success": True, "message": "Cache invalidé"}

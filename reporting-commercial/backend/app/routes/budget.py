@@ -36,7 +36,7 @@ def _run(sql: str, params: tuple, dwh_code: str) -> list:
 
 
 @router.get("/vs-realise/ca")
-async def budget_vs_realise_ca(
+def budget_vs_realise_ca(
     dwh_code: str = Query(...),
     exercice: int = Query(...),
 ):
@@ -45,7 +45,7 @@ async def budget_vs_realise_ca(
 
 
 @router.get("/vs-realise/charges")
-async def budget_vs_realise_charges(
+def budget_vs_realise_charges(
     dwh_code: str = Query(...),
     exercice: int = Query(...),
 ):
@@ -54,7 +54,7 @@ async def budget_vs_realise_charges(
 
 
 @router.get("/global")
-async def budget_global(
+def budget_global(
     dwh_code: str = Query(...),
     exercice: int = Query(...),
 ):
@@ -63,7 +63,7 @@ async def budget_global(
 
 
 @router.get("/masse-salariale")
-async def masse_salariale(
+def masse_salariale(
     dwh_code: str = Query(...),
     date_debut: str = Query(...),
     date_fin: str = Query(...),
@@ -73,7 +73,7 @@ async def masse_salariale(
 
 
 @router.get("/ratio-ms-ca")
-async def ratio_ms_ca(
+def ratio_ms_ca(
     dwh_code: str = Query(...),
     date_debut: str = Query(...),
     date_fin: str = Query(...),
@@ -83,7 +83,7 @@ async def ratio_ms_ca(
 
 
 @router.get("/saisie")
-async def get_saisie(
+def get_saisie(
     dwh_code: str = Query(...),
     exercice: int = Query(...),
     axe: Optional[str] = Query(None),
@@ -100,7 +100,7 @@ async def get_saisie(
 
 
 @router.post("/saisie")
-async def upsert_budget(item: BudgetItem, dwh_code: str = Query(...)):
+def upsert_budget(item: BudgetItem, dwh_code: str = Query(...)):
     """Insère ou met à jour une ligne de budget (UPSERT)."""
     try:
         write_client(

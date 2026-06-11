@@ -8,11 +8,20 @@ import pyodbc
 
 SERVER_URL = sys.argv[1] if len(sys.argv) > 1 else "http://kasoft.selfip.net:8084"
 OUTPUT_DIR = sys.argv[2] if len(sys.argv) > 2 else r"D:\kasoft-platform\OptiBoard\agent_configs"
-KEY = b"kasoft_optiboard_etl_key_2026!!!"  # 32 bytes — meme cle que l'agent C#
+
+# Secrets lus dans l'environnement — jamais en dur dans le code.
+KEY = os.environ.get("OPTIBOARD_ETL_AES_KEY", "").encode()  # 32 octets — meme cle que l'agent C#
+if len(KEY) != 32:
+    sys.exit("ERREUR: definissez OPTIBOARD_ETL_AES_KEY (32 octets) — meme cle que l'agent C#.")
+_DB_SERVER = os.environ.get("DB_SERVER", "kasoft.selfip.net")
+_DB_USER   = os.environ.get("DB_USER", "sa")
+_DB_PWD    = os.environ.get("DB_PASSWORD")
+if not _DB_PWD:
+    sys.exit("ERREUR: definissez DB_PASSWORD dans l'environnement.")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-conn = pyodbc.connect('DRIVER={SQL Server};SERVER=kasoft.selfip.net;DATABASE=OptiBoard_SaaS;UID=sa;PWD=SQL@2019')
+conn = pyodbc.connect(f'DRIVER={{SQL Server}};SERVER={_DB_SERVER};DATABASE=OptiBoard_SaaS;UID={_DB_USER};PWD={_DB_PWD}')
 cur = conn.cursor()
 cur.execute("SELECT code, nom FROM APP_DWH WHERE code IN (SELECT dwh_code FROM APP_ETL_Agents_Monitoring)")
 dwhs = cur.fetchall()

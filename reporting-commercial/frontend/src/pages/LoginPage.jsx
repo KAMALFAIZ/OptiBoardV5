@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Eye, EyeOff, LogIn, AlertCircle, XCircle, KeyRound, ShieldCheck, Smartphone } from 'lucide-react'
 import { login, getClientInfo, getDwhList, extractErrorMessage, setFirstPassword } from '../services/api'
 import api from '../services/api'
+import { getClientCode } from '../utils/clientCode'
 
 // ── Écran d'erreur pleine page (code invalide ou base absente) ──────────────
 function EcranErreurClient({ code, message }) {
@@ -202,7 +203,8 @@ function TwoFactorForm({ tempToken, clientInfo, rememberMe, onLogin, onCancel })
 
 // ── Page de login principale ─────────────────────────────────────────────────
 export default function LoginPage({ onLogin, appName }) {
-  const clientCode = new URLSearchParams(window.location.search).get('client')?.toUpperCase() || null
+  // Sous-domaine prioritaire (xxxx.optiboard.kasoft.ma), repli ?client=xxxx en dev.
+  const clientCode = getClientCode()
 
   const [username, setUsername]         = useState('')
   const [password, setPassword]         = useState('')

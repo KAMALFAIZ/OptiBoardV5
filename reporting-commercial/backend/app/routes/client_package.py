@@ -38,7 +38,7 @@ def _require_dwh(dwh_code: Optional[str]) -> str:
 # ============================================================
 
 @router.get("/download")
-async def download_client_package(
+def download_client_package(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
     """
@@ -253,7 +253,7 @@ Site  : https://kasoft.ma
 # ============================================================
 
 @router.get("/config")
-async def get_client_config(
+def get_client_config(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
     """Retourne la configuration du client (sans credentials sensibles)."""

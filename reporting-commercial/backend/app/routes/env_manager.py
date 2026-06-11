@@ -162,13 +162,13 @@ def _mask(key: str, value: str) -> str:
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
 @router.get("/schema")
-async def get_schema():
+def get_schema():
     """Retourne le schéma des sections/champs."""
     return {"success": True, "schema": ENV_SCHEMA}
 
 
 @router.get("/config")
-async def get_config():
+def get_config():
     """Retourne les valeurs courantes du .env (sensibles masquées)."""
     raw = _read_env()
     masked = {k: _mask(k, v) for k, v in raw.items()}
@@ -186,7 +186,7 @@ class UpdateEnvRequest(BaseModel):
 
 
 @router.put("/config")
-async def update_config(req: UpdateEnvRequest):
+def update_config(req: UpdateEnvRequest):
     """Met à jour une ou plusieurs valeurs dans le .env."""
     if not req.updates:
         raise HTTPException(status_code=400, detail="Aucune mise à jour fournie")
@@ -217,7 +217,7 @@ class TestDBRequest(BaseModel):
 
 
 @router.post("/test-db")
-async def test_db_connection(req: TestDBRequest):
+def test_db_connection(req: TestDBRequest):
     """Teste une connexion SQL Server avec les paramètres fournis."""
     # Si le mot de passe est masqué (contient ●), utiliser la valeur réelle du .env
     password = req.password
@@ -249,7 +249,7 @@ class TestLicenseServerRequest(BaseModel):
 
 
 @router.post("/test-license-server")
-async def test_license_server(req: TestLicenseServerRequest):
+def test_license_server(req: TestLicenseServerRequest):
     """Teste la connectivité avec le serveur de licences."""
     try:
         health_url = req.url.rstrip("/api").rstrip("/") + "/api/health"
@@ -267,7 +267,7 @@ class TestSMTPRequest(BaseModel):
 
 
 @router.post("/test-smtp")
-async def test_smtp(req: TestSMTPRequest):
+def test_smtp(req: TestSMTPRequest):
     """Teste l'envoi SMTP en lisant les credentials depuis .env (evite le masquage frontend)."""
     import smtplib
     import ssl as ssl_lib
@@ -340,7 +340,7 @@ async def test_ai_provider():
 
 
 @router.post("/restart")
-async def restart_backend():
+def restart_backend():
     """Déclenche un redémarrage du backend (uvicorn reload)."""
     import threading
 

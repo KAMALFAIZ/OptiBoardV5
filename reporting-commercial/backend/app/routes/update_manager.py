@@ -25,8 +25,10 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
+
+from ..security import require_admin
 
 from ..config import get_settings
 from ..database_unified import (
@@ -121,9 +123,9 @@ class MasterTestPayload(BaseModel):
     timeout: int = 15
 
 
-@router.get("/master/config")
-async def get_master_config():
-    """Renvoie la config master courante (clé masquée)."""
+@router.get("/master/config", dependencies=[Depends(require_admin)])
+def get_master_config():
+    """Renvoie la config master courante (clé masquée). Admin uniquement."""
     s = get_settings()
     return {
         "MASTER_API_URL": s.MASTER_API_URL,
@@ -133,9 +135,13 @@ async def get_master_config():
     }
 
 
-@router.post("/master/config")
-async def save_master_config(cfg: MasterConfigPayload):
-    """Sauvegarde MASTER_API_URL/KEY/TIMEOUT dans .env et recharge les settings."""
+@router.post("/master/config", dependencies=[Depends(require_admin)])
+def save_master_config(cfg: MasterConfigPayload):
+    """Sauvegarde MASTER_API_URL/KEY/TIMEOUT dans .env et recharge les settings.
+
+    Admin uniquement : repointer l'URL maître permettrait d'injecter un
+    catalogue (dashboards/requêtes SQL) hostile chez le client.
+    """
     from ..config import save_env_config, reload_settings
     payload = {
         "MASTER_API_URL": cfg.MASTER_API_URL.strip().rstrip("/"),
@@ -153,11 +159,12 @@ async def save_master_config(cfg: MasterConfigPayload):
     }
 
 
-@router.post("/master/test")
-async def test_master_connection(cfg: MasterTestPayload):
+@router.post("/master/test", dependencies=[Depends(require_admin)])
+def test_master_connection(cfg: MasterTestPayload):
     """
     Teste une URL/clé master sans la sauvegarder.
-    Appelle GET /api/master/info sur l'URL fournie.
+    Appelle GET /api/master/info sur l'URL fournie. Admin uniquement
+    (évite l'usage en sonde SSRF vers des hôtes arbitraires).
     """
     base = (cfg.url or "").strip().rstrip("/")
     if not base:
@@ -218,7 +225,7 @@ def _get_client_last_update(dwh_code: str, type_entite: str) -> Optional[datetim
 # ============================================================
 
 @router.get("/check")
-async def check_updates(
+def check_updates(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
     """
@@ -613,7 +620,7 @@ async def pull_all_updates(
 # ============================================================
 
 @router.get("/history")
-async def get_update_history(
+def get_update_history(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     type_entite: Optional[str] = None,
     limit: int = 100,

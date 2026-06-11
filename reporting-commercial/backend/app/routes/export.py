@@ -28,7 +28,7 @@ EXPORT_DIR = tempfile.gettempdir()
 
 
 @router.get("/excel/ventes")
-async def export_ventes_excel(
+def export_ventes_excel(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -85,7 +85,7 @@ async def export_ventes_excel(
 
 
 @router.get("/excel/stocks")
-async def export_stocks_excel():
+def export_stocks_excel():
     """
     Exporte les données de stocks en Excel.
     """
@@ -117,7 +117,7 @@ async def export_stocks_excel():
 
 
 @router.get("/excel/recouvrement")
-async def export_recouvrement_excel():
+def export_recouvrement_excel():
     """
     Exporte les données de recouvrement en Excel.
     """
@@ -148,7 +148,7 @@ async def export_recouvrement_excel():
 
 
 @router.get("/excel/complet")
-async def export_rapport_complet_excel(
+def export_rapport_complet_excel(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -223,7 +223,7 @@ async def export_rapport_complet_excel(
 
 
 @router.get("/pdf/dashboard")
-async def export_dashboard_pdf(
+def export_dashboard_pdf(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -338,7 +338,7 @@ async def export_dashboard_pdf(
 
 
 @router.get("/pptx/dashboard")
-async def export_dashboard_pptx(
+def export_dashboard_pptx(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -532,7 +532,7 @@ async def export_dashboard_pptx(
 
 
 @router.get("/csv/{table}")
-async def export_csv(
+def export_csv(
     table: str,
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None)

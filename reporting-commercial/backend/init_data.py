@@ -1,20 +1,31 @@
 """Script pour initialiser les donnees: utilisateurs et societes"""
+import os
+import sys
+
 import pyodbc
 import hashlib
 
-# Configuration connexion
+# Configuration connexion — secrets lus dans l'environnement, jamais en dur.
+_PWD = os.environ.get("DB_PASSWORD")
+if not _PWD:
+    sys.exit("ERREUR: definissez DB_PASSWORD (et optionnellement DB_SERVER/DB_USER/DB_NAME).")
+
 conn_string = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=kasoft.selfip.net;"
-    "DATABASE=GROUPE_ALBOUGHAZE;"
-    "UID=sa;"
-    "PWD=SQL@2019;"
+    f"SERVER={os.environ.get('DB_SERVER', 'kasoft.selfip.net')};"
+    f"DATABASE={os.environ.get('DB_NAME', 'GROUPE_ALBOUGHAZE')};"
+    f"UID={os.environ.get('DB_USER', 'sa')};"
+    f"PWD={_PWD};"
     "TrustServerCertificate=yes"
 )
 
 def hash_password(password: str) -> str:
-    """Hash un mot de passe avec SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash bcrypt (repli SHA256 si exécuté hors application)."""
+    try:
+        from app.services.password_utils import hash_password as _h
+        return _h(password)
+    except Exception:
+        return hashlib.sha256(password.encode()).hexdigest()
 
 
 def init_tables(cursor):

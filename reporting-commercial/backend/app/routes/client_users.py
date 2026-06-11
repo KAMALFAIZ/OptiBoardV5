@@ -48,7 +48,8 @@ class UserDWHAssign(BaseModel):
 
 
 def _hash(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    from app.services.password_utils import hash_password as _h
+    return _h(password)
 
 
 # ============================================================
@@ -56,7 +57,7 @@ def _hash(password: str) -> str:
 # ============================================================
 
 @router.get("/users")
-async def list_users(x_dwh_code: str = Header(..., alias="X-DWH-Code")):
+def list_users(x_dwh_code: str = Header(..., alias="X-DWH-Code")):
     """Liste les utilisateurs locaux du client avec leurs roles."""
     try:
         # Migration douce : ajouter mobile_access si la colonne n'existe pas encore
@@ -118,7 +119,7 @@ async def list_users(x_dwh_code: str = Header(..., alias="X-DWH-Code")):
 
 
 @router.post("/users")
-async def create_user(
+def create_user(
     user: ClientUserCreate,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -142,7 +143,7 @@ async def create_user(
 
 
 @router.put("/users/{user_id}")
-async def update_user(
+def update_user(
     user_id: int,
     update: ClientUserUpdate,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
@@ -180,7 +181,7 @@ async def update_user(
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(
+def delete_user(
     user_id: int,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -197,7 +198,7 @@ async def delete_user(
 # ============================================================
 
 @router.get("/users/{user_id}/dwh")
-async def list_user_dwh(
+def list_user_dwh(
     user_id: int,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -217,7 +218,7 @@ async def list_user_dwh(
 
 
 @router.post("/users/{user_id}/dwh")
-async def assign_dwh_to_user(
+def assign_dwh_to_user(
     user_id: int,
     assignment: UserDWHAssign,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
@@ -263,7 +264,7 @@ async def assign_dwh_to_user(
 
 
 @router.delete("/users/{user_id}/dwh/{dwh_code}")
-async def revoke_dwh_from_user(
+def revoke_dwh_from_user(
     user_id: int,
     dwh_code: str,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
@@ -280,7 +281,7 @@ async def revoke_dwh_from_user(
 
 
 @router.get("/dwh-access")
-async def list_all_dwh_access(x_dwh_code: str = Header(..., alias="X-DWH-Code")):
+def list_all_dwh_access(x_dwh_code: str = Header(..., alias="X-DWH-Code")):
     """Vue globale de tous les droits DWH du client."""
     try:
         access = execute_client(

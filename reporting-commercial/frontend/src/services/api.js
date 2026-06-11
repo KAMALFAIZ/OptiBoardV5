@@ -78,17 +78,43 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Méthodes HTTP mutantes : une erreur déclenche un toast global (event api:error)
+const MUTATING_METHODS = ['post', 'put', 'delete', 'patch']
+
 // Intercepteur de réponse : déconnexion auto si token expiré (401)
+// + dispatch d'un event global `api:error` pour les erreurs sur méthodes mutantes
+//   (écouté par ApiErrorBridge qui affiche un toast)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Vider la session et notifier l'app
+      // Vider la session et notifier l'app (pas de toast : géré par auth:session-expired)
       localStorage.removeItem('user')
       localStorage.removeItem('token')
       sessionStorage.removeItem('user')
       sessionStorage.removeItem('token')
       window.dispatchEvent(new CustomEvent('auth:session-expired'))
+      return Promise.reject(error)
+    }
+
+    const method = (error.config?.method || '').toLowerCase()
+    const shouldNotify =
+      MUTATING_METHODS.includes(method) &&
+      !isRequestCanceled(error) &&
+      !error.config?.skipErrorToast
+
+    if (shouldNotify) {
+      const detail = error.response?.data?.detail
+      const message = (typeof detail === 'string' && detail.trim() && detail.length < 200)
+        ? detail
+        : 'Une erreur est survenue'
+      window.dispatchEvent(new CustomEvent('api:error', {
+        detail: {
+          status: error.response?.status ?? 0,
+          message,
+          url: error.config?.url || '',
+        }
+      }))
     }
     return Promise.reject(error)
   }
@@ -220,6 +246,10 @@ export const resetUserPassword = (id) => api.post(`/admin/users/${id}/reset-pass
 
 export const getAvailablePages = () => api.get('/admin/pages')
 export const login = (credentials) => api.post('/admin/login', credentials)
+// Keep-alive session : prolonge la session côté serveur (headers X-Session-Token
+// injectés par l'intercepteur). skipErrorToast : échec silencieux — les vieux
+// backends n'exposent pas cet endpoint.
+export const refreshSession = () => api.post('/auth/refresh', {}, { skipErrorToast: true })
 export const getClientInfo = (code) => api.get('/auth/client-info', { params: { code } })
 export const getDwhList = (userId) =>
   api.get('/auth/dwh-list', { headers: { 'X-User-Id': String(userId) } })

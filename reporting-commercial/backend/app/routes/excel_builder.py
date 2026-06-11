@@ -132,7 +132,7 @@ class ExcelBuilderUpdate(BaseModel):
 # =============================================================================
 
 @router.get("/list")
-async def list_excel_builders(
+def list_excel_builders(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
     """Liste tous les Excel Builders (id, name, description, created_at, updated_at)"""
@@ -154,7 +154,7 @@ async def list_excel_builders(
 # =============================================================================
 
 @router.get("/{builder_id}")
-async def get_excel_builder(
+def get_excel_builder(
     builder_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -186,7 +186,7 @@ async def get_excel_builder(
 # =============================================================================
 
 @router.post("/create")
-async def create_excel_builder(
+def create_excel_builder(
     payload: ExcelBuilderCreate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -220,7 +220,7 @@ async def create_excel_builder(
 # =============================================================================
 
 @router.put("/{builder_id}")
-async def update_excel_builder(
+def update_excel_builder(
     builder_id: int,
     payload: ExcelBuilderUpdate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -263,7 +263,7 @@ async def update_excel_builder(
 # =============================================================================
 
 @router.delete("/{builder_id}")
-async def delete_excel_builder(
+def delete_excel_builder(
     builder_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -452,7 +452,7 @@ class ExecuteRequest(BaseModel):
 
 
 @router.post("/{builder_id}/execute")
-async def execute_excel_builder(
+def execute_excel_builder(
     builder_id: int,
     request: ExecuteRequest = ExecuteRequest(),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -510,7 +510,7 @@ async def execute_excel_builder(
 # =============================================================================
 
 @router.get("/{builder_id}/export")
-async def export_excel_builder(
+def export_excel_builder(
     builder_id: int,
     year: Optional[int] = None,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),

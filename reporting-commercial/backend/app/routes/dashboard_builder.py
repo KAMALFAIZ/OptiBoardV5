@@ -175,7 +175,7 @@ def init_default_data():
 # ===================== DASHBOARDS =====================
 
 @router.get("/dashboards")
-async def get_dashboards(
+def get_dashboards(
     user_id: Optional[int] = None,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -206,7 +206,7 @@ async def get_dashboards(
 
 
 @router.get("/dashboards/{dashboard_id}")
-async def get_dashboard(
+def get_dashboard(
     dashboard_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -235,7 +235,7 @@ async def get_dashboard(
 
 
 @router.post("/dashboards")
-async def create_dashboard(dashboard: DashboardCreate, user_id: int = 1):
+def create_dashboard(dashboard: DashboardCreate, user_id: int = 1):
     """Cree un nouveau dashboard"""
     try:
         init_builder_tables()
@@ -260,7 +260,7 @@ async def create_dashboard(dashboard: DashboardCreate, user_id: int = 1):
 
 
 @router.put("/dashboards/{dashboard_id}")
-async def update_dashboard(dashboard_id: int, dashboard: DashboardUpdate):
+def update_dashboard(dashboard_id: int, dashboard: DashboardUpdate):
     """Met a jour un dashboard"""
     try:
         updates = []
@@ -301,7 +301,7 @@ async def update_dashboard(dashboard_id: int, dashboard: DashboardUpdate):
 
 
 @router.delete("/dashboards/{dashboard_id}")
-async def delete_dashboard(dashboard_id: int):
+def delete_dashboard(dashboard_id: int):
     """Supprime un dashboard (interdit pour les dashboards publics/accueil)"""
     try:
         with get_db_cursor() as cursor:
@@ -322,7 +322,7 @@ async def delete_dashboard(dashboard_id: int):
 # ===================== TEMPLATES =====================
 
 @router.get("/templates")
-async def get_widget_templates():
+def get_widget_templates():
     """Liste les templates de widgets disponibles"""
     try:
         init_builder_tables()
@@ -346,7 +346,7 @@ async def get_widget_templates():
 # ===================== DATA SOURCES =====================
 
 @router.get("/datasources")
-async def get_data_sources():
+def get_data_sources():
     """Liste les sources de donnees disponibles"""
     try:
         init_builder_tables()
@@ -395,7 +395,7 @@ class DataSourceUpdate(BaseModel):
 
 
 @router.post("/datasources")
-async def create_data_source(source: DataSourceCreate):
+def create_data_source(source: DataSourceCreate):
     """Cree une nouvelle source de donnees"""
     try:
         init_builder_tables()
@@ -421,7 +421,7 @@ async def create_data_source(source: DataSourceCreate):
 
 
 @router.put("/datasources/{source_id}")
-async def update_data_source(source_id: int, source: DataSourceUpdate):
+def update_data_source(source_id: int, source: DataSourceUpdate):
     """Met à jour une source de données"""
     try:
         updates = []
@@ -457,7 +457,7 @@ async def update_data_source(source_id: int, source: DataSourceUpdate):
 
 
 @router.delete("/datasources/{source_id}")
-async def delete_data_source(source_id: int):
+def delete_data_source(source_id: int):
     """Supprime une source de données"""
     try:
         with get_db_cursor() as cursor:
@@ -468,7 +468,7 @@ async def delete_data_source(source_id: int):
 
 
 @router.get("/datasources/{source_id}")
-async def get_data_source(
+def get_data_source(
     source_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -514,7 +514,7 @@ async def get_data_source(
 
 
 @router.post("/datasources/{source_id}/extract-params")
-async def extract_datasource_params(
+def extract_datasource_params(
     source_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -552,7 +552,7 @@ async def extract_datasource_params(
 
 
 @router.post("/datasources/{source_id}/preview")
-async def preview_data_source(
+def preview_data_source(
     source_id: int,
     context: Dict[str, Any] = {},
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
@@ -653,7 +653,7 @@ async def preview_data_source(
 
 
 @router.post("/execute-query")
-async def execute_custom_query(query: str, params: Dict[str, Any] = {}):
+def execute_custom_query(query: str, params: Dict[str, Any] = {}):
     """Execute une requete personnalisee (SELECT uniquement)"""
     try:
         # Securite: uniquement SELECT
@@ -685,7 +685,7 @@ async def execute_custom_query(query: str, params: Dict[str, Any] = {}):
 # ===================== DWH QUERY =====================
 
 @router.get("/dwh-tables")
-async def get_dwh_tables(dwh_code: Optional[str] = None):
+def get_dwh_tables(dwh_code: Optional[str] = None):
     """Liste les tables d'un DWH (auto-detect si pas de code fourni)"""
     try:
         effective_dwh = dwh_code
@@ -716,7 +716,7 @@ async def get_dwh_tables(dwh_code: Optional[str] = None):
 # ===================== QUERY BUILDER =====================
 
 @router.get("/query-builder/tables")
-async def get_database_tables(
+def get_database_tables(
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
     """Recupere la liste des tables et vues de la base de donnees DWH"""
@@ -738,7 +738,7 @@ async def get_database_tables(
 
 
 @router.get("/query-builder/tables/{table_name}/columns")
-async def get_table_columns(
+def get_table_columns(
     table_name: str,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -764,7 +764,7 @@ async def get_table_columns(
 
 
 @router.get("/query-builder/tables/{table_name}/relations")
-async def get_table_relations(
+def get_table_relations(
     table_name: str,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -803,7 +803,7 @@ class QueryBuilderRequest(BaseModel):
 
 
 @router.post("/query-builder/build")
-async def build_query(request: QueryBuilderRequest):
+def build_query(request: QueryBuilderRequest):
     """Construit une requete SQL a partir de la configuration"""
     try:
         # SELECT
@@ -899,7 +899,7 @@ async def build_query(request: QueryBuilderRequest):
 
 
 @router.post("/query-builder/preview")
-async def preview_query(data: Dict[str, Any]):
+def preview_query(data: Dict[str, Any]):
     """Execute une requete et retourne un apercu"""
     try:
         query = data.get('query', '')
@@ -929,7 +929,7 @@ async def preview_query(data: Dict[str, Any]):
 # ===================== PARAMETER RESOLVER CONFIG =====================
 
 @router.get("/parameters/config")
-async def get_parameter_config():
+def get_parameter_config():
     """Retourne la configuration des paramètres (macros, types, sources disponibles)"""
     from ..services.parameter_resolver import (
         AVAILABLE_MACROS, AVAILABLE_GLOBAL_KEYS, PARAMETER_TYPES, PARAMETER_SOURCES
@@ -945,7 +945,7 @@ async def get_parameter_config():
 
 
 @router.post("/parameters/extract")
-async def extract_params_from_query(data: Dict[str, str]):
+def extract_params_from_query(data: Dict[str, str]):
     """Extrait les paramètres d'une requête SQL brute"""
     from ..services.parameter_resolver import extract_parameters_from_query
 

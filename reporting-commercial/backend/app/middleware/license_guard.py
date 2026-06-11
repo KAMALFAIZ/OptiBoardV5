@@ -33,8 +33,9 @@ def get_effective_row_limit() -> int:
         from ..config import get_settings
         settings = get_settings()
 
-        # En mode DEBUG, pas de restriction
-        if settings.DEBUG:
+        # Contournement DEV explicite uniquement (plus de bypass DEBUG en prod)
+        from ..services.license_service import is_license_dev_bypass
+        if is_license_dev_bypass():
             return getattr(settings, "AI_SQL_MAX_ROWS", 500) or 500
 
         from ..services.license_service import get_cached_license_status
@@ -65,7 +66,8 @@ def is_feature_licensed(feature: str) -> bool:
         from ..config import get_settings
         settings = get_settings()
 
-        if settings.DEBUG:
+        from ..services.license_service import is_license_dev_bypass
+        if is_license_dev_bypass():
             return True
 
         from ..services.license_service import get_cached_license_status, check_feature_access

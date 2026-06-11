@@ -235,6 +235,16 @@ def _ensure_etl_improvement_tables():
             resolved BIT NOT NULL DEFAULT 0
         )""",
         "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_etl_failed_agent') CREATE INDEX IX_etl_failed_agent ON APP_ETL_Failed_Rows (agent_id, resolved, created_at DESC)",
+        # Journal d'idempotence des batchs d'ingestion (header X-Request-Id sur push-data)
+        """IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='APP_ETL_IngestLog')
+        CREATE TABLE APP_ETL_IngestLog (
+            request_id NVARCHAR(64) NOT NULL PRIMARY KEY,
+            agent_id NVARCHAR(64) NULL,
+            table_name NVARCHAR(255) NULL,
+            row_count INT NULL,
+            status NVARCHAR(20) NOT NULL DEFAULT 'done',
+            created_at DATETIME NOT NULL DEFAULT GETDATE()
+        )""",
     ]
     try:
         with get_db_cursor() as cursor:
@@ -244,7 +254,7 @@ def _ensure_etl_improvement_tables():
                     cursor.commit()
                 except Exception:
                     pass
-        logger.info("Tables ETL ameliorees verifiees (APP_ETL_Agent_Errors, APP_ETL_Failed_Rows)")
+        logger.info("Tables ETL ameliorees verifiees (APP_ETL_Agent_Errors, APP_ETL_Failed_Rows, APP_ETL_IngestLog)")
     except Exception as e:
         logger.debug(f"Migration tables ameliorees partielle: {e}")
 
@@ -285,6 +295,49 @@ def _log_failed_rows(agent_id: str, dwh_code: str, table_name: str,
         )
     except Exception:
         pass
+
+
+def _is_pk_violation(exc: Exception) -> bool:
+    """Detecte une violation de cle primaire / index unique SQL Server (erreurs 2627 / 2601)."""
+    try:
+        import pyodbc
+        if isinstance(exc, pyodbc.IntegrityError):
+            return True
+    except ImportError:
+        pass
+    msg = str(exc).upper()
+    return '2627' in msg or '2601' in msg or 'PRIMARY KEY' in msg or 'DUPLICATE KEY' in msg
+
+
+def _ingest_log_try_insert(request_id: str, agent_id: str, table_name: str, row_count: int) -> str:
+    """
+    Journal d'idempotence (APP_ETL_IngestLog, base centrale).
+    Enregistre un request_id AVANT le traitement d'un batch d'ingestion.
+    Retourne:
+      - 'logged'      : premiere fois, le batch doit etre traite
+      - 'duplicate'   : request_id deja vu, le batch ne doit PAS etre retraite
+      - 'unavailable' : journal indisponible (table absente, erreur SQL) -> traiter sans garde
+    """
+    try:
+        write_central(
+            """INSERT INTO APP_ETL_IngestLog (request_id, agent_id, table_name, row_count, status)
+               VALUES (?, ?, ?, ?, 'done')""",
+            (request_id, (agent_id or "")[:64], (table_name or "")[:255], row_count)
+        )
+        return 'logged'
+    except Exception as e:
+        if _is_pk_violation(e):
+            return 'duplicate'
+        logger.warning(f"[idempotence] Journal APP_ETL_IngestLog indisponible ({e}) - batch traite sans garde")
+        return 'unavailable'
+
+
+def _ingest_log_delete(request_id: str):
+    """Supprime une entree du journal d'idempotence (autorise un retry apres echec de traitement)."""
+    try:
+        write_central("DELETE FROM APP_ETL_IngestLog WHERE request_id = ?", (request_id,))
+    except Exception as e:
+        logger.warning(f"[idempotence] Echec suppression journal pour {request_id}: {e}")
 
 
 _UTF8_CORRUPTION_MAP = {
@@ -506,7 +559,7 @@ async def get_agent_auth(
 # ============================================================
 
 @router.get("/admin/etl/agents")
-async def list_agents(
+def list_agents(
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     status: Optional[str] = Query(None, description="Filtrer par statut"),
     dwh_code: Optional[str] = Query(None, description="Filtrer par DWH (vue centrale uniquement)"),
@@ -762,7 +815,7 @@ def _map_statut(statut: Optional[str], is_active) -> str:
 
 
 @router.post("/admin/etl/agents")
-async def create_agent(
+def create_agent(
     agent: AgentCreate,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -949,7 +1002,7 @@ async def create_agent(
 
 
 @router.get("/admin/etl/agents/{agent_id}")
-async def get_agent(
+def get_agent(
     agent_id: str,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -1021,7 +1074,7 @@ async def get_agent(
 
 
 @router.put("/admin/etl/agents/{agent_id}")
-async def update_agent(
+def update_agent(
     agent_id: str,
     updates: AgentUpdate,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
@@ -1130,7 +1183,7 @@ async def update_agent(
 
 
 @router.post("/admin/etl/agents/{agent_id}/sync-published-tables")
-async def sync_published_tables(
+def sync_published_tables(
     agent_id: str,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -1220,7 +1273,7 @@ async def sync_published_tables(
 
 
 @router.post("/admin/etl/migrate-commands-table")
-async def migrate_commands_table():
+def migrate_commands_table():
     """Cree APP_ETL_Agent_Commands dans toutes les bases clients actives (migration one-shot)."""
     CREATE_SQL = """
     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_ETL_Agent_Commands' AND xtype='U')
@@ -1259,7 +1312,7 @@ async def migrate_commands_table():
 
 
 @router.delete("/admin/etl/agents/{agent_id}")
-async def delete_agent(
+def delete_agent(
     agent_id: str,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -1305,7 +1358,7 @@ async def delete_agent(
 
 
 @router.post("/admin/etl/agents/{agent_id}/clear-error")
-async def clear_agent_error(agent_id: str):
+def clear_agent_error(agent_id: str):
     """Efface la derniere erreur d'un agent"""
     try:
         with get_db_cursor() as cursor:
@@ -1327,7 +1380,7 @@ async def clear_agent_error(agent_id: str):
 
 
 @router.post("/admin/etl/agents/{agent_id}/regenerate-key")
-async def regenerate_api_key(agent_id: str):
+def regenerate_api_key(agent_id: str):
     """Regenere la cle API d'un agent"""
     try:
         api_key = generate_api_key()
@@ -1361,7 +1414,7 @@ async def regenerate_api_key(agent_id: str):
 # ============================================================
 
 @router.get("/admin/etl/agents/{agent_id}/tables")
-async def list_agent_tables(agent_id: str):
+def list_agent_tables(agent_id: str):
     """Liste les tables configurees pour un agent"""
     try:
         tables = execute_query(
@@ -1387,7 +1440,7 @@ async def list_agent_tables(agent_id: str):
 
 
 @router.post("/admin/etl/agents/{agent_id}/tables")
-async def add_agent_table(agent_id: str, table: TableConfigCreate):
+def add_agent_table(agent_id: str, table: TableConfigCreate):
     """
     Ajoute une table propre a un agent (is_inherited=0).
     Ces tables ne sont jamais affectees par les syncs depuis le maitre.
@@ -1422,7 +1475,7 @@ async def add_agent_table(agent_id: str, table: TableConfigCreate):
 
 
 @router.put("/admin/etl/agents/{agent_id}/tables/{table_id}")
-async def update_agent_table(agent_id: str, table_id: int, updates: TableConfigUpdate):
+def update_agent_table(agent_id: str, table_id: int, updates: TableConfigUpdate):
     """Met a jour une table"""
     try:
         set_clauses = ["updated_at = GETDATE()"]
@@ -1472,7 +1525,7 @@ async def update_agent_table(agent_id: str, table_id: int, updates: TableConfigU
 
 
 @router.delete("/admin/etl/agents/{agent_id}/tables/{table_id}")
-async def delete_agent_table(agent_id: str, table_id: int):
+def delete_agent_table(agent_id: str, table_id: int):
     """Supprime une table"""
     try:
         with get_db_cursor() as cursor:
@@ -1490,7 +1543,7 @@ async def delete_agent_table(agent_id: str, table_id: int):
 
 
 @router.patch("/admin/etl/agents/{agent_id}/tables/{table_name}/toggle")
-async def toggle_agent_table(agent_id: str, table_name: str):
+def toggle_agent_table(agent_id: str, table_name: str):
     """Active/Desactive une table pour un agent specifique (pas global)"""
     try:
         with get_db_cursor() as cursor:
@@ -1525,7 +1578,7 @@ async def toggle_agent_table(agent_id: str, table_name: str):
 
 
 @router.delete("/admin/etl/agents/{agent_id}/tables")
-async def delete_all_agent_tables(agent_id: str):
+def delete_all_agent_tables(agent_id: str):
     """Supprime toutes les tables d'un agent"""
     try:
         with get_db_cursor() as cursor:
@@ -1548,7 +1601,7 @@ async def delete_all_agent_tables(agent_id: str):
 
 
 @router.post("/admin/etl/agents/{agent_id}/sync-tables")
-async def sync_agent_tables_with_config(agent_id: str):
+def sync_agent_tables_with_config(agent_id: str):
     """
     Synchronise INTELLIGEMMENT les tables de l'agent avec le catalogue maitre ETL_Tables_Config.
 
@@ -1691,7 +1744,7 @@ async def sync_agent_tables_with_config(agent_id: str):
 
 
 @router.get("/admin/etl/agents/{agent_id}/tables-status")
-async def get_agent_tables_status(agent_id: str):
+def get_agent_tables_status(agent_id: str):
     """
     Retourne le statut d'heritage de chaque table pour cet agent.
     Compare le catalogue maitre (ETL_Tables_Config) avec les tables de l'agent.
@@ -1778,7 +1831,7 @@ async def get_agent_tables_status(agent_id: str):
 
 
 @router.post("/admin/etl/agents/{agent_id}/tables/{table_id}/mark-customized")
-async def mark_table_as_customized(agent_id: str, table_id: int):
+def mark_table_as_customized(agent_id: str, table_id: int):
     """
     Marque une table heritee comme personnalisee (is_customized=1).
     Elle sera ignoree lors des prochains syncs depuis le maitre.
@@ -1809,7 +1862,7 @@ async def mark_table_as_customized(agent_id: str, table_id: int):
 
 
 @router.post("/admin/etl/agents/{agent_id}/tables/{table_id}/reset-to-master")
-async def reset_table_to_master(agent_id: str, table_id: int):
+def reset_table_to_master(agent_id: str, table_id: int):
     """
     Reinitialise une table personnalisee vers les valeurs du maitre.
     Remet is_customized=0 → elle sera a nouveau mise a jour lors des syncs.
@@ -1872,7 +1925,7 @@ async def reset_table_to_master(agent_id: str, table_id: int):
 
 
 @router.post("/admin/etl/agents/{agent_id}/deploy-master-table")
-async def deploy_master_table_to_agent(agent_id: str, table_name: str = Body(..., embed=True)):
+def deploy_master_table_to_agent(agent_id: str, table_name: str = Body(..., embed=True)):
     """
     Deploie une table du catalogue maitre vers cet agent (is_inherited=1).
     Utilise quand la table est presente dans le maitre mais pas encore deployee.
@@ -1925,7 +1978,7 @@ async def deploy_master_table_to_agent(agent_id: str, table_name: str = Body(...
 
 
 @router.post("/admin/etl/agents/{agent_id}/import-tables")
-async def import_tables_from_yaml(agent_id: str, societe_code: str = Query(...)):
+def import_tables_from_yaml(agent_id: str, societe_code: str = Query(...)):
     """Importe les tables depuis la configuration YAML"""
     try:
         from etl.config.table_config import get_enabled_tables
@@ -1976,7 +2029,7 @@ async def import_tables_from_yaml(agent_id: str, societe_code: str = Query(...))
 # ============================================================
 
 @router.get("/admin/etl/agents/{agent_id}/commands")
-async def list_agent_commands(
+def list_agent_commands(
     agent_id: str,
     status: Optional[str] = Query(None),
     limit: int = Query(50)
@@ -2018,7 +2071,7 @@ async def list_agent_commands(
 
 
 @router.post("/admin/etl/agents/{agent_id}/commands")
-async def create_command(agent_id: str, command: CommandCreate):
+def create_command(agent_id: str, command: CommandCreate):
     """Cree une commande pour un agent (ecrit dans la base client de l'agent)"""
     try:
         # Trouver le dwh_code de l'agent via la table de monitoring centrale
@@ -2067,7 +2120,7 @@ async def create_command(agent_id: str, command: CommandCreate):
 # ============================================================
 
 @router.get("/admin/etl/agents/{agent_id}/logs")
-async def list_agent_logs(
+def list_agent_logs(
     agent_id: str,
     table_name: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -2114,7 +2167,7 @@ async def list_agent_logs(
 
 
 @router.get("/admin/etl/agents/{agent_id}/heartbeats")
-async def list_agent_heartbeats(
+def list_agent_heartbeats(
     agent_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500)
@@ -2147,7 +2200,7 @@ async def list_agent_heartbeats(
 
 
 @router.get("/admin/etl/stats")
-async def get_etl_stats():
+def get_etl_stats():
     """Statistiques globales ETL"""
     try:
         # Agents
@@ -2194,7 +2247,7 @@ async def get_etl_stats():
 
 
 @router.get("/admin/etl/sync-dashboard")
-async def get_sync_dashboard():
+def get_sync_dashboard():
     """Dashboard de monitoring sync - stats pour tous les DWH"""
     try:
         # 1. Liste des DWH actifs
@@ -2398,7 +2451,7 @@ async def agent_register(
 
 
 @router.post("/agents/{agent_id}/heartbeat")
-async def agent_heartbeat(
+def agent_heartbeat(
     agent_id: str,
     hb: HeartbeatRequest,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -2544,7 +2597,7 @@ async def agent_heartbeat(
 
 
 @router.get("/agents/{agent_id}/tables")
-async def agent_get_tables(
+def agent_get_tables(
     agent_id: str,
     response: Response,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -2713,7 +2766,7 @@ async def agent_get_tables(
 
 
 @router.post("/admin/etl/reload-config")
-async def reload_etl_config():
+def reload_etl_config():
     """Recharge la configuration YAML (invalide le cache)"""
     try:
         from etl.config.table_config import invalidate_cache, get_tables
@@ -2739,9 +2792,12 @@ async def agent_push_data(
     agent_id: str,
     push: PushDataRequest,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_request_id: Optional[str] = Header(None, alias="X-Request-Id")
 ):
-    """Reception des donnees synchronisees. Authentifie via X-API-Key."""
+    """Reception des donnees synchronisees. Authentifie via X-API-Key.
+    Idempotence opt-in via header X-Request-Id : un batch rejoue avec le meme
+    request_id repond succes + duplicate:true sans retraiter les donnees."""
     if x_api_key and x_dwh_code:
         if not verify_agent(agent_id, x_api_key, x_dwh_code):
             raise HTTPException(status_code=401, detail="Agent non autorise")
@@ -2757,8 +2813,37 @@ async def agent_push_data(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # ── Mode Démo : stocker dans tables préfixées DEMO_{hash}_ ───────────────
     demo = _get_demo_session(agent_id)
+
+    # ── Idempotence opt-in (header X-Request-Id) ─────────────────────────────
+    # Header absent  -> comportement historique inchange (agents deja deployes).
+    # Header present -> le request_id est journalise AVANT traitement ; un rejeu
+    # du meme batch repond le format de succes habituel + duplicate:true sans
+    # retraiter les donnees. Si le traitement echoue, l'entree est supprimee
+    # pour autoriser un retry futur.
+    ingest_request_id = (x_request_id or "").strip()[:64] or None
+    if ingest_request_id:
+        ingest_log_state = _ingest_log_try_insert(
+            ingest_request_id, agent_id, push.target_table, push.rows_count
+        )
+        if ingest_log_state == 'duplicate':
+            logger.info(
+                f"[idempotence] Batch deja traite (request_id={ingest_request_id}, "
+                f"agent={agent_id}, table={push.target_table}) - rejeu ignore"
+            )
+            if demo:
+                return {"success": True, "inserted": 0, "updated": 0, "demo": True, "duplicate": True}
+            return {
+                "success": True,
+                "rows_inserted": 0,
+                "rows_updated": 0,
+                "duration_seconds": 0.0,
+                "duplicate": True
+            }
+        if ingest_log_state != 'logged':
+            ingest_request_id = None  # journal indisponible -> aucun cleanup a faire
+
+    # ── Mode Démo : stocker dans tables préfixées DEMO_{hash}_ ───────────────
     if demo:
         prefix = _demo_table_prefix(agent_id)
         table_name = f"{prefix}{push.target_table}"
@@ -2814,6 +2899,9 @@ async def agent_push_data(
             logger.info(f"[DEMO] Push {push.target_table} → {table_name}: {push.rows_count} lignes")
         except Exception as e:
             logger.error(f"[DEMO] Erreur push-data {push.target_table}: {e}")
+            # Echec apres journalisation -> liberer le request_id pour un retry futur
+            if ingest_request_id:
+                _ingest_log_delete(ingest_request_id)
             raise HTTPException(status_code=500, detail=f"Erreur stockage démo: {e}")
 
         return {"success": True, "inserted": inserted, "updated": updated, "demo": True}
@@ -2935,8 +3023,13 @@ async def agent_push_data(
             raise
 
     except HTTPException:
+        # Echec apres journalisation idempotence -> liberer le request_id pour un retry futur
+        if ingest_request_id:
+            _ingest_log_delete(ingest_request_id)
         raise
     except Exception as e:
+        if ingest_request_id:
+            _ingest_log_delete(ingest_request_id)
         _raise_internal_error(e, "push data")
 
 
@@ -3188,7 +3281,7 @@ async def _load_data_to_dwh(
 
 
 @router.get("/agents/{agent_id}/commands")
-async def agent_get_commands(
+def agent_get_commands(
     agent_id: str,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
@@ -3225,7 +3318,7 @@ async def agent_get_commands(
 
 
 @router.post("/agents/{agent_id}/commands/{command_id}/ack")
-async def agent_ack_command(
+def agent_ack_command(
     agent_id: str,
     command_id: int,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -3296,7 +3389,7 @@ async def agent_complete_command(
 # ============================================================
 
 @router.get("/admin/etl/tables/available")
-async def list_available_etl_tables():
+def list_available_etl_tables():
     """Liste les tables ETL disponibles (configuration globale)
 
     IMPORTANT: Cette route utilise la meme source que les routes de modification/suppression
@@ -3334,7 +3427,7 @@ async def list_available_etl_tables():
 
 
 @router.post("/admin/etl/tables/import-yaml")
-async def import_yaml_to_sql_tables():
+def import_yaml_to_sql_tables():
     """
     Importe les tables du fichier YAML vers la table SQL ETL_Tables_Config.
     Permet de migrer d'une configuration YAML vers SQL pour beneficier
@@ -3360,7 +3453,7 @@ async def import_yaml_to_sql_tables():
 
 
 @router.get("/admin/etl/agents/{agent_id}/sync-status")
-async def get_agent_sync_status(agent_id: str):
+def get_agent_sync_status(agent_id: str):
     """Recupere le statut de sync de toutes les tables pour un agent"""
     try:
         # Recuperer le statut des syncs par table depuis les logs
@@ -3417,7 +3510,7 @@ async def get_agent_sync_status(agent_id: str):
 # ============================================================
 
 @router.get("/admin/dwh")
-async def list_dwh():
+def list_dwh():
     """Liste les DWH disponibles"""
     try:
         dwh_list = execute_query(
@@ -3450,7 +3543,7 @@ async def dwh_admin_list_client_databases_early():
 
 
 @router.get("/dwh-admin/{code}")
-async def dwh_admin_get(code: str):
+def dwh_admin_get(code: str):
     """Recupere les details d'un DWH"""
     try:
         dwh = execute_query(
@@ -3478,7 +3571,7 @@ async def dwh_admin_get(code: str):
 
 
 @router.post("/dwh-admin")
-async def dwh_admin_create(dwh: Dict[str, Any] = Body(...)):
+def dwh_admin_create(dwh: Dict[str, Any] = Body(...)):
     """Cree un nouveau DWH. Si la base de donnees n'existe pas, la cree automatiquement avec les 35 tables."""
     try:
         serveur = dwh.get('serveur_dwh')
@@ -3548,7 +3641,7 @@ async def dwh_admin_create(dwh: Dict[str, Any] = Body(...)):
 
 
 @router.put("/dwh-admin/{code}")
-async def dwh_admin_update(code: str, dwh: Dict[str, Any] = Body(...)):
+def dwh_admin_update(code: str, dwh: Dict[str, Any] = Body(...)):
     """Met a jour un DWH"""
     try:
         with get_db_cursor() as cursor:
@@ -3581,7 +3674,7 @@ async def dwh_admin_update(code: str, dwh: Dict[str, Any] = Body(...)):
 
 
 @router.get("/dwh-admin/{code}/optiboard-sql-script")
-async def dwh_admin_optiboard_sql_script(code: str):
+def dwh_admin_optiboard_sql_script(code: str):
     """
     Retourne un script SQL complet pret a executer en SSMS sur le serveur local.
     Cree la base OptiBoard_cltXXX et toutes ses tables.
@@ -3649,7 +3742,7 @@ GO
 
 
 @router.post("/dwh-admin/{code}/init-optiboard")
-async def dwh_admin_init_optiboard(code: str):
+def dwh_admin_init_optiboard(code: str):
     """
     Cree (ou reInitialise) la base OptiBoard_cltXXX en utilisant
     les infos de connexion OptiBoard stockees dans APP_DWH.
@@ -3724,7 +3817,7 @@ def _drop_database_if_exists(serveur: str, db_name: str, user: str, password: st
 
 
 @router.delete("/dwh-admin/{code}")
-async def dwh_admin_delete(code: str, force: bool = Query(False), drop_databases: bool = Query(False)):
+def dwh_admin_delete(code: str, force: bool = Query(False), drop_databases: bool = Query(False)):
     """
     Supprime un DWH du registre + DROP automatique de DWH_XXX et OptiBoard_cltXXX.
     """
@@ -4545,7 +4638,7 @@ def _migrate_data_to_client(dwh_code: str, client_conn):
 
 
 @router.post("/dwh-admin/init-database")
-async def dwh_admin_init_database(request: Dict[str, Any] = Body(...)):
+def dwh_admin_init_database(request: Dict[str, Any] = Body(...)):
     """Cree la base DWH et initialise les 35 tables si la base n'existe pas"""
     try:
         serveur = request.get('serveur')
@@ -4659,7 +4752,7 @@ async def dwh_admin_migrate_all_clients():
 
 
 @router.post("/dwh-admin/test-connection")
-async def dwh_admin_test_connection_direct(request: Dict[str, Any] = Body(...)):
+def dwh_admin_test_connection_direct(request: Dict[str, Any] = Body(...)):
     """Teste une connexion DWH avec les parametres fournis (sans code DWH pre-existant).
     Si la base n'existe pas, retourne db_exists=false avec un message informatif."""
     try:
@@ -4708,7 +4801,7 @@ async def dwh_admin_test_connection_direct(request: Dict[str, Any] = Body(...)):
 
 
 @router.post("/dwh-admin/{code}/test")
-async def dwh_admin_test_connection(code: str):
+def dwh_admin_test_connection(code: str):
     """Teste la connexion a un DWH"""
     try:
         conn = dwh_manager.get_dwh_connection(code)
@@ -5221,7 +5314,7 @@ async def dwh_admin_create_single_client_db(code: str):
 
 
 @router.post("/agents/{agent_id}/sync-result")
-async def agent_sync_result(agent_id: str, result: SyncResultRequest):
+def agent_sync_result(agent_id: str, result: SyncResultRequest):
     """Rapporte le resultat d'une synchronisation"""
     try:
         with get_db_cursor() as cursor:
@@ -5274,7 +5367,7 @@ async def agent_sync_result(agent_id: str, result: SyncResultRequest):
 # ============================================================
 
 @router.get("/etl/config/tables")
-async def list_etl_tables():
+def list_etl_tables():
     """Liste toutes les tables ETL configurees (stockage SQL)"""
     try:
         from etl.config.table_config import get_tables
@@ -5315,7 +5408,7 @@ async def create_etl_table(request: Request):
 
 
 @router.get("/etl/config/tables/{table_name}")
-async def get_etl_table(table_name: str):
+def get_etl_table(table_name: str):
     """Recupere une table ETL par son nom"""
     try:
         from etl.config.table_config import get_table_by_name
@@ -5356,7 +5449,7 @@ async def update_etl_table(table_name: str, request: Request):
 
 
 @router.delete("/etl/config/tables/{table_name}")
-async def delete_etl_table(table_name: str):
+def delete_etl_table(table_name: str):
     """Supprime une table ETL"""
     try:
         from etl.config.table_config import delete_table
@@ -5379,7 +5472,7 @@ async def delete_etl_table(table_name: str):
 
 
 @router.delete("/etl/config/tables")
-async def delete_all_etl_tables():
+def delete_all_etl_tables():
     """Supprime toutes les tables ETL (SQL et YAML)"""
     try:
         from etl.config.table_config import invalidate_cache, clear_yaml_tables, get_tables
@@ -5443,23 +5536,32 @@ async def delete_all_etl_tables():
 
 
 @router.post("/etl/config/import-from-optiboard")
-async def import_etl_tables_from_optiboard():
+def import_etl_tables_from_optiboard():
     """
     Importe les tables ETL depuis la table SyncQuery de OptiBoard.
-    Connexion: localhost, sa, SQL@2019, OptiBoard
+    Connexion lue depuis les settings / l'environnement (jamais en dur).
     """
     import pyodbc
+    import os as _os
 
     try:
         from etl.config.table_config import add_table, invalidate_cache
+        from app.config import get_settings as _gs
+        _s = _gs()
 
-        # Connexion a OptiBoard
+        # Connexion a OptiBoard — credentials depuis settings/env, pas en dur
+        _srv = _os.environ.get("OPTIBOARD_IMPORT_SERVER") or _s.DB_SERVER or "localhost"
+        _usr = _os.environ.get("OPTIBOARD_IMPORT_USER") or _s.DB_USER or "sa"
+        _pwd = _os.environ.get("OPTIBOARD_IMPORT_PASSWORD") or _s.DB_PASSWORD
+        _drv = _s.DB_DRIVER or "{ODBC Driver 17 for SQL Server}"
+        if not _pwd:
+            raise HTTPException(status_code=400, detail="Mot de passe SQL non configuré (DB_PASSWORD)")
         conn_str = (
-            "DRIVER={ODBC Driver 17 for SQL Server};"
-            "SERVER=localhost;"
+            f"DRIVER={_drv};"
+            f"SERVER={_srv};"
             "DATABASE=OptiBoard;"
-            "UID=sa;"
-            "PWD=SQL@2019;"
+            f"UID={_usr};"
+            f"PWD={_pwd};"
             "TrustServerCertificate=yes;"
         )
 
@@ -5534,7 +5636,7 @@ async def import_etl_tables_from_optiboard():
 
 
 @router.patch("/etl/config/tables/{table_name}/toggle")
-async def toggle_etl_table(table_name: str):
+def toggle_etl_table(table_name: str):
     """Active/Desactive une table ETL (config globale)"""
     try:
         from etl.config.table_config import toggle_table
@@ -5558,7 +5660,7 @@ async def toggle_etl_table(table_name: str):
 
 
 @router.get("/etl/config/global")
-async def get_etl_global_config():
+def get_etl_global_config():
     """Recupere la configuration globale ETL"""
     try:
         from etl.config.table_config import get_global_config
@@ -5583,7 +5685,7 @@ async def update_etl_global_config(request: Request):
 
 
 @router.post("/etl/config/migrate")
-async def migrate_etl_config():
+def migrate_etl_config():
     """Migre la configuration ETL du fichier YAML vers SQL"""
     try:
         from etl.config.table_config import migrate_from_yaml
@@ -5611,7 +5713,7 @@ async def migrate_etl_config():
 # ============================================================
 
 @router.get("/admin/etl/agents/download/package")
-async def download_agent_package():
+def download_agent_package():
     """Telecharge le package d'installation de l'agent ETL"""
     import zipfile
     import io
@@ -5942,7 +6044,7 @@ async def _detect_and_delete_orphans(
 
 
 @router.get("/admin/etl/agents/{agent_id}/config-file")
-async def get_agent_config_file(agent_id: str):
+def get_agent_config_file(agent_id: str):
     """Genere le fichier de configuration .env pour un agent specifique"""
     try:
         # Recuperer les infos de l'agent
@@ -6029,7 +6131,7 @@ class BulkInsertTestResult(BaseModel):
 
 
 @router.post("/etl/test/bulk-insert")
-async def test_bulk_insert_performance(req: BulkInsertTestRequest):
+def test_bulk_insert_performance(req: BulkInsertTestRequest):
     """
     Test de performance comparant differentes methodes d'insertion:
     1. fast_executemany (methode actuelle)
@@ -6285,7 +6387,7 @@ async def test_bulk_insert_performance(req: BulkInsertTestRequest):
 
 
 @router.get("/admin/etl/alerts")
-async def get_etl_alerts(
+def get_etl_alerts(
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     threshold_minutes: int = Query(5, ge=1, le=60)
 ):
@@ -6365,7 +6467,7 @@ async def get_etl_alerts(
 
 
 @router.get("/admin/etl/agents/{agent_id}/errors")
-async def get_agent_errors(
+def get_agent_errors(
     agent_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200)
@@ -6399,7 +6501,7 @@ async def get_agent_errors(
 
 
 @router.get("/admin/etl/failed-rows")
-async def list_failed_rows(
+def list_failed_rows(
     agent_id: Optional[str] = Query(None),
     table_name: Optional[str] = Query(None),
     resolved: Optional[bool] = Query(None),
@@ -6446,7 +6548,7 @@ async def list_failed_rows(
 
 
 @router.post("/admin/etl/failed-rows/{row_id}/resolve")
-async def resolve_failed_row(row_id: int):
+def resolve_failed_row(row_id: int):
     """Marque une ligne echouee comme resolue."""
     try:
         write_central(

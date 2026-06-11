@@ -1,5 +1,5 @@
 """Routes pour la configuration initiale de l'application - Multi-Tenant"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import pyodbc
@@ -10,6 +10,43 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
+
+
+def _guard_reconfiguration(request: Optional[Request]) -> None:
+    """Verrou anti-reconfiguration hostile.
+
+    Première installation (app non configurée) → accès libre (le wizard tourne
+    sans session). Mais dès que l'instance est configurée, toute réécriture de
+    la config (qui écrase backend/.env : serveur SQL, mot de passe, admin) est
+    réservée à un administrateur authentifié. Ferme la prise de contrôle d'une
+    instance en production par un simple appel réseau non authentifié.
+    """
+    from ..config import reload_settings
+    if not reload_settings().is_configured:
+        return  # installation initiale : le wizard doit pouvoir écrire la config
+    if request is None:
+        # Appel interne (déjà passé le garde en amont) — ne pas re-bloquer.
+        return
+    from ..security import (
+        _authenticated_identity, _resolve_role,
+        _CENTRAL_ADMIN_ROLES, _CLIENT_ADMIN_ROLES,
+    )
+    uid, dwh = _authenticated_identity(request)
+    if not uid:
+        raise HTTPException(
+            status_code=403,
+            detail="Application déjà configurée — authentification administrateur requise pour reconfigurer.",
+        )
+    realm, role = _resolve_role(uid, dwh)
+    ok = (
+        (realm == "central" and role in _CENTRAL_ADMIN_ROLES)
+        or (realm == "client" and role in _CLIENT_ADMIN_ROLES)
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail="Reconfiguration réservée à un administrateur.",
+        )
 
 # Chemin vers les scripts SQL
 SQL_SCRIPTS_PATH = Path(__file__).parent.parent.parent / "sql"
@@ -67,7 +104,7 @@ class TestConnectionRequest(BaseModel):
 
 
 @router.get("/ai-config")
-async def get_ai_config():
+def get_ai_config():
     """Retourne la configuration IA actuelle (cle API masquee)."""
     from ..config import reload_settings
     s = reload_settings()  # Toujours relire le .env
@@ -87,7 +124,7 @@ async def get_ai_config():
 
 
 @router.post("/ai-config")
-async def save_ai_config(config: AIConfigRequest):
+def save_ai_config(config: AIConfigRequest):
     """Sauvegarde la configuration IA dans le .env."""
     from ..config import save_env_config, reload_settings
     config_dict = config.model_dump()
@@ -102,7 +139,7 @@ async def save_ai_config(config: AIConfigRequest):
 
 
 @router.get("/status")
-async def get_setup_status():
+def get_setup_status():
     """
     Verifie si l'application est configuree.
     Retourne le statut de configuration pour rediriger vers le setup si necessaire.
@@ -123,11 +160,15 @@ async def get_setup_status():
 
 
 @router.post("/test-connection")
-async def test_connection(config: TestConnectionRequest):
+async def test_connection(config: TestConnectionRequest, request: Request = None):
     """
     Teste une connexion a la base de donnees sans la sauvegarder.
     Teste d'abord les identifiants (sans base), puis verifie si la base existe.
+
+    Sur une instance déjà configurée, réservé aux administrateurs : empêche un
+    usage en scanner de ports / brute-force de credentials SQL via cette route.
     """
+    _guard_reconfiguration(request)
     try:
         # ETAPE 1: Tester la connexion au serveur SANS specifier de base
         # Cela permet de valider le serveur et les identifiants
@@ -230,7 +271,7 @@ async def test_connection(config: TestConnectionRequest):
 
 
 @router.post("/test-sage-connection")
-async def test_sage_connection(config: TestConnectionRequest):
+def test_sage_connection(config: TestConnectionRequest):
     """
     Teste une connexion a la base Sage source du client.
     Verifie qu'on peut se connecter et que la base existe.
@@ -286,15 +327,20 @@ async def test_sage_connection(config: TestConnectionRequest):
 
 
 @router.post("/configure")
-async def configure_database(config: DatabaseConfig):
+async def configure_database(config: DatabaseConfig, request: Request = None):
     """
     Sauvegarde la configuration de la base de donnees.
     Cree la base si elle n'existe pas.
+
+    Verrou : sur une instance déjà configurée, réservé aux administrateurs
+    (sinon un appel réseau non authentifié pourrait réécrire backend/.env).
     """
     from ..config import save_env_config, reload_settings
 
+    _guard_reconfiguration(request)
+
     try:
-        # D'abord tester la connexion
+        # D'abord tester la connexion (appel interne : garde déjà passé ci-dessus)
         test_result = await test_connection(TestConnectionRequest(
             server=config.server,
             database=config.database,
@@ -395,7 +441,7 @@ async def configure_database(config: DatabaseConfig):
 
 
 @router.get("/app-name")
-async def get_app_name():
+def get_app_name():
     """Recupere le nom de l'application depuis APP_Settings en base"""
     from ..database_unified import execute_central
     try:
@@ -420,7 +466,7 @@ class UpdateAppNameRequest(BaseModel):
 
 
 @router.put("/app-name")
-async def update_app_name_db(req: UpdateAppNameRequest):
+def update_app_name_db(req: UpdateAppNameRequest):
     """Sauvegarde le nom de l'application dans APP_Settings en base (pas .env)"""
     from ..database_unified import central_cursor as get_db_cursor
     new_name = req.app_name or "OptiBoard - Reporting Commercial"
@@ -445,7 +491,7 @@ async def update_app_name_db(req: UpdateAppNameRequest):
 
 
 @router.get("/databases")
-async def list_databases(server: str, username: str, password: str, driver: str = "{ODBC Driver 17 for SQL Server}"):
+def list_databases(server: str, username: str, password: str, driver: str = "{ODBC Driver 17 for SQL Server}"):
     """
     Liste les bases de donnees disponibles sur un serveur.
     Utile pour proposer une liste deroulante a l'utilisateur.
@@ -486,7 +532,7 @@ async def list_databases(server: str, username: str, password: str, driver: str 
 
 
 @router.post("/init-tables")
-async def initialize_tables():
+def initialize_tables():
     """
     Initialise les tables systeme (APP_Users, APP_DWH, etc.)
     A appeler apres la configuration initiale.
@@ -511,7 +557,7 @@ async def initialize_tables():
 
 
 @router.get("/check-tables")
-async def check_system_tables():
+def check_system_tables():
     """
     Verifie si les tables systeme existent.
     """
@@ -1578,7 +1624,7 @@ class CreateAdminRequest(BaseModel):
 
 
 @router.get("/standalone-status")
-async def get_standalone_status():
+def get_standalone_status():
     """
     Retourne le statut du mode standalone et si le wizard est complété.
     Utilisé par le frontend pour rediriger vers /setup au 1er démarrage.
@@ -1610,7 +1656,7 @@ async def get_standalone_status():
 
 
 @router.post("/create-admin")
-async def create_admin(req: CreateAdminRequest):
+def create_admin(req: CreateAdminRequest):
     """
     Crée le premier compte administrateur (standalone uniquement).
     Accessible sans auth — protégé par vérification setup_completed=0.
@@ -1640,12 +1686,8 @@ async def create_admin(req: CreateAdminRequest):
     if not req.password or len(req.password) < 6:
         raise HTTPException(status_code=400, detail="Mot de passe trop court (min 6 caractères)")
 
-    try:
-        from passlib.context import CryptContext
-        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        password_hash = pwd_context.hash(req.password)
-    except ImportError:
-        password_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    from app.services.password_utils import hash_password as _pw_hash
+    password_hash = _pw_hash(req.password)
 
     try:
         existing = execute_central(
@@ -1815,7 +1857,8 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
             # L'auth multi-tenant cherche dans OptiBoard_<CODE>.APP_Users via dwh_code.
             if admin_username and admin_password:
                 admin_username = admin_username.strip().lower()[:50]
-                pwd_hash = hashlib.sha256(admin_password.encode()).hexdigest()
+                from app.services.password_utils import hash_password as _pw_hash
+                pwd_hash = _pw_hash(admin_password)
                 try:
                     with pyodbc.connect(
                         f"DRIVER={driver};SERVER={server};DATABASE={client_db};"

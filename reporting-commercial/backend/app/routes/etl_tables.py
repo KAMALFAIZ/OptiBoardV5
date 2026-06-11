@@ -398,7 +398,7 @@ def _publish_table_to_client(table: Dict, client: Dict) -> Dict:
 # ============================================================
 
 @router.get("/central")
-async def list_central_tables(actif: Optional[bool] = Query(None)):
+def list_central_tables(actif: Optional[bool] = Query(None)):
     """[CENTRAL] Liste toutes les tables ETL configurees."""
     try:
         query = "SELECT * FROM APP_ETL_Tables_Config WHERE 1=1"
@@ -418,7 +418,7 @@ async def list_central_tables(actif: Optional[bool] = Query(None)):
 
 
 @router.post("/central")
-async def create_central_table(table: ETLTableCreate):
+def create_central_table(table: ETLTableCreate):
     """[CENTRAL] Cree une nouvelle table ETL."""
     try:
         with central_cursor() as cursor:
@@ -446,7 +446,7 @@ async def create_central_table(table: ETLTableCreate):
 
 
 @router.put("/central/{code}")
-async def update_central_table(code: str, update: ETLTableUpdate):
+def update_central_table(code: str, update: ETLTableUpdate):
     """[CENTRAL] Modifie une table ETL et incremente la version."""
     try:
         fields = []
@@ -511,7 +511,7 @@ async def update_central_table(code: str, update: ETLTableUpdate):
 
 
 @router.delete("/central/{code}")
-async def delete_central_table(code: str):
+def delete_central_table(code: str):
     """[CENTRAL] Supprime une table ETL."""
     try:
         write_central("DELETE FROM APP_ETL_Tables_Config WHERE code = ?", (code,))
@@ -525,7 +525,7 @@ async def delete_central_table(code: str):
 # ============================================================
 
 @router.post("/central/publish")
-async def publish_tables_to_clients(req: PublishToClientsRequest):
+def publish_tables_to_clients(req: PublishToClientsRequest):
     """
     [CENTRAL] Publie les tables ETL vers toutes les bases clients.
     - codes=None  → toutes les tables actives
@@ -619,7 +619,7 @@ async def publish_tables_to_clients(req: PublishToClientsRequest):
 
 
 @router.get("/central/publish-log")
-async def get_publish_log(dwh_code: Optional[str] = Query(None), limit: int = Query(50)):
+def get_publish_log(dwh_code: Optional[str] = Query(None), limit: int = Query(50)):
     """[CENTRAL] Historique des publications."""
     try:
         query = """SELECT * FROM APP_Publish_Log
@@ -636,7 +636,7 @@ async def get_publish_log(dwh_code: Optional[str] = Query(None), limit: int = Qu
 
 
 @router.post("/central/migrate-encrypt-published")
-async def migrate_encrypt_all_published():
+def migrate_encrypt_all_published():
     """[CENTRAL] Chiffre les source_query encore en clair dans APP_ETL_Tables_Published de tous les clients."""
     try:
         clients = _get_all_active_clients()
@@ -672,7 +672,7 @@ async def migrate_encrypt_all_published():
 # ============================================================
 
 @router.get("/client")
-async def list_client_tables(
+def list_client_tables(
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
     """
@@ -697,7 +697,7 @@ async def list_client_tables(
 
 
 @router.patch("/client/{code}/toggle")
-async def toggle_client_table(
+def toggle_client_table(
     code: str,
     toggle: ETLTableToggle,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
@@ -724,7 +724,7 @@ async def toggle_client_table(
 # ============================================================
 
 @router.get("/client/custom")
-async def list_client_custom_tables(
+def list_client_custom_tables(
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
     """
@@ -752,7 +752,7 @@ async def list_client_custom_tables(
 
 
 @router.post("/client/custom")
-async def create_client_custom_table(
+def create_client_custom_table(
     table: ETLTableCreate,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -783,7 +783,7 @@ async def create_client_custom_table(
 
 
 @router.put("/client/custom/{code}")
-async def update_client_custom_table(
+def update_client_custom_table(
     code: str,
     update: ETLTableUpdate,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
@@ -834,7 +834,7 @@ async def update_client_custom_table(
 
 
 @router.delete("/client/custom/{code}")
-async def delete_client_custom_table(
+def delete_client_custom_table(
     code: str,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -850,7 +850,7 @@ async def delete_client_custom_table(
 
 
 @router.post("/client/custom/publish")
-async def publish_client_custom_tables(
+def publish_client_custom_tables(
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
     """
@@ -979,7 +979,7 @@ async def publish_client_custom_tables(
 # ============================================================
 
 @router.post("/proposals")
-async def submit_proposal(
+def submit_proposal(
     proposal: ETLProposalCreate,
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
@@ -1018,7 +1018,7 @@ async def submit_proposal(
 
 
 @router.get("/proposals/client")
-async def list_client_proposals(
+def list_client_proposals(
     x_dwh_code: str = Header(..., alias="X-DWH-Code")
 ):
     """[CLIENT] Liste ses propres propositions et leur statut."""
@@ -1038,7 +1038,7 @@ async def list_client_proposals(
 
 
 @router.get("/proposals/central")
-async def list_central_proposals(
+def list_central_proposals(
     statut: Optional[str] = Query(None),
     dwh_code: Optional[str] = Query(None)
 ):
@@ -1062,7 +1062,7 @@ async def list_central_proposals(
 
 
 @router.post("/proposals/central/{proposal_id}/validate")
-async def validate_proposal(proposal_id: int, validation: ETLProposalValidate):
+def validate_proposal(proposal_id: int, validation: ETLProposalValidate):
     """
     [CENTRAL] Valide ou rejette une proposition.
     Si validee et publier_si_valide=True, cree la table dans le central

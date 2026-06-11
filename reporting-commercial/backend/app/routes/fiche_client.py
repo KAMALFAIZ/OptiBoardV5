@@ -52,7 +52,7 @@ def _safe_str(v) -> str:
 
 
 @router.get("/liste")
-async def get_liste_clients():
+def get_liste_clients():
     """Retourne la liste de tous les clients agrégés (balance âgée, toutes sociétés confondues).
     Fallback sur le CTE Clients (F_COMPTET) si BalanceAgee retourne 0 résultats."""
     import logging

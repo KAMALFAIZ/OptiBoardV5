@@ -2,8 +2,10 @@
 import logging
 import os
 import sys
+import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -29,6 +31,7 @@ logger = logging.getLogger(__name__)
 from app.config import get_settings
 from app.database_unified import test_central_connection as test_connection, DatabaseNotConfiguredError
 from app.middleware.tenant_context import TenantContextMiddleware
+from app.security import require_admin, require_superadmin   # Gardes d'autorisation par rôle
 from app.routes import (
     dashboard, ventes, ventes_detail, stocks, recouvrement,
     admin_sql, export, users, dashboard_builder, gridview_builder,
@@ -119,9 +122,44 @@ async def database_not_configured_handler(request: Request, exc: DatabaseNotConf
         }
     )
 
+# ── Gestion globale des erreurs ──────────────────────────────────────────────
+# Les details techniques (erreurs SQL, schema, stack traces) ne partent jamais
+# au client : ils sont logges cote serveur avec une reference courte que
+# l'utilisateur peut communiquer au support. Les 4xx (messages volontaires)
+# passent inchanges.
+
+def _is_dev_mode() -> bool:
+    return str(getattr(settings, "APP_ENV", "") or "").lower() == "development"
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_sanitizer(request: Request, exc: StarletteHTTPException):
+    if exc.status_code >= 500:
+        ref = uuid.uuid4().hex[:8]
+        logger.error("[ERR %s] %s %s -> %s: %s", ref, request.method, request.url.path,
+                     exc.status_code, exc.detail)
+        content = {"success": False, "detail": f"Erreur interne du serveur (ref: {ref})", "ref": ref}
+        if _is_dev_mode():
+            content["debug_detail"] = str(exc.detail)
+        return JSONResponse(status_code=exc.status_code, content=content)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=getattr(exc, "headers", None) or None,
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    ref = uuid.uuid4().hex[:8]
+    logger.exception("[ERR %s] Exception non geree %s %s: %s", ref, request.method,
+                     request.url.path, exc)
+    content = {"success": False, "detail": f"Erreur interne du serveur (ref: {ref})", "ref": ref}
+    if _is_dev_mode():
+        content["debug_detail"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
+
 # Include routers
 # ── Nouveaux routers (enregistrés EN PREMIER pour prendre priorité) ──────────
-app.include_router(dwh_admin.router)        # Règles 1/2/3 — DWH clients
+app.include_router(dwh_admin.router, dependencies=[Depends(require_superadmin)])        # Règles 1/2/3 — DWH clients (superadmin)
 app.include_router(auth_multitenant.router) # Auth multi-tenant
 app.include_router(client_portal.router)    # Portail client (admin_client)
 # ── Routers existants ────────────────────────────────────────────────────────
@@ -130,7 +168,7 @@ app.include_router(ventes.router)
 app.include_router(ventes_detail.router)
 app.include_router(stocks.router)
 app.include_router(recouvrement.router)
-app.include_router(admin_sql.router)
+app.include_router(admin_sql.router, dependencies=[Depends(require_superadmin)])  # SQL admin (superadmin)
 app.include_router(export.router)
 app.include_router(users.router)
 app.include_router(dashboard_builder.router)
@@ -143,22 +181,22 @@ app.include_router(liste_ventes.router)
 app.include_router(analyse_ca_creances.router)
 app.include_router(pic_2026.router)
 app.include_router(datasource_templates.router)
-app.include_router(sql_jobs.router)
+app.include_router(sql_jobs.router, dependencies=[Depends(require_superadmin)])  # ETL/SQL jobs (superadmin)
 app.include_router(pivot_v2.router)
 app.include_router(license.router)
 app.include_router(ai_assistant.router)
 app.include_router(ai_learning.router)
 app.include_router(ai_prompts.router)
-app.include_router(master_publish.router)
+app.include_router(master_publish.router, dependencies=[Depends(require_superadmin)])  # Publication catalogue (superadmin)
 app.include_router(etl_tables_router)       # ETL Tables : publication central → clients
-app.include_router(client_users_router)     # Users & UserDWH locaux client
+app.include_router(client_users_router, dependencies=[Depends(require_admin)])     # Users & UserDWH locaux client (admin)
 app.include_router(update_manager_router)   # Module MAJ : check/pull updates depuis central
 app.include_router(roles_router)            # Gestion rôles & permissions
 app.include_router(client_package_router)   # Package installation client autonome
-app.include_router(env_manager_router)      # Gestion .env via UI admin
+app.include_router(env_manager_router, dependencies=[Depends(require_superadmin)])      # Gestion .env via UI admin (superadmin)
 app.include_router(alerts_router)           # Alertes KPI
 app.include_router(subscriptions_router)       # Abonnements rapports
-app.include_router(admin_subscriptions_router) # Admin abonnements + logs livraison
+app.include_router(admin_subscriptions_router, dependencies=[Depends(require_superadmin)]) # Admin abonnements (superadmin)
 app.include_router(drillthrough_router)     # Drill-through inter-rapports
 app.include_router(favorites_router)        # Favoris & Récents utilisateur
 app.include_router(ai_insights_router)      # AI Insights automatiques
@@ -176,7 +214,7 @@ app.include_router(weekly_digest_router)        # Digest IA hebdomadaire (direct
 app.include_router(two_factor_router)          # 2FA TOTP (admins)
 app.include_router(ai_presentation_router)    # Générateur IA de documents (PPTX/Excel)
 app.include_router(ai_deck_router)            # Deck IA interactif (plan + données DWH + narration)
-app.include_router(sage_config_admin_router)   # Admin Sage Direct mappings
+app.include_router(sage_config_admin_router, dependencies=[Depends(require_superadmin)])   # Admin Sage Direct mappings (superadmin)
 app.include_router(spreadsheet_builder_router) # Spreadsheet Builder (FortuneSheet)
 app.include_router(whatsapp_bot_router)        # WhatsApp Business Cloud API (Meta)
 app.include_router(comptabilite_analytique_router)  # Comptabilité Analytique (Phase 4)

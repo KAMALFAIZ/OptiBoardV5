@@ -68,7 +68,7 @@ class DataSourceDrilldownRequest(BaseModel):
 # =============================================================================
 
 @router.get("/templates")
-async def get_templates(
+def get_templates(
     category: Optional[str] = Query(None, description="Filtrer par categorie"),
     search: Optional[str] = Query(None, description="Recherche par code ou nom")
 ):
@@ -113,7 +113,7 @@ async def get_templates(
 
 
 @router.get("/templates/{template_id}")
-async def get_template(template_id: int):
+def get_template(template_id: int):
     """Recupere un template specifique par ID"""
     try:
         templates = execute_query(
@@ -143,7 +143,7 @@ async def get_template(template_id: int):
 
 
 @router.get("/templates/code/{code}")
-async def get_template_by_code(code: str):
+def get_template_by_code(code: str):
     """Recupere un template specifique par code"""
     try:
         templates = execute_query(
@@ -173,7 +173,7 @@ async def get_template_by_code(code: str):
 
 
 @router.post("/templates")
-async def create_template(
+def create_template(
     template: DataSourceTemplateCreate,
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
@@ -232,7 +232,7 @@ async def create_template(
 
 
 @router.put("/templates/{template_id}")
-async def update_template(
+def update_template(
     template_id: int,
     template: DataSourceTemplateUpdate,
     x_user_role: str = Header(None, alias="X-User-Role"),
@@ -305,7 +305,7 @@ async def update_template(
 
 
 @router.delete("/templates/id/{template_id}")
-async def delete_template(
+def delete_template(
     template_id: int,
     x_user_role: str = Header(None, alias="X-User-Role")
 ):
@@ -343,7 +343,7 @@ async def delete_template(
 # =============================================================================
 
 @router.get("/overrides")
-async def get_overrides(
+def get_overrides(
     x_dwh_code: str = Header(None, alias="X-DWH-Code")
 ):
     """Liste les overrides de datasources pour un DWH specifique"""
@@ -365,7 +365,7 @@ async def get_overrides(
 # =============================================================================
 
 @router.get("/unified")
-async def get_unified_datasources(
+def get_unified_datasources(
     category: Optional[str] = Query(None, description="Filtrer par categorie"),
     search: Optional[str] = Query(None, description="Recherche par code ou nom"),
     include_local: bool = Query(True, description="Inclure les sources locales APP_DataSources")
@@ -1312,7 +1312,7 @@ async def get_unified_datasource_fields(
 
 
 @router.get("/dwh-filter-options")
-async def get_dwh_filter_options(
+def get_dwh_filter_options(
     field: str = Query(..., description="Champ à lister: societe, commercial, gamme, zone"),
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -1348,7 +1348,7 @@ async def get_dwh_filter_options(
 
 
 @router.post("/execute/test")
-async def test_query(
+def test_query(
     body: dict,
     x_user_role: str = Header(None, alias="X-User-Role")
 ):

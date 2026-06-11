@@ -42,7 +42,7 @@ def build_params(date_debut: str, date_fin: str, societe: Optional[str], has_soc
 
 
 @router.get("")
-async def get_ventes(
+def get_ventes(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -206,7 +206,7 @@ async def get_ventes(
 
 
 @router.get("/par-gamme")
-async def get_ventes_par_gamme(
+def get_ventes_par_gamme(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -246,7 +246,7 @@ async def get_ventes_par_gamme(
 
 
 @router.get("/par-commercial")
-async def get_ventes_par_commercial(
+def get_ventes_par_commercial(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -282,7 +282,7 @@ async def get_ventes_par_commercial(
 
 
 @router.get("/top-clients")
-async def get_top_clients(
+def get_top_clients(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -321,7 +321,7 @@ async def get_top_clients(
 
 
 @router.get("/top-produits")
-async def get_top_produits(
+def get_top_produits(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),

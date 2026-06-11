@@ -213,6 +213,43 @@ def _load_license_cache() -> Optional[dict]:
         return None
 
 
+def _machine_id_matches(payload: dict, machine_id: str) -> bool:
+    """
+    Vérifie que la licence est autorisée sur cette machine.
+    mid absent ou '*' = licence non liée à une machine (acceptée partout).
+    Sinon, comparaison constant-time avec l'empreinte locale.
+    """
+    mid = (payload.get("mid") or "").strip().lower()
+    if mid in ("", "*"):
+        return True
+    return hmac.compare_digest(mid, (machine_id or "").strip().lower())
+
+
+def is_license_dev_bypass() -> bool:
+    """
+    True uniquement si APP_ENV=development ET LICENSE_DEV_MODE=True.
+    Remplace l'ancien bypass basé sur DEBUG (qui pouvait être activé en prod
+    par un simple DEBUG=True dans le .env, contournant toute la licence).
+    """
+    try:
+        from app.config import get_settings
+        s = get_settings()
+        return (
+            str(getattr(s, "APP_ENV", "") or "").lower() == "development"
+            and bool(getattr(s, "LICENSE_DEV_MODE", False))
+        )
+    except Exception:
+        return False
+
+
+def _grace_max_cumulative(default: int = 30) -> int:
+    try:
+        from app.config import get_settings
+        return int(getattr(get_settings(), "LICENSE_GRACE_MAX_CUMULATIVE", default) or default)
+    except Exception:
+        return default
+
+
 def validate_license_remote(license_key: str, machine_id: str, server_url: str) -> Optional[dict]:
     """
     Valide la licence aupres du serveur de licences distant.
@@ -344,6 +381,13 @@ def validate_license(license_key: str, server_url: str = "", grace_days: int = 7
             # Serveur injoignable — vérification HMAC locale en priorité
             signing_secret = _get_signing_secret()
             if signing_secret and verify_license_signature(license_key, signing_secret):
+                # La signature est authentique : vérifier que la licence est
+                # bien destinée à CETTE machine avant de l'accepter hors-ligne.
+                if not _machine_id_matches(payload, machine_id):
+                    status.status = "invalid"
+                    status.message = "Licence liée à une autre machine"
+                    logger.warning("[LICENSE] machine_id mismatch — validation offline rejetée")
+                    return status
                 # Signature HMAC valide = licence authentique, mode offline permanent
                 status.valid = True
                 status.status = "valid"
@@ -359,64 +403,83 @@ def validate_license(license_key: str, server_url: str = "", grace_days: int = 7
                 })
                 return status
 
-            # Pas de secret HMAC — mode grace local (basé sur le cache)
+            # Pas de secret HMAC — mode grace local (basé sur le cache), PLAFONNÉ.
+            # Le plafond cumulé empêche de reconduire la grace indéfiniment en
+            # restant simplement hors-ligne (faille corrigée).
+            max_cumulative = _grace_max_cumulative(grace_days)
+            now_ts = int(time.time())
             cache = _load_license_cache()
             if cache:
-                cache_age_days = (int(time.time()) - cache.get("timestamp", 0)) / 86400
-                cached_status = cache.get("data", {}).get("status", "")
+                cached_data = cache.get("data", {})
+                cached_status = cached_data.get("status", "")
 
                 if cached_status == "revoked":
                     status.status = "revoked"
                     status.message = "Licence revoquee (cache)"
                     return status
 
-                if cache_age_days <= grace_days:
-                    status.valid = True
-                    status.status = "valid"
-                    status.grace_mode = True
-                    status.grace_days_remaining = int(grace_days - cache_age_days)
-                    # Restaurer depuis le cache
-                    cached_data = cache.get("data", {})
-                    status.is_trial = cached_data.get("is_trial", status.is_trial)
-                    status.features = cached_data.get("features", status.features) or status.features
-                    status.max_users = cached_data.get("max_users", status.max_users) or status.max_users
-                    status.message = f"Mode grace - serveur injoignable ({status.grace_days_remaining}j restants)"
-                    logger.warning(f"[LICENSE] Mode grace: {status.grace_days_remaining} jours restants")
+                # Origine de la grace = première injoignabilité, ou dernier contact
+                # serveur réussi (cache.timestamp). Préservée entre les reconductions.
+                first_grace_ts = cached_data.get("first_grace_timestamp") or cache.get("timestamp", now_ts)
+                cumulative_days = (now_ts - first_grace_ts) / 86400
+
+                if cumulative_days > max_cumulative:
+                    status.valid = False
+                    status.status = "expired"
+                    status.days_remaining = 0
+                    status.grace_mode = False
+                    status.message = (
+                        f"Serveur de licence injoignable depuis plus de {max_cumulative} jours — "
+                        f"licence expirée, reconnexion requise"
+                    )
+                    logger.warning(
+                        f"[LICENSE] Grace cumulée dépassée ({cumulative_days:.0f}j > {max_cumulative}j) — refus"
+                    )
                     return status
-                else:
-                    # Cache expiré mais licence locale encore valide → prolonger la grace
-                    status.valid = True
-                    status.status = "valid"
-                    status.grace_mode = True
-                    status.grace_days_remaining = grace_days
-                    status.message = f"Serveur injoignable - mode grace reconduit ({grace_days}j)"
-                    logger.warning(f"[LICENSE] Cache grace expiré — grace reconduit {grace_days}j")
-                    _save_license_cache({
-                        "status": "valid",
-                        "is_trial": status.is_trial,
-                        "features": status.features,
-                        "max_users": status.max_users,
-                        "timestamp": int(time.time())
-                    })
-                    return status
-            else:
-                # Pas de cache — grace mode initial
+
                 status.valid = True
                 status.status = "valid"
                 status.grace_mode = True
-                status.grace_days_remaining = grace_days
-                status.message = f"Serveur injoignable - mode grace ({grace_days}j)"
-                logger.warning(f"[LICENSE] Serveur injoignable, mode grace {grace_days}j")
+                status.grace_days_remaining = max(0, int(max_cumulative - cumulative_days))
+                status.is_trial = cached_data.get("is_trial", status.is_trial)
+                status.features = cached_data.get("features", status.features) or status.features
+                status.max_users = cached_data.get("max_users", status.max_users) or status.max_users
+                status.message = f"Mode grace - serveur injoignable ({status.grace_days_remaining}j restants)"
+                logger.warning(
+                    f"[LICENSE] Mode grace: {status.grace_days_remaining}j restants "
+                    f"(cumulé {cumulative_days:.0f}/{max_cumulative}j)"
+                )
                 _save_license_cache({
                     "status": "valid",
                     "is_trial": status.is_trial,
                     "features": status.features,
                     "max_users": status.max_users,
-                    "timestamp": int(time.time())
+                    "first_grace_timestamp": first_grace_ts,
+                })
+                return status
+            else:
+                # Pas de cache — grace mode initial (origine = maintenant)
+                status.valid = True
+                status.status = "valid"
+                status.grace_mode = True
+                status.grace_days_remaining = max_cumulative
+                status.message = f"Serveur injoignable - mode grace ({max_cumulative}j)"
+                logger.warning(f"[LICENSE] Serveur injoignable, mode grace {max_cumulative}j")
+                _save_license_cache({
+                    "status": "valid",
+                    "is_trial": status.is_trial,
+                    "features": status.features,
+                    "max_users": status.max_users,
+                    "first_grace_timestamp": now_ts,
                 })
                 return status
 
-    # Mode offline — validation locale uniquement
+    # Mode offline — validation locale uniquement (aucun serveur configuré)
+    if not _machine_id_matches(payload, machine_id):
+        status.status = "invalid"
+        status.message = "Licence liée à une autre machine"
+        logger.warning("[LICENSE] machine_id mismatch — validation locale rejetée")
+        return status
     status.valid = True
     status.status = "valid"
     status.message = "Licence valide (mode offline)"

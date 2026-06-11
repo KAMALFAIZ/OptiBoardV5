@@ -98,7 +98,7 @@ def init_alert_tables():
 # ==================== MÉTA ====================
 
 @router.get("/metrics")
-async def get_supported_metrics():
+def get_supported_metrics():
     """Liste les types de KPIs supportés pour les règles d'alerte."""
     metrics = [
         {"key": k, "label": v["label"], "unit": v["unit"], "higher_is_worse": v["higher_is_worse"]}
@@ -111,7 +111,7 @@ async def get_supported_metrics():
 # ==================== CRUD RÈGLES ====================
 
 @router.get("/rules")
-async def get_rules():
+def get_rules():
     """Retourne toutes les règles d'alerte."""
     try:
         init_alert_tables()
@@ -137,7 +137,7 @@ async def get_rules():
 
 
 @router.get("/rules/{rule_id}")
-async def get_rule(rule_id: int):
+def get_rule(rule_id: int):
     """Retourne une règle par ID."""
     try:
         rows = execute_query(
@@ -154,7 +154,7 @@ async def get_rule(rule_id: int):
 
 
 @router.post("/rules")
-async def create_rule(rule: AlertRuleCreate):
+def create_rule(rule: AlertRuleCreate):
     """Crée une nouvelle règle d'alerte."""
     try:
         init_alert_tables()
@@ -180,7 +180,7 @@ async def create_rule(rule: AlertRuleCreate):
 
 
 @router.put("/rules/{rule_id}")
-async def update_rule(rule_id: int, rule: AlertRuleUpdate):
+def update_rule(rule_id: int, rule: AlertRuleUpdate):
     """Met à jour une règle d'alerte."""
     try:
         updates = []
@@ -218,7 +218,7 @@ async def update_rule(rule_id: int, rule: AlertRuleUpdate):
 
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int):
+def delete_rule(rule_id: int):
     """Supprime une règle et son historique."""
     try:
         write_client("DELETE FROM APP_KPI_AlertHistory WHERE rule_id = ?", (rule_id,))
@@ -229,7 +229,7 @@ async def delete_rule(rule_id: int):
 
 
 @router.post("/rules/{rule_id}/toggle")
-async def toggle_rule(rule_id: int):
+def toggle_rule(rule_id: int):
     """Active/désactive une règle."""
     try:
         write_client("""
@@ -250,7 +250,7 @@ async def toggle_rule(rule_id: int):
 # ==================== HISTORIQUE ====================
 
 @router.get("/history")
-async def get_history(limit: int = 100, rule_id: Optional[int] = None, unread_only: bool = False):
+def get_history(limit: int = 100, rule_id: Optional[int] = None, unread_only: bool = False):
     """Retourne l'historique des alertes déclenchées."""
     try:
         query = """
@@ -275,7 +275,7 @@ async def get_history(limit: int = 100, rule_id: Optional[int] = None, unread_on
 
 
 @router.post("/history/{history_id}/acknowledge")
-async def acknowledge_alert(history_id: int, username: str = "user"):
+def acknowledge_alert(history_id: int, username: str = "user"):
     """Acquitte une alerte (marque comme lue)."""
     try:
         write_client("""
@@ -291,7 +291,7 @@ async def acknowledge_alert(history_id: int, username: str = "user"):
 
 
 @router.post("/history/acknowledge-all")
-async def acknowledge_all(username: str = "user"):
+def acknowledge_all(username: str = "user"):
     """Acquitte toutes les alertes non lues."""
     try:
         write_client("""
@@ -309,7 +309,7 @@ async def acknowledge_all(username: str = "user"):
 # ==================== COMPTEUR (pour la cloche) ====================
 
 @router.get("/count")
-async def get_alert_count():
+def get_alert_count():
     """Retourne le nombre d'alertes non acquittées des 24 dernières heures."""
     try:
         init_alert_tables()
@@ -322,7 +322,7 @@ async def get_alert_count():
 # ==================== ÉVALUATION MANUELLE ====================
 
 @router.post("/evaluate")
-async def trigger_evaluation(background_tasks: BackgroundTasks):
+def trigger_evaluation(background_tasks: BackgroundTasks):
     """Déclenche manuellement l'évaluation de toutes les règles actives."""
     background_tasks.add_task(_run_evaluation)
     return {"success": True, "message": "Évaluation lancée en arrière-plan"}

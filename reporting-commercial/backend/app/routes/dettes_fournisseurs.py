@@ -32,7 +32,7 @@ def _get_balance_data(societe: Optional[str], d: str):
 
 
 @router.get("")
-async def get_dettes_fournisseurs(
+def get_dettes_fournisseurs(
     societe: Optional[str] = Query(None),
     date_ref: Optional[date] = Query(None),
 ):
@@ -112,7 +112,7 @@ async def get_dettes_fournisseurs(
 
 
 @router.get("/balance-agee")
-async def get_balance_agee_fournisseurs(
+def get_balance_agee_fournisseurs(
     societe: Optional[str] = Query(None),
     date_ref: Optional[date] = Query(None),
     page: int = Query(1, ge=1),
@@ -142,7 +142,7 @@ async def get_balance_agee_fournisseurs(
 
 
 @router.get("/fournisseur/{code_fournisseur}")
-async def get_fournisseur_detail(code_fournisseur: str):
+def get_fournisseur_detail(code_fournisseur: str):
     """Détail d'un fournisseur (répartition par tranche)."""
     try:
         d = _date_ref(None)
@@ -175,7 +175,7 @@ async def get_fournisseur_detail(code_fournisseur: str):
 
 
 @router.get("/echeances")
-async def get_echeances_fournisseurs(
+def get_echeances_fournisseurs(
     societe: Optional[str] = Query(None),
     fournisseur: Optional[str] = Query(None),
     tranche: Optional[str] = Query(None),
@@ -239,7 +239,7 @@ async def get_echeances_fournisseurs(
 
 
 @router.get("/tranche/{tranche}")
-async def get_fournisseurs_par_tranche(
+def get_fournisseurs_par_tranche(
     tranche: str,
     societe: Optional[str] = Query(None),
     date_ref: Optional[date] = Query(None),

@@ -7,6 +7,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { extractErrorMessage } from '../services/api';
+import { sessionHeaders } from '../utils/authHeaders';
 
 const DWHContext = createContext(null);
 
@@ -78,7 +79,7 @@ export const DWHProvider = ({ children }) => {
     try {
       const response = await axios.post('/api/auth/switch-dwh',
         { dwh_code: dwhCode },
-        { headers: { 'X-User-Id': userId } }
+        { headers: { 'X-User-Id': userId, ...sessionHeaders() } }
       );
 
       if (response.data.success) {
@@ -113,7 +114,8 @@ export const DWHProvider = ({ children }) => {
         {
           headers: {
             'X-User-Id': userId,
-            'X-DWH-Code': dwhCode
+            'X-DWH-Code': dwhCode,
+            ...sessionHeaders()
           }
         }
       );

@@ -33,10 +33,17 @@ from ..database_unified import (
     get_user_societes,
     get_all_dwh_societes,
     create_session,
+    validate_session,
     invalidate_session,
     invalidate_all_user_sessions,
+    _SESSION_EXPIRE_MINUTES,
     client_manager,
     UserContext,
+)
+from ..services.password_utils import (
+    hash_password as _pw_hash,
+    verify_password as _pw_verify,
+    needs_rehash as _pw_needs_rehash,
 )
 
 logger = logging.getLogger("AuthMultitenant")
@@ -118,11 +125,14 @@ class ChangePasswordRequest(BaseModel):
 # =============================================================================
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    # bcrypt (via module commun). Les anciens hash SHA256 restent vérifiables
+    # et sont ré-hachés à la prochaine connexion réussie.
+    return _pw_hash(password)
 
 
 def _verify_password(password: str, password_hash: str) -> bool:
-    return _hash_password(password) == password_hash
+    # Accepte bcrypt ET l'ancien SHA256, comparaison constant-time.
+    return _pw_verify(password, password_hash)
 
 
 _APP_USERS_MIGRATION_SQL = [
@@ -253,7 +263,7 @@ def _check_access_restrictions(
 # =============================================================================
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest, http_request: Request):
+def login(request: LoginRequest, http_request: Request):
     """
     Authentification multi-tenant.
 
@@ -294,6 +304,17 @@ async def login(request: LoginRequest, http_request: Request):
                 )
             if not _verify_password(request.password, client_user["password_hash"]):
                 raise HTTPException(status_code=401, detail="Identifiants invalides")
+            # Upgrade transparent du hash legacy SHA256 -> bcrypt
+            if _pw_needs_rehash(client_user.get("password_hash")):
+                try:
+                    write_client(
+                        "UPDATE APP_Users SET password_hash=? WHERE id=?",
+                        (_pw_hash(request.password), client_user["id"]),
+                        dwh_code=request.dwh_code,
+                    )
+                    logger.info(f"[PASSWORD] Réhachage bcrypt user client id={client_user['id']} ({request.dwh_code})")
+                except Exception as e:
+                    logger.warning(f"[PASSWORD] Réhachage client échoué: {e}")
             # Vérifier les restrictions avancées (IP / poste / plage horaire / jours)
             client_ip = (
                 http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -325,6 +346,16 @@ async def login(request: LoginRequest, http_request: Request):
             raise HTTPException(status_code=401, detail="Compte désactivé")
         if not _verify_password(request.password, central_user["password_hash"]):
             raise HTTPException(status_code=401, detail="Identifiants invalides")
+        # Upgrade transparent du hash legacy SHA256 -> bcrypt
+        if _pw_needs_rehash(central_user.get("password_hash")):
+            try:
+                write_central(
+                    "UPDATE APP_Users SET password_hash=? WHERE id=?",
+                    (_pw_hash(request.password), central_user["id"]),
+                )
+                logger.info(f"[PASSWORD] Réhachage bcrypt user central id={central_user['id']}")
+            except Exception as e:
+                logger.warning(f"[PASSWORD] Réhachage central échoué: {e}")
 
         user = central_user
         write_central(
@@ -457,7 +488,7 @@ async def login(request: LoginRequest, http_request: Request):
 # =============================================================================
 
 @router.post("/logout")
-async def logout(
+def logout(
     x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
     user_id: Optional[int] = Header(None, alias="X-User-Id"),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -471,8 +502,36 @@ async def logout(
     return {"success": True, "message": "Déconnexion réussie"}
 
 
+@router.post("/refresh")
+def refresh_session(
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+):
+    """Prolonge la session active (keep-alive).
+
+    Appelé périodiquement par le frontend tant que l'utilisateur est actif,
+    pour éviter la déconnexion brutale à l'expiration alors que l'utilisateur
+    travaille. Ne crée jamais de session : un token invalide/expiré → 401.
+    """
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="Session manquante")
+    sess = validate_session(x_session_token)
+    if not sess:
+        raise HTTPException(status_code=401, detail="Session expirée ou invalide")
+    write_central(
+        "UPDATE APP_Sessions SET expires_at = DATEADD(minute, ?, GETDATE()) "
+        "WHERE token=? AND is_active=1",
+        (_SESSION_EXPIRE_MINUTES, x_session_token),
+    )
+    rows = execute_central(
+        "SELECT expires_at FROM APP_Sessions WHERE token=?",
+        (x_session_token,), use_cache=False,
+    )
+    expires_at = str(rows[0]["expires_at"]) if rows else None
+    return {"success": True, "expires_at": expires_at}
+
+
 @router.get("/sessions")
-async def get_active_sessions(
+def get_active_sessions(
     user_id: int = Header(..., alias="X-User-Id"),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -488,7 +547,7 @@ async def get_active_sessions(
 
 
 @router.delete("/sessions/{session_id}")
-async def revoke_session(
+def revoke_session(
     session_id: int,
     user_id: int = Header(..., alias="X-User-Id"),
 ):
@@ -509,7 +568,7 @@ class OnboardingDoneRequest(BaseModel):
     dwh_code: str
 
 @router.patch("/me/onboarding-done")
-async def mark_onboarding_done(body: OnboardingDoneRequest):
+def mark_onboarding_done(body: OnboardingDoneRequest):
     """
     Marque l'onboarding comme terminé pour l'utilisateur.
     Appelé par le frontend quand l'utilisateur clique "Terminer" dans le wizard.
@@ -530,7 +589,7 @@ async def mark_onboarding_done(body: OnboardingDoneRequest):
 # =============================================================================
 
 @router.get("/client-info")
-async def get_client_info(code: str):
+def get_client_info(code: str):
     """
     Retourne le nom et logo d'un client DWH à partir de son code.
     Route publique — utilisée par la page de login pour afficher le branding.
@@ -559,7 +618,7 @@ async def get_client_info(code: str):
 # =============================================================================
 
 @router.post("/switch-dwh")
-async def switch_dwh(
+def switch_dwh(
     request: SwitchDWHRequest,
     user_id: int = Header(..., alias="X-User-Id"),
 ):
@@ -609,7 +668,7 @@ async def switch_dwh(
 
 
 @router.post("/switch-societe")
-async def switch_societe(
+def switch_societe(
     request: SwitchSocieteRequest,
     user_id: int = Header(..., alias="X-User-Id"),
     dwh_code: str = Header(..., alias="X-DWH-Code"),
@@ -642,7 +701,7 @@ async def switch_societe(
 # =============================================================================
 
 @router.get("/context")
-async def get_user_context(
+def get_user_context(
     user_id: int = Header(..., alias="X-User-Id"),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -667,7 +726,7 @@ async def get_user_context(
 
 
 @router.get("/dwh-list")
-async def get_dwh_list(user_id: int = Header(..., alias="X-User-Id")):
+def get_dwh_list(user_id: int = Header(..., alias="X-User-Id")):
     """Liste les DWH accessibles par l'utilisateur."""
     user = execute_central("SELECT role_global FROM APP_Users WHERE id = ?", (user_id,), use_cache=False)
     if user and user[0].get("role_global") == "superadmin":
@@ -676,7 +735,7 @@ async def get_dwh_list(user_id: int = Header(..., alias="X-User-Id")):
 
 
 @router.get("/societes-list")
-async def get_societes_list(
+def get_societes_list(
     user_id: int = Header(..., alias="X-User-Id"),
     dwh_code: str = Header(..., alias="X-DWH-Code"),
 ):
@@ -700,7 +759,7 @@ async def get_societes_list(
 # =============================================================================
 
 @router.post("/change-password")
-async def change_password(
+def change_password(
     request: ChangePasswordRequest,
     user_id: int = Header(..., alias="X-User-Id"),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -743,7 +802,7 @@ class SetFirstPasswordRequest(BaseModel):
 
 
 @router.post("/set-first-password")
-async def set_first_password(request: SetFirstPasswordRequest):
+def set_first_password(request: SetFirstPasswordRequest):
     """
     Définit le mot de passe d'un utilisateur lors de son premier login.
     Requiert que must_change_password=1 et password_hash IS NULL.
@@ -786,7 +845,7 @@ async def set_first_password(request: SetFirstPasswordRequest):
 # =============================================================================
 
 @router.post("/log-action")
-async def log_action(
+def log_action(
     action: str,
     entity_type: Optional[str] = None,
     entity_id: Optional[int] = None,
@@ -843,7 +902,7 @@ class ClientUserUpdate(BaseModel):
 
 
 @router.get("/client-users")
-async def get_client_users(dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def get_client_users(dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Liste les utilisateurs de la base client."""
     if not dwh_code:
         raise HTTPException(status_code=400, detail="X-DWH-Code header requis")
@@ -894,7 +953,7 @@ async def get_client_users(dwh_code: Optional[str] = Header(None, alias="X-DWH-C
 
 
 @router.post("/client-users")
-async def create_client_user(data: ClientUserCreate, dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def create_client_user(data: ClientUserCreate, dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Crée un utilisateur dans la base client."""
     if not dwh_code:
         raise HTTPException(status_code=400, detail="X-DWH-Code header requis")
@@ -905,7 +964,7 @@ async def create_client_user(data: ClientUserCreate, dwh_code: Optional[str] = H
         )
         if existing:
             raise HTTPException(status_code=409, detail=f"L'identifiant '{data.username}' est déjà utilisé")
-        password_hash = hashlib.sha256(data.password.encode()).hexdigest()
+        password_hash = _pw_hash(data.password)
         mobile_val = 1 if data.role_dwh == "admin_client" else (1 if data.mobile_access else 0)
         write_client(
             """INSERT INTO APP_Users
@@ -930,7 +989,7 @@ async def create_client_user(data: ClientUserCreate, dwh_code: Optional[str] = H
 
 
 @router.put("/client-users/{user_id}")
-async def update_client_user(
+def update_client_user(
     user_id: int,
     data: ClientUserUpdate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -961,7 +1020,7 @@ async def update_client_user(
 
 
 @router.delete("/client-users/{user_id}")
-async def delete_client_user(user_id: int, dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def delete_client_user(user_id: int, dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Supprime un utilisateur de la base client."""
     if not dwh_code:
         raise HTTPException(status_code=400, detail="X-DWH-Code header requis")
@@ -978,7 +1037,7 @@ async def delete_client_user(user_id: int, dwh_code: Optional[str] = Header(None
 
 
 @router.post("/client-users/{user_id}/reset-password")
-async def reset_client_user_password(user_id: int, dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def reset_client_user_password(user_id: int, dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Réinitialise le mot de passe d'un utilisateur client à son identifiant."""
     if not dwh_code:
         raise HTTPException(status_code=400, detail="X-DWH-Code header requis")
@@ -987,7 +1046,7 @@ async def reset_client_user_password(user_id: int, dwh_code: Optional[str] = Hea
         if not rows:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable")
         username = rows[0]["username"]
-        new_hash = hashlib.sha256(username.encode()).hexdigest()
+        new_hash = _pw_hash(username)
         write_client("UPDATE APP_Users SET password_hash=? WHERE id=?", (new_hash, user_id), dwh_code=dwh_code)
         invalidate_all_user_sessions(user_id, dwh_code)
         return {"success": True, "message": f"Mot de passe réinitialisé à '{username}'"}

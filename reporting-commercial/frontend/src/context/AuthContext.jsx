@@ -1,10 +1,12 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
-import api from '../services/api'
+import api, { refreshSession } from '../services/api'
+import { hasSubdomainClient } from '../utils/clientCode'
 
 const AuthContext = createContext(null)
 
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000  // 30 minutes d'inactivité → déconnexion
-const WARN_BEFORE_MS  =  2 * 60 * 1000  // Avertissement 2 min avant
+const IDLE_TIMEOUT_MS      = 30 * 60 * 1000  // 30 minutes d'inactivité → déconnexion
+const WARN_BEFORE_MS       =  2 * 60 * 1000  // Avertissement 2 min avant
+const KEEPALIVE_EVERY_MS   = 20 * 60 * 1000  // Refresh session serveur toutes les 20 min
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -12,6 +14,7 @@ export function AuthProvider({ children }) {
   const [sessionWarning, setSessionWarning] = useState(false) // Avertissement expiration
   const idleTimerRef = useRef(null)
   const warnTimerRef = useRef(null)
+  const lastActivityRef = useRef(Date.now()) // Dernière activité utilisateur (keep-alive)
 
   // ── Lecture initiale depuis localStorage ou sessionStorage ────────────────
   useEffect(() => {
@@ -59,13 +62,18 @@ export function AuthProvider({ children }) {
       document.title = 'Session expirée - OptiBoard'
     }
 
-    // Rediriger vers la page de login du client (ou la page d'accueil)
-    window.location.replace(clientCode ? `/?client=${clientCode}` : '/')
+    // Rediriger vers la page de login du client.
+    // Sur un sous-domaine (xxxx.optiboard.kasoft.ma), l'URL encode déjà le
+    // tenant → simple retour à '/'. Sinon (dev local), conserver ?client=.
+    window.location.replace(
+      hasSubdomainClient() ? '/' : (clientCode ? `/?client=${clientCode}` : '/')
+    )
   }, [])
 
   // ── Réinitialisation du timer d'inactivité ────────────────────────────────
   const resetIdleTimer = useCallback(() => {
     if (!user) return
+    lastActivityRef.current = Date.now()
     setSessionWarning(false)
     clearTimeout(idleTimerRef.current)
     clearTimeout(warnTimerRef.current)
@@ -105,6 +113,25 @@ export function AuthProvider({ children }) {
     window.addEventListener('auth:session-expired', handleSessionExpired)
     return () => window.removeEventListener('auth:session-expired', handleSessionExpired)
   }, [logout])
+
+  // ── Keep-alive session serveur ────────────────────────────────────────────
+  // Toutes les ~20 min, si l'utilisateur a eu une activité récente, prolonge la
+  // session côté serveur (POST /api/auth/refresh). Échec TOUJOURS silencieux :
+  // les anciens backends n'exposent pas cet endpoint — on ne déconnecte jamais
+  // l'utilisateur sur un échec de refresh.
+  useEffect(() => {
+    if (!user) return
+    const intervalId = setInterval(() => {
+      const idleFor = Date.now() - lastActivityRef.current
+      if (idleFor >= KEEPALIVE_EVERY_MS) return // inactif → laisser expirer
+      refreshSession()
+        .then(() => console.debug('[keepalive] session prolongée'))
+        .catch((err) => {
+          console.debug('[keepalive] /auth/refresh indisponible (ignoré):', err?.message)
+        })
+    }, KEEPALIVE_EVERY_MS)
+    return () => clearInterval(intervalId)
+  }, [user])
 
   // ── Login ─────────────────────────────────────────────────────────────────
   const login = useCallback((userData) => {

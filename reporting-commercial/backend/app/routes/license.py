@@ -50,14 +50,15 @@ class FloatingSlotRequest(BaseModel):
 # ============================================================
 
 @router.get("/status")
-async def license_status():
+def license_status():
     """
     Retourne le statut actuel de la licence.
     Appele au demarrage du frontend pour verifier si l'app est licenciee.
     """
     settings = get_settings()
 
-    if settings.DEBUG:
+    from app.services.license_service import is_license_dev_bypass
+    if is_license_dev_bypass():
         return {
             "success": True,
             "licensed": True,
@@ -109,7 +110,7 @@ async def license_status():
 
 
 @router.get("/machine-id")
-async def get_machine_info():
+def get_machine_info():
     """Retourne l'identifiant unique de cette machine."""
     return {
         "success": True,
@@ -118,7 +119,7 @@ async def get_machine_info():
 
 
 @router.post("/activate")
-async def activate_license(request: ActivateLicenseRequest):
+def activate_license(request: ActivateLicenseRequest):
     """
     Active une licence sur cette installation.
     1. Decode la licence pour verifier le format
@@ -162,7 +163,7 @@ async def activate_license(request: ActivateLicenseRequest):
 
 
 @router.post("/deactivate")
-async def deactivate_license():
+def deactivate_license():
     """
     Desactive la licence sur cette installation.
     Necessaire pour transferer la licence sur une autre machine.
@@ -198,7 +199,7 @@ async def deactivate_license():
 
 
 @router.post("/refresh")
-async def refresh_license():
+def refresh_license():
     """Force la re-validation de la licence aupres du serveur."""
     invalidate_license_cache()
 
@@ -220,7 +221,7 @@ async def refresh_license():
 
 
 @router.get("/features")
-async def get_license_features():
+def get_license_features():
     """Retourne la liste des fonctionnalites disponibles selon la licence."""
     settings = get_settings()
 
@@ -247,7 +248,7 @@ async def get_license_features():
 
 
 @router.get("/check-limits")
-async def check_limits():
+def check_limits():
     """Verifie les limites de la licence (utilisateurs, DWH)."""
     settings = get_settings()
     if not settings.LICENSE_KEY:
@@ -300,7 +301,7 @@ async def check_limits():
 # ============================================================
 
 @router.post("/floating/acquire")
-async def acquire_slot():
+def acquire_slot():
     """Acquiert un slot de session flottante. Appeler a chaque login utilisateur."""
     settings = get_settings()
     if not settings.LICENSE_KEY:
@@ -324,7 +325,7 @@ async def acquire_slot():
 
 
 @router.post("/floating/heartbeat")
-async def heartbeat():
+def heartbeat():
     """
     Renouvelle la session flottante.
     Le client doit appeler cet endpoint toutes les (timeout/2) minutes.
@@ -338,7 +339,7 @@ async def heartbeat():
 
 
 @router.post("/floating/release")
-async def release_slot():
+def release_slot():
     """Libere le slot flottant. Appeler a chaque logout utilisateur."""
     settings = get_settings()
     if not settings.LICENSE_KEY:

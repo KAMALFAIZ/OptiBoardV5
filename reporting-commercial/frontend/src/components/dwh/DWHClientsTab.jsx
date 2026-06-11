@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { sessionHeaders } from '../../utils/authHeaders'
 import {
   Building2, Plus, Edit2, Trash2, Server, Database, Users, Mail,
   CheckCircle, AlertCircle, Loader2, ChevronDown, ChevronRight,
@@ -217,7 +218,7 @@ export default function DWHClientsTab({
                     onClick={async () => {
                       try {
                         const res = await fetch(`/api/dwh-admin/${dwh.code}/agent-config`, {
-                          headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}` }
+                          headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}`, ...sessionHeaders() }
                         })
                         if (!res.ok) throw new Error(`HTTP ${res.status}`)
                         const blob = await res.blob()

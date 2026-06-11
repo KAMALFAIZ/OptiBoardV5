@@ -349,7 +349,7 @@ def get_user_effective_permissions(user_id: int, dwh_code: str) -> dict:
 # ============================================================
 
 @router.post("/roles/init")
-async def route_init_tables(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def route_init_tables(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Initialise les tables de gestion des roles dans la base client."""
     dwh_code = x_dwh_code or "default"
     _init_done.discard(dwh_code)   # Force la recreation
@@ -361,7 +361,7 @@ async def route_init_tables(x_dwh_code: Optional[str] = Header(None, alias="X-DW
 
 
 @router.get("/roles")
-async def list_roles(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def list_roles(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Liste tous les roles avec le nombre d'utilisateurs affectes."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -405,7 +405,7 @@ async def list_roles(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"
 
 
 @router.post("/roles/seed-standard")
-async def seed_standard_roles(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
+def seed_standard_roles(x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")):
     """Insère les rôles standard manquants (ignore ceux qui existent déjà par nom)."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -444,7 +444,7 @@ async def seed_standard_roles(x_dwh_code: Optional[str] = Header(None, alias="X-
 
 
 @router.post("/roles")
-async def create_role(body: RoleCreate, x_dwh_code: Optional[str] = Header(None)):
+def create_role(body: RoleCreate, x_dwh_code: Optional[str] = Header(None)):
     """Cree un nouveau role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -472,7 +472,7 @@ async def create_role(body: RoleCreate, x_dwh_code: Optional[str] = Header(None)
 
 
 @router.get("/roles/{role_id}")
-async def get_role(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Retourne le detail d'un role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -493,7 +493,7 @@ async def get_role(role_id: int, x_dwh_code: Optional[str] = Header(None)):
 
 
 @router.put("/roles/{role_id}")
-async def update_role(role_id: int, body: RoleUpdate, x_dwh_code: Optional[str] = Header(None)):
+def update_role(role_id: int, body: RoleUpdate, x_dwh_code: Optional[str] = Header(None)):
     """Modifie un role existant."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -525,7 +525,7 @@ async def update_role(role_id: int, body: RoleUpdate, x_dwh_code: Optional[str] 
 
 
 @router.delete("/roles/{role_id}")
-async def delete_role(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def delete_role(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Desactive un role (actif=0)."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -545,7 +545,7 @@ async def delete_role(role_id: int, x_dwh_code: Optional[str] = Header(None)):
 # ============================================================
 
 @router.get("/roles/{role_id}/dwh")
-async def get_role_dwh(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role_dwh(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Liste les DWH autorises pour ce role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -562,7 +562,7 @@ async def get_role_dwh(role_id: int, x_dwh_code: Optional[str] = Header(None)):
 
 
 @router.post("/roles/{role_id}/dwh")
-async def set_role_dwh(role_id: int, body: DWHSet, x_dwh_code: Optional[str] = Header(None)):
+def set_role_dwh(role_id: int, body: DWHSet, x_dwh_code: Optional[str] = Header(None)):
     """
     Remplace completement la liste des DWH autorises pour ce role.
     body: { dwh_codes: ["DWH1", "DWH2"] }
@@ -587,7 +587,7 @@ async def set_role_dwh(role_id: int, body: DWHSet, x_dwh_code: Optional[str] = H
 # ============================================================
 
 @router.get("/roles/{role_id}/reports")
-async def get_role_reports(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role_reports(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Liste les rapports autorises pour ce role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -609,7 +609,7 @@ async def get_role_reports(role_id: int, x_dwh_code: Optional[str] = Header(None
 
 
 @router.post("/roles/{role_id}/reports")
-async def upsert_role_report(
+def upsert_role_report(
     role_id: int,
     body: ReportPermission,
     x_dwh_code: Optional[str] = Header(None),
@@ -658,7 +658,7 @@ async def upsert_role_report(
 
 
 @router.delete("/roles/{role_id}/reports/{report_type}/{report_id}")
-async def delete_role_report(
+def delete_role_report(
     role_id: int,
     report_type: str,
     report_id: int,
@@ -683,7 +683,7 @@ async def delete_role_report(
 # ============================================================
 
 @router.get("/roles/{role_id}/columns")
-async def get_role_columns(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role_columns(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Liste les masques de colonnes definis pour ce role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -705,7 +705,7 @@ async def get_role_columns(role_id: int, x_dwh_code: Optional[str] = Header(None
 
 
 @router.post("/roles/{role_id}/columns")
-async def set_role_columns(
+def set_role_columns(
     role_id: int,
     body: ColumnsSet,
     x_dwh_code: Optional[str] = Header(None),
@@ -744,7 +744,7 @@ async def set_role_columns(
 # ============================================================
 
 @router.get("/roles/{role_id}/users")
-async def get_role_users(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role_users(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Liste les utilisateurs ayant ce role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -767,7 +767,7 @@ async def get_role_users(role_id: int, x_dwh_code: Optional[str] = Header(None))
 
 
 @router.get("/users/{user_id}/roles")
-async def get_user_roles(user_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_user_roles(user_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Liste tous les roles d'un utilisateur."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -790,7 +790,7 @@ async def get_user_roles(user_id: int, x_dwh_code: Optional[str] = Header(None))
 
 
 @router.post("/users/{user_id}/roles")
-async def assign_role_to_user(
+def assign_role_to_user(
     user_id: int,
     body: UserRoleAssign,
     x_dwh_code: Optional[str] = Header(None),
@@ -815,7 +815,7 @@ async def assign_role_to_user(
 
 
 @router.delete("/users/{user_id}/roles/{role_id}")
-async def remove_role_from_user(
+def remove_role_from_user(
     user_id: int,
     role_id: int,
     x_dwh_code: Optional[str] = Header(None),
@@ -839,7 +839,7 @@ async def remove_role_from_user(
 # ============================================================
 
 @router.get("/users/{user_id}/effective-permissions")
-async def get_effective_permissions(user_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_effective_permissions(user_id: int, x_dwh_code: Optional[str] = Header(None)):
     """
     Retourne les permissions effectives fusionnees de tous les roles de l'utilisateur.
     Si un role est admin, is_admin=True et les listes sont vides (acces total).
@@ -857,7 +857,7 @@ async def get_effective_permissions(user_id: int, x_dwh_code: Optional[str] = He
 # ============================================================
 
 @router.get("/roles/{role_id}/features")
-async def get_role_features(role_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role_features(role_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Retourne les codes de fonctionnalites autorisees pour ce role."""
     dwh_code = x_dwh_code or "default"
     if not _ensure_init(dwh_code): return {"success": True, "data": []}
@@ -874,7 +874,7 @@ async def get_role_features(role_id: int, x_dwh_code: Optional[str] = Header(Non
 
 
 @router.post("/roles/{role_id}/features")
-async def set_role_features(
+def set_role_features(
     role_id: int,
     body: FeatureSet,
     x_dwh_code: Optional[str] = Header(None),

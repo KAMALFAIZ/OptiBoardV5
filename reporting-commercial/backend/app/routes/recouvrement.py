@@ -108,7 +108,7 @@ def aggregate_by_commercial(balance_data):
 
 
 @router.get("")
-async def get_recouvrement(
+def get_recouvrement(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -231,7 +231,7 @@ async def get_recouvrement(
 
 
 @router.get("/dso")
-async def get_dso(
+def get_dso(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -278,7 +278,7 @@ async def get_dso(
 
 
 @router.get("/balance-agee")
-async def get_balance_agee(
+def get_balance_agee(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     commercial: Optional[str] = Query(None),
     tranche: Optional[str] = Query(None, description="0-30, 31-60, 61-90, 91-120, +120")
@@ -327,7 +327,7 @@ async def get_balance_agee(
 
 
 @router.get("/client/{client_id}")
-async def get_client_detail(
+def get_client_detail(
     client_id: str,
     societe: Optional[str] = Query(None, description="Filtre par société")
 ):
@@ -366,7 +366,7 @@ async def get_client_detail(
 
 
 @router.get("/commercial/{commercial_id}")
-async def get_commercial_encours(
+def get_commercial_encours(
     commercial_id: str,
     societe: Optional[str] = Query(None, description="Filtre par société")
 ):
@@ -403,7 +403,7 @@ async def get_commercial_encours(
 
 
 @router.get("/tranche/{tranche}")
-async def get_clients_par_tranche(
+def get_clients_par_tranche(
     tranche: str,
     societe: Optional[str] = Query(None, description="Filtre par société"),
     page: int = Query(1, ge=1),
@@ -472,7 +472,7 @@ async def get_clients_par_tranche(
 # =====================================================
 
 @router.get("/echeances")
-async def get_echeances(
+def get_echeances(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     client: Optional[str] = Query(None, description="Filtre par code client"),
     commercial: Optional[str] = Query(None, description="Filtre par code collaborateur"),
@@ -560,7 +560,7 @@ async def get_echeances(
 
 
 @router.get("/echeances/par-client")
-async def get_echeances_par_client(
+def get_echeances_par_client(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
     page: int = Query(1, ge=1),
@@ -614,7 +614,7 @@ async def get_echeances_par_client(
 
 
 @router.get("/echeances/par-commercial")
-async def get_echeances_par_commercial(
+def get_echeances_par_commercial(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)")
 ):
@@ -662,7 +662,7 @@ async def get_echeances_par_commercial(
 
 
 @router.get("/echeances/par-mode-reglement")
-async def get_echeances_par_mode_reglement(
+def get_echeances_par_mode_reglement(
     date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)")
 ):
     """
@@ -694,7 +694,7 @@ async def get_echeances_par_mode_reglement(
 
 
 @router.get("/echeances/a-echoir")
-async def get_echeances_a_echoir(
+def get_echeances_a_echoir(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     urgence: Optional[str] = Query(None, description="semaine, 15j, 30j, plus30j"),
     date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
@@ -768,7 +768,7 @@ async def get_echeances_a_echoir(
 # =====================================================
 
 @router.get("/reglements")
-async def get_reglements(
+def get_reglements(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -809,7 +809,7 @@ async def get_reglements(
 
 
 @router.get("/reglements/par-client")
-async def get_reglements_par_client(
+def get_reglements_par_client(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100)
 ):
@@ -846,7 +846,7 @@ async def get_reglements_par_client(
 
 
 @router.get("/reglements/par-mode")
-async def get_reglements_par_mode(
+def get_reglements_par_mode(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -881,7 +881,7 @@ async def get_reglements_par_mode(
 
 
 @router.get("/factures-non-reglees")
-async def get_factures_non_reglees(
+def get_factures_non_reglees(
     societe: Optional[str] = Query(None, description="Filtre par société"),
     client: Optional[str] = Query(None, description="Filtre par code client"),
     date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)"),
@@ -942,7 +942,7 @@ async def get_factures_non_reglees(
 
 
 @router.get("/historique-client/{code_client}")
-async def get_historique_reglements_client(code_client: str):
+def get_historique_reglements_client(code_client: str):
     """
     Récupère l'historique complet des règlements d'un client.
     Source: Imputation_Factures_Ventes
@@ -989,7 +989,7 @@ async def get_historique_reglements_client(code_client: str):
 # =====================================================
 
 @router.get("/kpis")
-async def get_kpis_recouvrement(
+def get_kpis_recouvrement(
     date_ref: Optional[date] = Query(None, description="Date de référence pour le calcul (défaut: aujourd'hui)")
 ):
     """
@@ -1036,7 +1036,7 @@ async def get_kpis_recouvrement(
 
 
 @router.get("/evolution")
-async def get_evolution_recouvrement(
+def get_evolution_recouvrement(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")

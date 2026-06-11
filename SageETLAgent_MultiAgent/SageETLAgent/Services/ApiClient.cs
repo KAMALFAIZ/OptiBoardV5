@@ -376,6 +376,10 @@ namespace SageETLAgent.Services
                 agentId,
                 apiKey);
 
+            // Idempotence serveur : id stable par batch (un retry du MEME objet pushRequest renvoie le meme id)
+            pushRequest.BatchId ??= Guid.NewGuid().ToString("N");
+            request.Headers.Add("X-Request-Id", pushRequest.BatchId);
+
             request.Content = new StringContent(
                 JsonConvert.SerializeObject(pushRequest),
                 Encoding.UTF8,

@@ -26,7 +26,7 @@ def _run(sql: str, params: tuple, dwh_code: str) -> list:
 
 
 @router.get("/centres")
-async def get_centres(
+def get_centres(
     dwh_code: str = Query(...),
     date_debut: date = Query(...),
     date_fin: date = Query(...),
@@ -37,7 +37,7 @@ async def get_centres(
 
 
 @router.get("/evolution")
-async def get_evolution(
+def get_evolution(
     dwh_code: str = Query(...),
     date_debut: date = Query(...),
     date_fin: date = Query(...),
@@ -48,7 +48,7 @@ async def get_evolution(
 
 
 @router.get("/pl-activite")
-async def get_pl_activite(
+def get_pl_activite(
     dwh_code: str = Query(...),
     date_debut: date = Query(...),
     date_fin: date = Query(...),
@@ -59,7 +59,7 @@ async def get_pl_activite(
 
 
 @router.get("/budget-vs-realise")
-async def get_budget_vs_realise(
+def get_budget_vs_realise(
     dwh_code: str = Query(...),
     date_debut: date = Query(...),
     date_fin: date = Query(...),
@@ -75,7 +75,7 @@ async def get_budget_vs_realise(
 
 
 @router.get("/liste-centres")
-async def get_liste_centres(dwh_code: str = Query(...)):
+def get_liste_centres(dwh_code: str = Query(...)):
     """Liste des centres analytiques disponibles."""
     data = _run(LISTE_CENTRES_ANALYTIQUES, (), dwh_code)
     return {"success": True, "data": data}

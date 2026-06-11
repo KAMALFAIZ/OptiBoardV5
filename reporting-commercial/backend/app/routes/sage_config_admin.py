@@ -38,7 +38,7 @@ class TestMappingRequest(BaseModel):
 
 
 @router.get("")
-async def list_mappings(include_inactive: bool = True):
+def list_mappings(include_inactive: bool = True):
     """Liste tous les mappings Sage Direct."""
     try:
         data = db_store.list_all(include_inactive=include_inactive)
@@ -53,7 +53,7 @@ async def list_mappings(include_inactive: bool = True):
 
 
 @router.get("/{mapping_id}")
-async def get_mapping(mapping_id: int):
+def get_mapping(mapping_id: int):
     """Récupère un mapping par son ID."""
     try:
         mapping = db_store.get_one(mapping_id)
@@ -70,7 +70,7 @@ async def get_mapping(mapping_id: int):
 
 
 @router.post("")
-async def create_mapping(payload: MappingCreate):
+def create_mapping(payload: MappingCreate):
     """Crée un nouveau mapping."""
     try:
         if not payload.table_name.strip():
@@ -92,7 +92,7 @@ async def create_mapping(payload: MappingCreate):
 
 
 @router.put("/{mapping_id}")
-async def update_mapping(mapping_id: int, payload: MappingUpdate):
+def update_mapping(mapping_id: int, payload: MappingUpdate):
     """Met à jour un mapping existant."""
     try:
         ok = db_store.update_mapping(
@@ -113,7 +113,7 @@ async def update_mapping(mapping_id: int, payload: MappingUpdate):
 
 
 @router.delete("/{mapping_id}")
-async def delete_mapping(mapping_id: int):
+def delete_mapping(mapping_id: int):
     """Supprime un mapping."""
     try:
         db_store.delete_mapping(mapping_id)
@@ -123,7 +123,7 @@ async def delete_mapping(mapping_id: int):
 
 
 @router.post("/reset")
-async def reset_mappings():
+def reset_mappings():
     """Réinitialise depuis config.py (remplace tous les mappings)."""
     try:
         count = db_store.reset_to_static_config()
@@ -136,14 +136,14 @@ async def reset_mappings():
 
 
 @router.post("/invalidate-cache")
-async def invalidate_cache():
+def invalidate_cache():
     """Force le rechargement du cache (utile après modification externe)."""
     db_store.invalidate_cache()
     return {"success": True, "message": "Cache invalidé"}
 
 
 @router.post("/test-sql")
-async def test_sql(payload: TestMappingRequest):
+def test_sql(payload: TestMappingRequest):
     """
     Teste une requête Sage avec les placeholders {db} et {societe}.
     Exécute en LIMIT 5 pour valider la syntaxe.

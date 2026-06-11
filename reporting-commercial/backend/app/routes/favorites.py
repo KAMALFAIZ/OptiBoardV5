@@ -71,7 +71,7 @@ def init_favorites_tables():
 # ==================== FAVORITES CRUD ====================
 
 @router.get("")
-async def get_favorites(user_id: int):
+def get_favorites(user_id: int):
     """Retourne les favoris de l'utilisateur, triés par pinned_order."""
     try:
         init_favorites_tables()
@@ -87,7 +87,7 @@ async def get_favorites(user_id: int):
 
 
 @router.get("/check")
-async def check_favorite(user_id: int, report_type: str, report_id: int):
+def check_favorite(user_id: int, report_type: str, report_id: int):
     """Vérifie si un rapport est en favori."""
     try:
         init_favorites_tables()
@@ -101,7 +101,7 @@ async def check_favorite(user_id: int, report_type: str, report_id: int):
 
 
 @router.post("")
-async def add_favorite(fav: FavoriteCreate, user_id: int):
+def add_favorite(fav: FavoriteCreate, user_id: int):
     """Ajoute un rapport aux favoris."""
     if fav.report_type not in VALID_TYPES:
         return {"success": False, "error": "Type de rapport invalide"}
@@ -126,7 +126,7 @@ async def add_favorite(fav: FavoriteCreate, user_id: int):
 
 
 @router.delete("")
-async def remove_favorite(user_id: int, report_type: str, report_id: int):
+def remove_favorite(user_id: int, report_type: str, report_id: int):
     """Retire un rapport des favoris."""
     try:
         with get_db_cursor() as cur:
@@ -140,7 +140,7 @@ async def remove_favorite(user_id: int, report_type: str, report_id: int):
 
 
 @router.put("/reorder")
-async def reorder_favorites(user_id: int, ordered_ids: list[int]):
+def reorder_favorites(user_id: int, ordered_ids: list[int]):
     """Met à jour l'ordre des favoris."""
     try:
         with get_db_cursor() as cur:
@@ -158,7 +158,7 @@ async def reorder_favorites(user_id: int, ordered_ids: list[int]):
 
 
 @router.get("/recents")
-async def get_recents(user_id: int, limit: int = 8):
+def get_recents(user_id: int, limit: int = 8):
     """Retourne les derniers rapports visités."""
     try:
         init_favorites_tables()
@@ -174,7 +174,7 @@ async def get_recents(user_id: int, limit: int = 8):
 
 
 @router.post("/recents")
-async def track_recent(visit: RecentVisit, user_id: int):
+def track_recent(visit: RecentVisit, user_id: int):
     """Enregistre ou met à jour la visite d'un rapport."""
     if visit.report_type not in VALID_TYPES:
         return {"success": False, "error": "Type invalide"}
@@ -214,7 +214,7 @@ async def track_recent(visit: RecentVisit, user_id: int):
 # ==================== ROLE REPORTS ====================
 
 @router.get("/role-reports")
-async def get_role_reports(user_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_role_reports(user_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Retourne les rapports assignés au(x) rôle(s) de l'utilisateur."""
     try:
         if not x_dwh_code:

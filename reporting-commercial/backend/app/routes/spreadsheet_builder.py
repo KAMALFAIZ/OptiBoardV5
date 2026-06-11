@@ -188,7 +188,7 @@ class SheetDataRequest(BaseModel):
 # =============================================================================
 
 @router.get("/sheets")
-async def list_spreadsheets(
+def list_spreadsheets(
     user_id: Optional[int] = Query(None),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -206,7 +206,7 @@ async def list_spreadsheets(
 
 
 @router.get("/sheets/{sheet_id}")
-async def get_spreadsheet(
+def get_spreadsheet(
     sheet_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -227,7 +227,7 @@ async def get_spreadsheet(
 
 
 @router.post("/sheets")
-async def create_spreadsheet(
+def create_spreadsheet(
     payload: SpreadsheetCreate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
@@ -268,7 +268,7 @@ async def create_spreadsheet(
 
 
 @router.put("/sheets/{sheet_id}")
-async def update_spreadsheet(
+def update_spreadsheet(
     sheet_id: int,
     payload: SpreadsheetUpdate,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -315,7 +315,7 @@ async def update_spreadsheet(
 
 
 @router.delete("/sheets/{sheet_id}")
-async def delete_spreadsheet(
+def delete_spreadsheet(
     sheet_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
@@ -578,7 +578,7 @@ def _format_cell_value(val) -> dict:
 # =============================================================================
 
 @router.get("/sheets/{sheet_id}/state/{user_id}")
-async def get_user_state(
+def get_user_state(
     sheet_id: int,
     user_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -600,7 +600,7 @@ async def get_user_state(
 
 
 @router.put("/sheets/{sheet_id}/state/{user_id}")
-async def save_user_state(
+def save_user_state(
     sheet_id: int,
     user_id: int,
     payload: dict,
@@ -626,7 +626,7 @@ async def save_user_state(
 
 
 @router.delete("/sheets/{sheet_id}/state/{user_id}")
-async def reset_user_state(
+def reset_user_state(
     sheet_id: int,
     user_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),

@@ -46,7 +46,12 @@ class Settings(BaseSettings):
     LICENSE_SERVER_URL: str = "http://kasoft.selfip.net:44100/api"
     LICENSE_CHECK_INTERVAL: int = 86400  # 24h en secondes
     LICENSE_GRACE_DAYS: int = 7  # Jours de grace si serveur injoignable
+    LICENSE_GRACE_MAX_CUMULATIVE: int = 30  # Plafond cumulé de grace (jours) depuis le dernier contact serveur réussi
     LICENSE_SIGNING_SECRET: str = ""  # Obligatoire en production — doit être dans .env
+    # Contournement licence pour le DÉVELOPPEMENT LOCAL uniquement.
+    # N'a d'effet que si APP_ENV=development ET LICENSE_DEV_MODE=True.
+    # Ne contourne JAMAIS la licence en production (remplace l'ancien bypass DEBUG).
+    LICENSE_DEV_MODE: bool = False
 
     # Master Catalog (sync depuis serveur central distant)
     # Si MASTER_API_URL est configuré, le bouton "Récupérer base maître"

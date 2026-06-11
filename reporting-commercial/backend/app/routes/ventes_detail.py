@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/ventes/detail", tags=["Ventes - Détails"])
 
 
 @router.get("/gamme/{gamme}")
-async def get_detail_gamme(
+def get_detail_gamme(
     gamme: str,
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
@@ -92,7 +92,7 @@ async def get_detail_gamme(
 
 
 @router.get("/client/{code_client}")
-async def get_detail_client(
+def get_detail_client(
     code_client: str,
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
@@ -195,7 +195,7 @@ async def get_detail_client(
 
 
 @router.get("/produit/{code_article}")
-async def get_detail_produit(
+def get_detail_produit(
     code_article: str,
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
@@ -298,7 +298,7 @@ async def get_detail_produit(
 
 
 @router.get("/commercial/{commercial}")
-async def get_detail_commercial(
+def get_detail_commercial(
     commercial: str,
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
@@ -421,7 +421,7 @@ async def get_detail_commercial(
 
 
 @router.get("/mois/{annee}/{mois}")
-async def get_detail_mois(
+def get_detail_mois(
     annee: int,
     mois: int,
     page: int = Query(1, ge=1),

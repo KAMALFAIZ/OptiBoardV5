@@ -69,7 +69,7 @@ class BulkUserMenuAccess(BaseModel):
 # ==================== MENUS CRUD ====================
 
 @router.get("/")
-async def get_all_menus():
+def get_all_menus():
     """Recupere tous les menus en structure arborescente"""
     try:
         results = execute_query(
@@ -105,7 +105,7 @@ async def get_all_menus():
 
 
 @router.get("/flat")
-async def get_menus_flat():
+def get_menus_flat():
     """Recupere tous les menus en liste plate"""
     try:
         results = execute_query(
@@ -129,7 +129,7 @@ async def get_menus_flat():
 
 
 @router.get("/user/{user_id}")
-async def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None)):
+def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None)):
     """Recupere les menus accessibles par un utilisateur (respecte les roles APP_User_Roles)"""
     try:
         # ── 1. Determiner si l'utilisateur est admin ─────────────────────────
@@ -385,7 +385,7 @@ async def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None))
 
 
 @router.post("/")
-async def create_menu(menu: MenuCreate):
+def create_menu(menu: MenuCreate):
     """Cree un nouveau menu (cote client : is_custom=1, is_customized=1)"""
     try:
         with get_db_cursor() as cursor:
@@ -405,7 +405,7 @@ async def create_menu(menu: MenuCreate):
 
 
 @router.put("/{menu_id}")
-async def update_menu(menu_id: int, menu: MenuUpdate):
+def update_menu(menu_id: int, menu: MenuUpdate):
     """Met a jour un menu"""
     try:
         updates = []
@@ -453,7 +453,7 @@ async def update_menu(menu_id: int, menu: MenuUpdate):
 
 
 @router.delete("/all-reports")
-async def delete_all_reports():
+def delete_all_reports():
     """Supprime tous les rapports (GridViews, Pivots V2, Dashboards, Spreadsheets) de la base centrale"""
     try:
         counts = {}
@@ -475,7 +475,7 @@ async def delete_all_reports():
 
 
 @router.delete("/{menu_id}")
-async def delete_menu(menu_id: int):
+def delete_menu(menu_id: int):
     """Supprime un menu"""
     try:
         # Verifier s'il y a des enfants
@@ -502,7 +502,7 @@ async def delete_menu(menu_id: int):
 # ==================== DROITS UTILISATEURS ====================
 
 @router.get("/access/{user_id}")
-async def get_user_access(user_id: int):
+def get_user_access(user_id: int):
     """Recupere les droits d'acces d'un utilisateur"""
     try:
         results = execute_query(
@@ -520,7 +520,7 @@ async def get_user_access(user_id: int):
 
 
 @router.post("/access")
-async def set_user_access(access: UserMenuAccess):
+def set_user_access(access: UserMenuAccess):
     """Definit l'acces d'un utilisateur a un menu"""
     try:
         with get_db_cursor() as cursor:
@@ -544,7 +544,7 @@ async def set_user_access(access: UserMenuAccess):
 
 
 @router.post("/access/bulk")
-async def set_bulk_user_access(access: BulkUserMenuAccess):
+def set_bulk_user_access(access: BulkUserMenuAccess):
     """Definit les acces d'un utilisateur a plusieurs menus"""
     try:
         with get_db_cursor() as cursor:
@@ -565,7 +565,7 @@ async def set_bulk_user_access(access: BulkUserMenuAccess):
 
 
 @router.delete("/access/{user_id}/{menu_id}")
-async def remove_user_access(user_id: int, menu_id: int):
+def remove_user_access(user_id: int, menu_id: int):
     """Supprime l'acces d'un utilisateur a un menu"""
     try:
         with get_db_cursor() as cursor:
@@ -582,7 +582,7 @@ async def remove_user_access(user_id: int, menu_id: int):
 # ==================== HELPERS ====================
 
 @router.get("/targets/{type}")
-async def get_available_targets(type: str):
+def get_available_targets(type: str):
     """Recupere les cibles disponibles pour un type de menu"""
     try:
         if type == "pivot":
@@ -614,7 +614,7 @@ async def get_available_targets(type: str):
 
 
 @router.post("/init-sample")
-async def init_sample_menus():
+def init_sample_menus():
     """Initialise des menus exemple"""
     try:
         # Verifier si des menus existent deja
@@ -648,7 +648,7 @@ async def init_sample_menus():
 # ==================== MENUS MAITRE (Base Centrale) ====================
 
 @router.get("/master")
-async def get_master_menus():
+def get_master_menus():
     """Recupere tous les menus MAITRE en structure arborescente (base centrale)"""
     try:
         results = execute_central(
@@ -677,7 +677,7 @@ async def get_master_menus():
 
 
 @router.get("/master/flat")
-async def get_master_menus_flat():
+def get_master_menus_flat():
     """Recupere tous les menus MAITRE en liste plate (base centrale)"""
     try:
         results = execute_central(
@@ -694,7 +694,7 @@ async def get_master_menus_flat():
 
 
 @router.get("/master/targets/{type}")
-async def get_master_available_targets(type: str):
+def get_master_available_targets(type: str):
     """Recupere les cibles disponibles dans la base MAITRE pour un type de menu"""
     try:
         if type == "pivot":
@@ -726,7 +726,7 @@ async def get_master_available_targets(type: str):
 
 
 @router.post("/master")
-async def create_master_menu(menu: MenuCreate):
+def create_master_menu(menu: MenuCreate):
     """Cree un nouveau menu dans la base MAITRE (centrale)"""
     try:
         with get_central_cursor() as cursor:
@@ -746,7 +746,7 @@ async def create_master_menu(menu: MenuCreate):
 
 
 @router.put("/master/{menu_id}")
-async def update_master_menu(menu_id: int, menu: MenuUpdate):
+def update_master_menu(menu_id: int, menu: MenuUpdate):
     """Met a jour un menu dans la base MAITRE (centrale)"""
     try:
         updates = []
@@ -794,7 +794,7 @@ async def update_master_menu(menu_id: int, menu: MenuUpdate):
 
 
 @router.delete("/master/{menu_id}")
-async def delete_master_menu(menu_id: int):
+def delete_master_menu(menu_id: int):
     """Supprime un menu de la base MAITRE (centrale)"""
     try:
         # Verifier s'il y a des enfants
@@ -843,7 +843,7 @@ _ACCENT_FIXES = {
 
 
 @router.post("/fix-accents")
-async def fix_menu_accents():
+def fix_menu_accents():
     """Corrige les accents manquants dans les noms de menus existants en base"""
     try:
         updated = 0

@@ -123,7 +123,7 @@ def _ensure_client_alert_tables(dwh_code: str):
 # ==================== CRUD TEMPLATES ====================
 
 @router.get("")
-async def list_templates():
+def list_templates():
     """Liste tous les templates d'alertes de la base maître."""
     try:
         _init_templates_table()
@@ -142,7 +142,7 @@ async def list_templates():
 
 
 @router.post("")
-async def create_template(t: TemplateCreate):
+def create_template(t: TemplateCreate):
     """Crée un nouveau template dans la base maître."""
     try:
         _init_templates_table()
@@ -167,7 +167,7 @@ async def create_template(t: TemplateCreate):
 
 
 @router.put("/{template_id}")
-async def update_template(template_id: int, t: TemplateUpdate):
+def update_template(template_id: int, t: TemplateUpdate):
     """Met à jour un template."""
     try:
         updates, params = [], []
@@ -198,7 +198,7 @@ async def update_template(template_id: int, t: TemplateUpdate):
 
 
 @router.delete("/{template_id}")
-async def delete_template(template_id: int):
+def delete_template(template_id: int):
     """Supprime un template."""
     try:
         write_central("DELETE FROM APP_KPI_AlertTemplates WHERE id = ?", (template_id,))
@@ -210,7 +210,7 @@ async def delete_template(template_id: int):
 # ==================== PUBLICATION ====================
 
 @router.post("/publish")
-async def publish_templates(req: PublishRequest):
+def publish_templates(req: PublishRequest):
     """
     Publie les templates sélectionnés vers toutes les bases clients actives.
     Crée APP_KPI_AlertRules dans chaque OptiBoard_XXX client.

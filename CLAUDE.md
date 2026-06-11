@@ -220,15 +220,58 @@ Le script :
 
 ## Hachage des mots de passe
 
-Algorithme : **SHA256** simple (pas bcrypt)
+Algorithme : **bcrypt** (coût 12), avec **rétro-compatibilité SHA256**.
+Module unique : `app/services/password_utils.py` — ne JAMAIS hacher un mot de
+passe directement avec `hashlib.sha256` ailleurs.
+
 ```python
-import hashlib
-hashlib.sha256(password.encode()).hexdigest()
+from app.services.password_utils import hash_password, verify_password, needs_rehash
+h = hash_password(pwd)              # -> bcrypt ($2b$12$...)
+ok = verify_password(pwd, stored)  # accepte bcrypt ET SHA256 legacy (constant-time)
 ```
-Utilisé dans :
-- `setup.py` → `_hash_password()`
-- `auth_multitenant.py` → `_verify_password()`
-- `FIX_ADMIN_CLIENT.ps1` → `[System.BitConverter]::ToString(...).Replace("-","").ToLower()`
+
+**Migration progressive** : `auth_multitenant.login` vérifie le mot de passe via
+`verify_password` (qui accepte l'ancien SHA256) puis, si `needs_rehash(hash)` est
+vrai, ré-hache en bcrypt et met à jour la base dans la même requête. Aucun batch
+de migration nécessaire — chaque compte s'upgrade à sa prochaine connexion.
+
+Compat : `FIX_ADMIN_CLIENT.ps1` produit toujours du SHA256 (PowerShell natif) — il
+reste accepté et upgradé automatiquement au login.
+
+Anciennes versions : SHA256 nu (sans sel) — vulnérable au brute-force GPU, remplacé.
+
+---
+
+## Sécurité — gardes d'autorisation & licence
+
+### Gardes de rôle (`app/security.py`)
+`require_admin` (superadmin OU admin_client) et `require_superadmin` (central
+uniquement) sont des dépendances FastAPI. L'identité fait autorité via un
+`X-Session-Token` validé (jamais le header `X-User-Id` seul, falsifiable). Le rôle
+est résolu base client d'abord (role_dwh), puis centrale (role_global). Fail-closed.
+
+Routeurs protégés dans `run.py` via `dependencies=[Depends(...)]` :
+- **superadmin** : `dwh_admin`, `master_publish`, `admin_sql`, `sql_jobs`,
+  `env_manager`, `admin_subscriptions`, `sage_config_admin`.
+- **admin** : `client_users` (`/api/client-admin`).
+- NON protégés (volontaire) : `etl_agents` (heartbeat agent C# sans session),
+  routes exemptées du middleware (`/api/auth/login`, `/api/setup`, `/api/license`,
+  `/api/scheduler/status`, `/api/updates`, `/api/demo`, webhook WhatsApp).
+
+### Licence (`app/services/license_service.py`)
+- **Pas de bypass DEBUG.** Le contournement licence n'existe qu'en DEV explicite :
+  `APP_ENV=development` ET `LICENSE_DEV_MODE=True` (`is_license_dev_bypass()`).
+  Jamais actif en production, même avec `DEBUG=True`.
+- **machine_id** vérifié en mode hors-ligne (`_machine_id_matches`). `mid='*'` ou
+  vide = licence non liée (acceptée partout) ; sinon comparaison à `get_machine_id()`.
+- **Grace plafonnée** : `LICENSE_GRACE_MAX_CUMULATIVE` (défaut 30 j) depuis le
+  dernier contact serveur réussi. Plus de reconduction infinie : `first_grace_timestamp`
+  persisté dans `.license_cache`, au-delà du plafond → `expired`.
+
+### Secrets
+Aucun secret en dur dans le code/scripts versionnés. Clé AES agent ETL :
+`OPTIBOARD_ETL_AES_KEY` (repli legacy pour compat agents déjà déployés).
+Credentials SQL : via `.env`/settings ou variables d'environnement.
 
 ---
 

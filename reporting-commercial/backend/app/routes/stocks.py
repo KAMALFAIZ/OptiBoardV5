@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/stocks", tags=["Stocks"])
 
 
 @router.get("")
-async def get_stocks(
+def get_stocks(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -124,7 +124,7 @@ async def get_stocks(
 
 
 @router.get("/dormant")
-async def get_stock_dormant(
+def get_stock_dormant(
     jours_min: int = Query(180, description="Nombre minimum de jours sans mouvement"),
     gamme: Optional[str] = Query(None)
 ):
@@ -165,7 +165,7 @@ async def get_stock_dormant(
 
 
 @router.get("/rotation")
-async def get_rotation_stock(
+def get_rotation_stock(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante")
@@ -216,7 +216,7 @@ async def get_rotation_stock(
 
 
 @router.get("/article/{code_article}")
-async def get_mouvements_article(
+def get_mouvements_article(
     code_article: str,
     limit: int = Query(100, ge=1, le=1000)
 ):
@@ -265,7 +265,7 @@ async def get_mouvements_article(
 
 
 @router.get("/par-gamme")
-async def get_stocks_par_gamme():
+def get_stocks_par_gamme():
     """
     Récupère les stocks agrégés par gamme.
     """

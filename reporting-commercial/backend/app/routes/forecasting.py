@@ -16,7 +16,7 @@ class ForecastRequest(BaseModel):
 
 
 @router.post("/predict")
-async def predict(req: ForecastRequest):
+def predict(req: ForecastRequest):
     """
     Prédit les valeurs futures d'une série temporelle.
     Méthodes : régression linéaire, moyenne mobile pondérée, lissage exponentiel (Holt).

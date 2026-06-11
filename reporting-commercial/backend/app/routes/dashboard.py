@@ -50,7 +50,7 @@ def build_balance_query_with_societe(base_query: str, societe: Optional[str]) ->
 
 
 @router.get("", response_model=DashboardResponse)
-async def get_dashboard(
+def get_dashboard(
     date_debut: Optional[date] = Query(None, description="Date de début"),
     date_fin: Optional[date] = Query(None, description="Date de fin"),
     periode: Optional[str] = Query("annee_courante", description="Période prédéfinie"),
@@ -192,7 +192,7 @@ async def get_dashboard(
 
 
 @router.get("/kpis-advanced")
-async def get_kpis_advanced(
+def get_kpis_advanced(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -305,7 +305,7 @@ async def get_kpis_advanced(
 
 
 @router.get("/evolution-mensuelle")
-async def get_evolution_mensuelle(
+def get_evolution_mensuelle(
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),
     periode: Optional[str] = Query("annee_courante"),
@@ -349,7 +349,7 @@ async def get_evolution_mensuelle(
 
 
 @router.get("/comparatif-annuel")
-async def get_comparatif_annuel(
+def get_comparatif_annuel(
     annee: int = Query(default=2025, description="Année de référence")
 ):
     """

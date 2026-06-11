@@ -15,6 +15,7 @@ Fonctions d'acces:
 - execute_app()      : vers OptiBoard_XXX si existe, sinon OptiBoard_SaaS (avec log)
 """
 
+import os
 import pyodbc
 import logging
 import secrets
@@ -41,6 +42,22 @@ from .config_multitenant import (
 from .services.cache import query_cache, CACHE_TTL
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_query_timeout(conn: "pyodbc.Connection") -> "pyodbc.Connection":
+    """Applique un timeout de requete (secondes) a la connexion pyodbc.
+
+    Evite qu'une requete orpheline monopolise indefiniment un slot du pool
+    (semaphore). Configurable via SQL_QUERY_TIMEOUT ; 0 desactive.
+    Defaut 60 s — assez large pour les MERGE ETL volumineux.
+    """
+    try:
+        t = int(os.environ.get("SQL_QUERY_TIMEOUT", "60") or 0)
+        if t > 0:
+            conn.timeout = t
+    except Exception:
+        pass
+    return conn
 
 
 # =====================================================
@@ -150,7 +167,7 @@ def get_central_connection() -> pyodbc.Connection:
             "La base centrale n'est pas configuree. "
             "Verifiez le fichier .env ou utilisez /api/setup/configure"
         )
-    return pyodbc.connect(settings.central_database_url)
+    return _apply_query_timeout(pyodbc.connect(settings.central_database_url))
 
 
 @contextmanager
@@ -333,12 +350,12 @@ class DWHConnectionPool:
                     dwh_info.base_dwh, dwh_info.user_dwh, dwh_info.password_dwh,
                 )
                 self._semaphore.acquire()
-                return _SemaphoreConnection(pyodbc.connect(conn_str), self._semaphore)
+                return _SemaphoreConnection(_apply_query_timeout(pyodbc.connect(conn_str)), self._semaphore)
             except Exception as ssh_err:
                 logger.warning(f"[SSH] Tunnel échoué pour {dwh_code} ({ssh_err}), fallback connexion directe")
 
         self._semaphore.acquire()
-        return _SemaphoreConnection(pyodbc.connect(dwh_info.connection_string), self._semaphore)
+        return _SemaphoreConnection(_apply_query_timeout(pyodbc.connect(dwh_info.connection_string)), self._semaphore)
 
     def clear_cache(self, dwh_code: str = None):
         """Vide le cache des DWH."""
@@ -604,7 +621,7 @@ class ClientConnectionManager:
 
         settings = get_central_settings()
         conn_str = config.get_connection_string(settings)
-        return pyodbc.connect(conn_str)
+        return _apply_query_timeout(pyodbc.connect(conn_str))
 
     def has_client_db(self, dwh_code: str) -> bool:
         """Verifie si un DWH a une base client configuree."""

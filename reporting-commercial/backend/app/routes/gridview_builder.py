@@ -239,7 +239,7 @@ def serialize_model(obj):
 
 
 @router.get("/grids")
-async def get_gridviews(
+def get_gridviews(
     user_id: Optional[int] = None,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -267,7 +267,7 @@ async def get_gridviews(
 
 
 @router.get("/grids/{grid_id}")
-async def get_gridview(
+def get_gridview(
     grid_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
@@ -312,7 +312,7 @@ async def get_gridview(
 
 
 @router.post("/grids")
-async def create_gridview(grid: Dict[str, Any], user_id: int = 1):
+def create_gridview(grid: Dict[str, Any], user_id: int = 1):
     """Cree une nouvelle grille"""
     try:
         nom = (grid.get('nom') or '').strip()
@@ -368,7 +368,7 @@ async def create_gridview(grid: Dict[str, Any], user_id: int = 1):
 
 
 @router.put("/grids/{grid_id}")
-async def update_gridview(grid_id: int, grid: GridViewUpdate):
+def update_gridview(grid_id: int, grid: GridViewUpdate):
     """Met a jour une grille"""
     try:
         updates = []
@@ -444,7 +444,7 @@ async def update_gridview(grid_id: int, grid: GridViewUpdate):
 
 
 @router.delete("/grids/{grid_id}")
-async def delete_gridview(grid_id: int):
+def delete_gridview(grid_id: int):
     """Supprime une grille"""
     try:
         with get_db_cursor() as cursor:
@@ -465,7 +465,7 @@ class GridDataRequest(BaseModel):
 
 
 @router.post("/grids/{grid_id}/data")
-async def get_grid_data(
+def get_grid_data(
     grid_id: int,
     request: GridDataRequest = GridDataRequest(),
     dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -687,7 +687,7 @@ async def get_grid_data(
 
 
 @router.post("/grids/{grid_id}/export")
-async def export_grid_data(
+def export_grid_data(
     grid_id: int,
     format: str = "csv",
     dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -782,7 +782,7 @@ async def export_grid_data(
 # =============================================================================
 
 @router.get("/grids/{grid_id}/export/pptx")
-async def export_grid_pptx(
+def export_grid_pptx(
     grid_id: int,
     dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
     user_id_hdr: Optional[str] = Header(None, alias="X-User-Id"),
@@ -964,7 +964,7 @@ async def export_grid_pptx(
 # =============================================================================
 
 @router.get("/grids/{grid_id}/user-prefs/{user_id}")
-async def get_user_prefs(grid_id: int, user_id: int):
+def get_user_prefs(grid_id: int, user_id: int):
     """Recupere les preferences de colonnes d'un utilisateur pour une grille"""
     try:
         results = execute_query(
@@ -981,7 +981,7 @@ async def get_user_prefs(grid_id: int, user_id: int):
 
 
 @router.put("/grids/{grid_id}/user-prefs/{user_id}")
-async def save_user_prefs(grid_id: int, user_id: int, body: Dict[str, Any]):
+def save_user_prefs(grid_id: int, user_id: int, body: Dict[str, Any]):
     """Sauvegarde les preferences de colonnes d'un utilisateur pour une grille"""
     try:
         columns = body.get('columns', [])
@@ -1013,7 +1013,7 @@ async def save_user_prefs(grid_id: int, user_id: int, body: Dict[str, Any]):
 
 
 @router.delete("/grids/{grid_id}/user-prefs/{user_id}")
-async def reset_user_prefs(grid_id: int, user_id: int):
+def reset_user_prefs(grid_id: int, user_id: int):
     """Reinitialise les preferences utilisateur (retour a la config par defaut)"""
     try:
         with get_db_cursor() as cursor:

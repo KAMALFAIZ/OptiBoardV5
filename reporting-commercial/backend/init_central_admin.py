@@ -3,19 +3,31 @@ Script d'initialisation : crée les tables de base et l'utilisateur superadmin
 dans OptiBoard_SaaS (base centrale).
 """
 import hashlib
+import os
+import sys
+
 import pyodbc
+
+# Secrets lus dans l'environnement — jamais en dur dans le code.
+_PWD = os.environ.get("DB_PASSWORD")
+if not _PWD:
+    sys.exit("ERREUR: definissez DB_PASSWORD (et optionnellement DB_SERVER/DB_USER/DB_NAME).")
 
 CONN_STRING = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=kasoft.selfip.net;"
-    "DATABASE=OptiBoard_SaaS;"
-    "UID=sa;"
-    "PWD=SQL@2019;"
+    f"SERVER={os.environ.get('DB_SERVER', 'kasoft.selfip.net')};"
+    f"DATABASE={os.environ.get('DB_NAME', 'OptiBoard_SaaS')};"
+    f"UID={os.environ.get('DB_USER', 'sa')};"
+    f"PWD={_PWD};"
     "TrustServerCertificate=yes"
 )
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    try:
+        from app.services.password_utils import hash_password as _h
+        return _h(password)
+    except Exception:
+        return hashlib.sha256(password.encode()).hexdigest()
 
 
 def run():

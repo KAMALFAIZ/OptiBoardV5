@@ -389,7 +389,7 @@ async def get_pic_2026(
 
 
 @router.get("/2026/regions")
-async def get_pic_regions(
+def get_pic_regions(
     taux_croissance: float = Query(0.05, ge=0, le=0.5)
 ):
     """Recupere les donnees detaillees par region"""
@@ -459,7 +459,7 @@ async def get_pic_regions(
 
 
 @router.get("/2026/commerciaux")
-async def get_pic_commerciaux(
+def get_pic_commerciaux(
     taux_croissance: float = Query(0.05, ge=0, le=0.5),
     region: Optional[str] = Query(None, description="Filtre par region")
 ):
@@ -527,7 +527,7 @@ async def get_pic_commerciaux(
 
 
 @router.get("/2026/articles")
-async def get_pic_articles(
+def get_pic_articles(
     taux_croissance: float = Query(0.05, ge=0, le=0.5),
     catalogue: Optional[str] = Query(None, description="Filtre par catalogue 1"),
     classe_abc: Optional[str] = Query(None, description="Filtre par classe ABC (A, B, C)"),
@@ -621,7 +621,7 @@ async def get_pic_articles(
 
 
 @router.get("/2026/articles-faible-marge")
-async def get_articles_faible_marge(
+def get_articles_faible_marge(
     seuil_marge: float = Query(10, description="Seuil de marge en % (defaut 10%)"),
     seuil_ca: float = Query(1000, description="Seuil minimum de CA")
 ):
@@ -665,7 +665,7 @@ async def get_articles_faible_marge(
 
 
 @router.get("/2026/articles-marge-negative")
-async def get_articles_marge_negative():
+def get_articles_marge_negative():
     """Recupere les articles a marge negative (en perte)"""
     try:
         query = f"""

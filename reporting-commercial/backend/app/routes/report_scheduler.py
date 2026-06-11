@@ -206,7 +206,7 @@ def init_scheduler_tables():
 # ==================== EMAIL CONFIG ====================
 
 @router.get("/email-config")
-async def get_email_config():
+def get_email_config():
     """Recupere la configuration email active"""
     try:
         results = execute_query(
@@ -224,7 +224,7 @@ async def get_email_config():
 
 
 @router.post("/email-config")
-async def save_email_config(config: EmailConfigCreate):
+def save_email_config(config: EmailConfigCreate):
     """Sauvegarde la configuration email"""
     try:
         init_scheduler_tables()
@@ -246,7 +246,7 @@ async def save_email_config(config: EmailConfigCreate):
 
 
 @router.post("/email-config/test")
-async def test_email_configuration(config: EmailConfigCreate):
+def test_email_configuration(config: EmailConfigCreate):
     """Teste une configuration email"""
     result = test_email_config({
         "smtp_host": config.smtp_host,
@@ -260,7 +260,7 @@ async def test_email_configuration(config: EmailConfigCreate):
 
 
 @router.post("/email-config/send-test")
-async def send_test_email(to_email: str):
+def send_test_email(to_email: str):
     """Envoie un email de test"""
     html_content = get_email_template("test_email", {
         "sent_at": datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -277,7 +277,7 @@ async def send_test_email(to_email: str):
 # ==================== SCHEDULES CRUD ====================
 
 @router.get("/schedules")
-async def get_all_schedules():
+def get_all_schedules():
     """Recupere tous les schedules"""
     try:
         init_scheduler_tables()
@@ -317,7 +317,7 @@ async def get_all_schedules():
 
 
 @router.get("/schedules/{schedule_id}")
-async def get_schedule(schedule_id: int):
+def get_schedule(schedule_id: int):
     """Recupere un schedule par ID"""
     try:
         results = execute_query(
@@ -344,7 +344,7 @@ async def get_schedule(schedule_id: int):
 
 
 @router.post("/schedules")
-async def create_schedule(schedule: ScheduleCreate):
+def create_schedule(schedule: ScheduleCreate):
     """Cree un nouveau schedule"""
     try:
         init_scheduler_tables()
@@ -376,7 +376,7 @@ async def create_schedule(schedule: ScheduleCreate):
 
 
 @router.put("/schedules/{schedule_id}")
-async def update_schedule(schedule_id: int, schedule: ScheduleUpdate):
+def update_schedule(schedule_id: int, schedule: ScheduleUpdate):
     """Met a jour un schedule"""
     try:
         updates = []
@@ -458,7 +458,7 @@ async def update_schedule(schedule_id: int, schedule: ScheduleUpdate):
 
 
 @router.post("/schedules/{schedule_id}/duplicate")
-async def duplicate_schedule(schedule_id: int):
+def duplicate_schedule(schedule_id: int):
     """Duplique un schedule existant"""
     try:
         orig = execute_query("SELECT * FROM APP_ReportSchedules WHERE id=?", (schedule_id,), use_cache=False)
@@ -488,7 +488,7 @@ async def duplicate_schedule(schedule_id: int):
 
 
 @router.delete("/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: int):
+def delete_schedule(schedule_id: int):
     """Supprime un schedule"""
     try:
         with get_db_cursor() as cursor:
@@ -503,7 +503,7 @@ async def delete_schedule(schedule_id: int):
 
 
 @router.post("/schedules/{schedule_id}/toggle")
-async def toggle_schedule(schedule_id: int):
+def toggle_schedule(schedule_id: int):
     """Active/desactive un schedule"""
     try:
         with get_db_cursor() as cursor:
@@ -525,7 +525,7 @@ async def toggle_schedule(schedule_id: int):
 # ==================== EXECUTION ====================
 
 @router.post("/schedules/{schedule_id}/run-now")
-async def run_schedule_now(schedule_id: int, background_tasks: BackgroundTasks):
+def run_schedule_now(schedule_id: int, background_tasks: BackgroundTasks):
     """Execute immediatement un schedule"""
     try:
         schedule = execute_query(
@@ -552,7 +552,7 @@ async def run_schedule_now(schedule_id: int, background_tasks: BackgroundTasks):
 
 
 @router.post("/send-report")
-async def send_report_now(
+def send_report_now(
     report_type: str,
     report_id: int,
     export_format: str,
@@ -583,7 +583,7 @@ async def send_report_now(
 # ==================== HISTORY ====================
 
 @router.get("/history")
-async def get_history(limit: int = 100, schedule_id: Optional[int] = None, status: Optional[str] = None):
+def get_history(limit: int = 100, schedule_id: Optional[int] = None, status: Optional[str] = None):
     """Recupere l'historique des envois"""
     try:
         query = """
@@ -619,7 +619,7 @@ async def get_history(limit: int = 100, schedule_id: Optional[int] = None, statu
 
 
 @router.get("/history/stats")
-async def get_history_stats():
+def get_history_stats():
     """Statistiques des envois enrichies"""
     try:
         global_stats = execute_query("""
@@ -822,7 +822,7 @@ async def execute_schedule(schedule: dict, custom_subject: str = None, custom_me
 # ==================== USERS FOR RECIPIENTS ====================
 
 @router.get("/users-with-emails")
-async def get_users_with_emails():
+def get_users_with_emails():
     """Recupere la liste des utilisateurs avec leurs emails pour la selection des destinataires"""
     try:
         # APP_Users est toujours dans MASTER
@@ -849,7 +849,7 @@ async def get_users_with_emails():
 # ==================== AVAILABLE REPORTS ====================
 
 @router.get("/available-reports")
-async def get_available_reports():
+def get_available_reports():
     """Liste les rapports disponibles pour la programmation"""
     try:
         reports = {

@@ -111,7 +111,7 @@ def add_filters(societe: Optional[str] = None, gamme: Optional[str] = None,
 
 
 @router.get("")
-async def get_liste_ventes(
+def get_liste_ventes(
     societe: Optional[str] = Query(None, description="Filtre par societe"),
     gamme: Optional[str] = Query(None, description="Filtre par gamme/catalogue 1"),
     catalogue2: Optional[str] = Query(None, description="Filtre par catalogue 2"),
@@ -234,7 +234,7 @@ async def get_liste_ventes(
 
 
 @router.get("/filtres")
-async def get_filtres_disponibles():
+def get_filtres_disponibles():
     """Recupere les valeurs distinctes pour les filtres (annee 2025)."""
     try:
         # Recuperer les gammes (Catalogue 1)
@@ -346,7 +346,7 @@ async def get_filtres_disponibles():
 
 
 @router.get("/export")
-async def export_liste_ventes(
+def export_liste_ventes(
     societe: Optional[str] = Query(None),
     gamme: Optional[str] = Query(None),
     catalogue2: Optional[str] = Query(None),

@@ -33,7 +33,7 @@ def _safe_str(v) -> str:
 
 
 @router.get("/liste")
-async def get_liste_fournisseurs():
+def get_liste_fournisseurs():
     """Retourne la liste agrégée des fournisseurs.
     Fallback sur le CTE Fournisseurs (F_COMPTET CT_Type=1) si Situation_Fournisseurs vide."""
     import logging
@@ -106,7 +106,7 @@ async def get_liste_fournisseurs():
 
 
 @router.get("/{nom_fournisseur}")
-async def get_fiche_fournisseur(
+def get_fiche_fournisseur(
     nom_fournisseur: str,
     date_debut: Optional[date] = Query(None),
     date_fin: Optional[date] = Query(None),

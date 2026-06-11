@@ -9,6 +9,7 @@ import { ChatProvider } from './context/ChatContext'
 import { DWHProvider, useDWH } from './context/DWHContext'
 import { DataSourceProvider } from './context/DataSourceContext'
 import { ToastProvider } from './components/common/Toast'
+import ApiErrorBridge from './components/common/ApiErrorBridge'
 import Layout from './components/common/Layout'
 import MobileLayout from './components/mobile/MobileLayout'
 import { useIsMobile } from './hooks/useIsMobile'
@@ -364,6 +365,7 @@ function AppRoot() {
                 <DWHProvider>
                   <DataSourceProvider>
                     <ToastProvider>
+                      <ApiErrorBridge />
                       <AppContent />
                     </ToastProvider>
                   </DataSourceProvider>

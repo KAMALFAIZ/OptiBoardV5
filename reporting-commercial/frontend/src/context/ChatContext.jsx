@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef } from 'react'
+import { sessionHeaders } from '../utils/authHeaders'
 import api from '../services/api'
 
 const ChatContext = createContext(null)
@@ -128,6 +129,7 @@ export function ChatProvider({ children }) {
       const headers = {
         ...getDWHHeaders(),
         ...getUserHeader(),
+        ...sessionHeaders(),
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream'
       }
@@ -279,7 +281,7 @@ export function ChatProvider({ children }) {
 
   const submitFeedback = useCallback(async (questionText, sqlQuery, rating) => {
     try {
-      const headers = { ...getDWHHeaders(), ...getUserHeader(), 'Content-Type': 'application/json' }
+      const headers = { ...getDWHHeaders(), ...getUserHeader(), ...sessionHeaders(), 'Content-Type': 'application/json' }
       const dwh = (() => { try { return JSON.parse(localStorage.getItem('currentDWH') || '{}') } catch { return {} } })()
       await fetch('/api/ai/learning/feedback', {
         method: 'POST',

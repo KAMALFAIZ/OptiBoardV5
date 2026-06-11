@@ -1473,7 +1473,7 @@ def _apply_window_calculations(
 # =============================================================================
 
 @router.get("")
-async def list_pivots(
+def list_pivots(
     user_id: Optional[int] = Query(None),
     is_public: Optional[bool] = Query(None),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
@@ -1510,7 +1510,7 @@ async def list_pivots(
 
 
 @router.get("/{pivot_id}")
-async def get_pivot(
+def get_pivot(
     pivot_id: int,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -1543,7 +1543,7 @@ async def get_pivot(
 
 
 @router.post("")
-async def create_pivot(data: PivotCreateRequest):
+def create_pivot(data: PivotCreateRequest):
     """Cree un nouveau pivot"""
     try:
         init_pivot_v2_tables()
@@ -1601,7 +1601,7 @@ async def create_pivot(data: PivotCreateRequest):
 
 
 @router.put("/{pivot_id}")
-async def update_pivot(
+def update_pivot(
     pivot_id: int,
     data: PivotUpdateRequest,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
@@ -1697,7 +1697,7 @@ async def update_pivot(
 
 
 @router.delete("/{pivot_id}")
-async def delete_pivot(pivot_id: int):
+def delete_pivot(pivot_id: int):
     """Supprime un pivot"""
     try:
         with get_db_cursor() as cursor:
@@ -1943,7 +1943,7 @@ async def execute_pivot(
 
 
 @router.post("/{pivot_id}/preview")
-async def preview_pivot(
+def preview_pivot(
     pivot_id: int,
     request: PivotExecuteRequest,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
@@ -2025,7 +2025,7 @@ async def preview_pivot(
 # =============================================================================
 
 @router.post("/{pivot_id}/drilldown")
-async def drilldown_pivot(
+def drilldown_pivot(
     pivot_id: int,
     request: PivotDrilldownRequest,
     dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -2206,7 +2206,7 @@ async def drilldown_pivot(
 
 
 @router.post("/{pivot_id}/drilldown/export")
-async def drilldown_pivot_export(
+def drilldown_pivot_export(
     pivot_id: int,
     request: PivotDrilldownRequest,
     dwh_code:    Optional[str] = Header(None, alias="X-DWH-Code"),
@@ -2368,7 +2368,7 @@ async def drilldown_pivot_export(
 # =============================================================================
 
 @router.get("/fields/{identifier}")
-async def get_fields(
+def get_fields(
     identifier: str,
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):
@@ -2434,7 +2434,7 @@ async def get_fields(
 # =============================================================================
 
 @router.get("/{pivot_id}/prefs/{user_id}")
-async def get_user_prefs(pivot_id: int, user_id: int):
+def get_user_prefs(pivot_id: int, user_id: int):
     """Recupere les preferences utilisateur d'un pivot"""
     try:
         init_pivot_v2_tables()
@@ -2463,7 +2463,7 @@ async def get_user_prefs(pivot_id: int, user_id: int):
 
 
 @router.put("/{pivot_id}/prefs/{user_id}")
-async def save_user_prefs(pivot_id: int, user_id: int, request: PivotUserPrefsRequest):
+def save_user_prefs(pivot_id: int, user_id: int, request: PivotUserPrefsRequest):
     """Sauvegarde les preferences utilisateur (UPSERT)"""
     try:
         init_pivot_v2_tables()
@@ -2498,7 +2498,7 @@ async def save_user_prefs(pivot_id: int, user_id: int, request: PivotUserPrefsRe
 
 
 @router.delete("/{pivot_id}/prefs/{user_id}")
-async def reset_user_prefs(pivot_id: int, user_id: int):
+def reset_user_prefs(pivot_id: int, user_id: int):
     """Supprime les preferences utilisateur (reset)"""
     try:
         with get_db_cursor() as cursor:

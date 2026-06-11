@@ -220,7 +220,7 @@ def _get_recipients(sub_id: int) -> list:
 # ==================== CRUD ====================
 
 @router.get("")
-async def get_subscriptions(email: Optional[str] = None):
+def get_subscriptions(email: Optional[str] = None):
     """Retourne les abonnements (filtrés par email si fourni)."""
     try:
         init_subscription_tables()
@@ -240,7 +240,7 @@ async def get_subscriptions(email: Optional[str] = None):
 
 
 @router.get("/check")
-async def check_subscription(email: str, report_type: str, report_id: int):
+def check_subscription(email: str, report_type: str, report_id: int):
     """Vérifie si un abonnement existe pour cet email + rapport."""
     try:
         init_subscription_tables()
@@ -258,7 +258,7 @@ async def check_subscription(email: str, report_type: str, report_id: int):
 
 
 @router.post("")
-async def create_subscription(sub: SubscriptionCreate):
+def create_subscription(sub: SubscriptionCreate):
     """Crée ou réactive un abonnement."""
     try:
         init_subscription_tables()
@@ -318,7 +318,7 @@ async def create_subscription(sub: SubscriptionCreate):
 
 
 @router.put("/{sub_id}")
-async def update_subscription(sub_id: int, sub: SubscriptionUpdate):
+def update_subscription(sub_id: int, sub: SubscriptionUpdate):
     """Met à jour un abonnement (planification, canal, format, statut)."""
     try:
         updates, params = [], []
@@ -378,7 +378,7 @@ async def update_subscription(sub_id: int, sub: SubscriptionUpdate):
 
 
 @router.delete("/{sub_id}")
-async def delete_subscription(sub_id: int):
+def delete_subscription(sub_id: int):
     """Supprime un abonnement."""
     try:
         _write("DELETE FROM APP_UserSubscriptions WHERE id = ?", (sub_id,))
@@ -388,7 +388,7 @@ async def delete_subscription(sub_id: int):
 
 
 @router.post("/{sub_id}/toggle")
-async def toggle_subscription(sub_id: int):
+def toggle_subscription(sub_id: int):
     """Active/désactive un abonnement."""
     try:
         _write("""
@@ -595,12 +595,12 @@ def _build_subscription_email(report_name: str, freq_label: str, email: str, sub
 # ==================== RECIPIENTS ROUTES ====================
 
 @router.get("/{sub_id}/recipients")
-async def get_recipients(sub_id: int):
+def get_recipients(sub_id: int):
     return {"success": True, "data": _get_recipients(sub_id)}
 
 
 @router.post("/{sub_id}/recipients")
-async def add_recipient(sub_id: int, body: RecipientIn):
+def add_recipient(sub_id: int, body: RecipientIn):
     try:
         _init_recipients_table()
         _write(
@@ -616,7 +616,7 @@ async def add_recipient(sub_id: int, body: RecipientIn):
 
 
 @router.delete("/{sub_id}/recipients/{r_id}")
-async def delete_recipient(sub_id: int, r_id: int):
+def delete_recipient(sub_id: int, r_id: int):
     try:
         _write("DELETE FROM APP_SubscriptionRecipients WHERE id=? AND sub_id=?", (r_id, sub_id))
         return {"success": True}
@@ -627,7 +627,7 @@ async def delete_recipient(sub_id: int, r_id: int):
 # ==================== DELIVER-NOW ====================
 
 @router.post("/deliver-now")
-async def deliver_now(background_tasks: BackgroundTasks):
+def deliver_now(background_tasks: BackgroundTasks):
     """Déclenche manuellement la livraison des abonnements échus."""
     background_tasks.add_task(deliver_due_subscriptions)
     return {"success": True, "message": "Livraison lancée en arrière-plan"}
@@ -908,7 +908,7 @@ class ChannelTestRequest(BaseModel):
 
 
 @router.get("/email-templates")
-async def get_email_templates():
+def get_email_templates():
     """Retourne la liste des templates email disponibles."""
     return {"success": True, "data": [
         {"key": k, **v} for k, v in EMAIL_TEMPLATES.items()
@@ -916,13 +916,13 @@ async def get_email_templates():
 
 
 @router.get("/email-templates/config")
-async def get_template_config():
+def get_template_config():
     """Retourne la configuration courante des templates email."""
     return {"success": True, "data": _get_template_config()}
 
 
 @router.post("/email-templates/config")
-async def save_template_config(body: TemplateConfigUpdate):
+def save_template_config(body: TemplateConfigUpdate):
     """Sauvegarde la configuration des templates email."""
     current = _get_template_config()
     update = {k: v for k, v in body.dict().items() if v is not None}
@@ -932,7 +932,7 @@ async def save_template_config(body: TemplateConfigUpdate):
 
 
 @router.get("/email-templates/{template_key}/preview")
-async def preview_email_template(
+def preview_email_template(
     template_key: str,
     nom_entreprise: Optional[str] = None,
     couleur_principale: Optional[str] = None,
@@ -963,7 +963,7 @@ async def preview_email_template(
 # ==================== CANAUX MESSAGING ====================
 
 @router.get("/channels/config")
-async def get_channels_config():
+def get_channels_config():
     """Retourne la config des canaux (tokens masqués)."""
     cfg = _get_template_config()
     return {
@@ -980,7 +980,7 @@ async def get_channels_config():
 
 
 @router.post("/channels/test")
-async def test_channel(body: ChannelTestRequest):
+def test_channel(body: ChannelTestRequest):
     """Envoie un message de test sur le canal configuré."""
     cfg = _get_template_config()
     app_name = cfg.get("nom_entreprise", "OptiBoard")
@@ -1007,7 +1007,7 @@ async def test_channel(body: ChannelTestRequest):
 
 
 @router.post("/channels/verify")
-async def verify_channel_credentials(body: TemplateConfigUpdate):
+def verify_channel_credentials(body: TemplateConfigUpdate):
     """Vérifie les credentials d'un canal sans les sauvegarder."""
     result = {}
     if body.telegram_bot_token:
@@ -1081,7 +1081,7 @@ class TemplatePreviewRequest(BaseModel):
 
 
 @router.get("/message-templates")
-async def list_message_templates(channel: Optional[str] = None):
+def list_message_templates(channel: Optional[str] = None):
     """Liste tous les templates personnalisés (filtrables par canal)."""
     _init_message_templates_table()
     try:
@@ -1101,7 +1101,7 @@ async def list_message_templates(channel: Optional[str] = None):
 
 
 @router.post("/message-templates")
-async def create_message_template(body: MessageTemplateCreate):
+def create_message_template(body: MessageTemplateCreate):
     """Crée un nouveau template personnalisé."""
     _init_message_templates_table()
     try:
@@ -1124,7 +1124,7 @@ async def create_message_template(body: MessageTemplateCreate):
 
 
 @router.put("/message-templates/{tpl_id}")
-async def update_message_template(tpl_id: int, body: MessageTemplateUpdate):
+def update_message_template(tpl_id: int, body: MessageTemplateUpdate):
     """Met à jour un template personnalisé."""
     try:
         updates, params = [], []
@@ -1157,7 +1157,7 @@ async def update_message_template(tpl_id: int, body: MessageTemplateUpdate):
 
 
 @router.delete("/message-templates/{tpl_id}")
-async def delete_message_template(tpl_id: int):
+def delete_message_template(tpl_id: int):
     """Supprime un template personnalisé."""
     try:
         _write("DELETE FROM APP_MessageTemplates WHERE id=?", (tpl_id,))
@@ -1167,7 +1167,7 @@ async def delete_message_template(tpl_id: int):
 
 
 @router.post("/message-templates/{tpl_id}/set-default")
-async def set_default_template(tpl_id: int):
+def set_default_template(tpl_id: int):
     """Définit un template comme défaut pour son canal."""
     try:
         rows = execute_query(
@@ -1190,7 +1190,7 @@ async def set_default_template(tpl_id: int):
 
 
 @router.post("/message-templates/preview")
-async def preview_message_template(body: TemplatePreviewRequest):
+def preview_message_template(body: TemplatePreviewRequest):
     """Prévisualise un template avec des données d'exemple."""
     if body.channel == "email":
         html = build_email_html(

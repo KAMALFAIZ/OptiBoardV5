@@ -82,7 +82,7 @@ def _default_dates():
 # =============================================================================
 
 @router.get("/kpis")
-async def get_kpis_comptables(exercice: Optional[int] = None):
+def get_kpis_comptables(exercice: Optional[int] = None):
     """KPIs agrégés : résultat net, trésorerie, encours clients, dettes fournisseurs."""
     year = exercice or _current_year()
     date_debut, date_fin = _default_dates()
@@ -133,7 +133,7 @@ async def get_kpis_comptables(exercice: Optional[int] = None):
 # =============================================================================
 
 @router.get("/balance-generale")
-async def get_balance_generale(exercice: Optional[int] = None):
+def get_balance_generale(exercice: Optional[int] = None):
     """Balance générale complète par compte."""
     year = exercice or _current_year()
     try:
@@ -164,7 +164,7 @@ async def get_balance_generale(exercice: Optional[int] = None):
 # =============================================================================
 
 @router.get("/journal-ecritures")
-async def get_journal_ecritures(
+def get_journal_ecritures(
     date_debut: Optional[str] = None,
     date_fin: Optional[str] = None,
     journal: Optional[str] = None,
@@ -194,7 +194,7 @@ async def get_journal_ecritures(
 # =============================================================================
 
 @router.get("/balance-tiers")
-async def get_balance_tiers(type_tiers: Optional[str] = Query(None, description="clients | fournisseurs | all")):
+def get_balance_tiers(type_tiers: Optional[str] = Query(None, description="clients | fournisseurs | all")):
     """Balance tiers : clients et/ou fournisseurs."""
     tiers_type = (type_tiers or "all").lower()
     try:
@@ -241,7 +241,7 @@ async def get_balance_tiers(type_tiers: Optional[str] = Query(None, description=
 # =============================================================================
 
 @router.get("/tresorerie")
-async def get_tresorerie(
+def get_tresorerie(
     date_debut: Optional[str] = None,
     date_fin: Optional[str] = None,
 ):
@@ -275,7 +275,7 @@ async def get_tresorerie(
 # =============================================================================
 
 @router.get("/charges")
-async def get_detail_charges(exercice: Optional[int] = None):
+def get_detail_charges(exercice: Optional[int] = None):
     """Détail des charges par compte avec comparatif N/N-1."""
     year = exercice or _current_year()
     try:
@@ -303,7 +303,7 @@ async def get_detail_charges(exercice: Optional[int] = None):
 # =============================================================================
 
 @router.get("/produits")
-async def get_detail_produits(exercice: Optional[int] = None):
+def get_detail_produits(exercice: Optional[int] = None):
     """Détail des produits par compte avec comparatif N/N-1."""
     year = exercice or _current_year()
     try:
@@ -331,7 +331,7 @@ async def get_detail_produits(exercice: Optional[int] = None):
 # =============================================================================
 
 @router.get("/echeances-clients")
-async def get_echeances_clients(
+def get_echeances_clients(
     date_debut: Optional[str] = None,
     date_fin: Optional[str] = None,
 ):
@@ -366,7 +366,7 @@ async def get_echeances_clients(
 # =============================================================================
 
 @router.get("/echeances-fournisseurs")
-async def get_echeances_fournisseurs():
+def get_echeances_fournisseurs():
     """Échéances fournisseurs non réglées avec KPIs."""
     try:
         rows = execute_query(ECHEANCES_FOURNISSEURS)
@@ -396,7 +396,7 @@ async def get_echeances_fournisseurs():
 # =============================================================================
 
 @router.get("/lettrage")
-async def get_lettrage(
+def get_lettrage(
     date_debut: Optional[str] = None,
     date_fin: Optional[str] = None,
     statut: Optional[str] = Query(None, description="lettre | non_lettre | partiel | all"),
@@ -449,7 +449,7 @@ async def get_lettrage(
 # =============================================================================
 
 @router.get("/analyses")
-async def get_analyses_comptables(exercice: Optional[int] = None):
+def get_analyses_comptables(exercice: Optional[int] = None):
     """Évolution mensuelle charges/produits/résultat pour l'exercice."""
     year = exercice or _current_year()
     try:
@@ -836,7 +836,7 @@ COMPTABILITE_DATASOURCES = [
 
 
 @router.post("/seed-datasources")
-async def seed_comptabilite_datasources():
+def seed_comptabilite_datasources():
     """
     Insère ou met à jour les datasource templates comptables dans APP_DataSources_Templates.
     Ces datasources sont ensuite disponibles dans PivotBuilder, GridViewBuilder et DashboardBuilder.
@@ -1396,7 +1396,7 @@ def _gv_columns_from_query(query: str):
 
 
 @router.post("/seed-reports")
-async def seed_comptabilite_reports():
+def seed_comptabilite_reports():
     """
     Crée ou met à jour tous les rapports comptabilité :
       - 25 DataSource Templates (DS_CPT_*)
@@ -1681,7 +1681,7 @@ _GV_NAME_TO_DS = {
 
 
 @router.post("/fix-gridviews")
-async def fix_comptabilite_gridviews():
+def fix_comptabilite_gridviews():
     """
     Rattache les datasources DS_CPT_* aux GridViews comptabilité
     dont le champ data_source_code est vide ou NULL.

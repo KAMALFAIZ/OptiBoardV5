@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { sessionHeaders } from '../../utils/authHeaders'
 import { Send, Bot, User, Trash2, MessageSquare } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useDWH } from '../../context/DWHContext'
@@ -188,6 +189,7 @@ export default function MobileChatPage() {
           'Authorization': `Bearer ${token}`,
           'X-DWH-Code':   dwhCode,
           'X-User-Id':    String(user?.id || ''),
+          ...sessionHeaders(),
         },
         body: JSON.stringify({ message: msg, session_id: sessionId, mode }),
         signal: abortRef.current.signal,

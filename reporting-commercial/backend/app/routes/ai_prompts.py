@@ -35,7 +35,7 @@ class PromptSaveRequest(BaseModel):
 
 
 @router.get("/")
-async def list_prompts(
+def list_prompts(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
     """Retourne toutes les sections de prompts (superadmin)."""
@@ -46,7 +46,7 @@ async def list_prompts(
 
 
 @router.put("/{code}")
-async def update_prompt(
+def update_prompt(
     code: str,
     request: PromptSaveRequest,
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
@@ -62,7 +62,7 @@ async def update_prompt(
 
 
 @router.delete("/{code}/reset")
-async def reset_prompt_route(
+def reset_prompt_route(
     code: str,
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
@@ -75,7 +75,7 @@ async def reset_prompt_route(
 
 
 @router.get("/preview")
-async def preview_full_prompt(
+def preview_full_prompt(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
 ):

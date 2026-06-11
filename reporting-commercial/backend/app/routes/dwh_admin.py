@@ -1640,7 +1640,7 @@ async def dwh_admin_client_db_status(code: str):
 
 
 @router.get("/dwh-admin/{code}")
-async def dwh_admin_get(code: str):
+def dwh_admin_get(code: str):
     """Récupère les détails d'un DWH."""
     try:
         rows = execute_query(
@@ -1717,7 +1717,7 @@ async def dwh_admin_create(dwh: DWHCreate):
 
 
 @router.put("/dwh-admin/{code}")
-async def dwh_admin_update(code: str, dwh: DWHUpdate):
+def dwh_admin_update(code: str, dwh: DWHUpdate):
     """Met à jour un DWH (password non modifié si absent)."""
     try:
         with get_db_cursor() as cursor:
@@ -1776,7 +1776,7 @@ def _drop_db(serveur: str, db_name: str, user: str, password: str) -> dict:
 
 
 @router.delete("/dwh-admin/{code}")
-async def dwh_admin_delete(code: str):
+def dwh_admin_delete(code: str):
     """Supprime un DWH du registre central + DROP automatique des bases SQL Server."""
     if code.upper() in PROTECTED_DWH_CODES:
         raise HTTPException(status_code=403, detail=f"La base '{code}' est protégée et ne peut pas être supprimée")
@@ -1880,7 +1880,7 @@ async def sync_demo_dwh(code: str):
 
 
 @router.get("/admin/dwh/demo-list")
-async def list_demo_dwhs():
+def list_demo_dwhs():
     """Liste les DWH marqués is_demo — pour l'interface superadmin."""
     rows = execute_central(
         "SELECT code, nom, actif, is_demo FROM APP_DWH WHERE is_demo = 1 ORDER BY nom",
@@ -1894,7 +1894,7 @@ async def list_demo_dwhs():
 # =============================================================================
 
 @router.post("/dwh-admin/test-connection")
-async def dwh_admin_test_connection(req: TestConnectionRequest):
+def dwh_admin_test_connection(req: TestConnectionRequest):
     """Teste une connexion SQL Server (serveur + base + credentials)."""
     try:
         if not _check_db_exists(req.serveur, req.base, req.user, req.password):
@@ -1908,7 +1908,7 @@ async def dwh_admin_test_connection(req: TestConnectionRequest):
 
 
 @router.post("/dwh-admin/{code}/test")
-async def dwh_admin_test_existing(code: str):
+def dwh_admin_test_existing(code: str):
     """Teste la connexion d'un DWH déjà enregistré."""
     try:
         dwh = _get_dwh_or_404(code)
@@ -1925,7 +1925,7 @@ async def dwh_admin_test_existing(code: str):
 # =============================================================================
 
 @router.get("/dwh-admin/{code}/smtp")
-async def dwh_admin_get_smtp(code: str):
+def dwh_admin_get_smtp(code: str):
     """Récupère la configuration SMTP d'un DWH (depuis sa base client)."""
     try:
         if client_manager.has_client_db(code):
@@ -1946,7 +1946,7 @@ async def dwh_admin_get_smtp(code: str):
 
 
 @router.post("/dwh-admin/{code}/smtp")
-async def dwh_admin_save_smtp(code: str, smtp: SMTPConfig):
+def dwh_admin_save_smtp(code: str, smtp: SMTPConfig):
     """Sauvegarde la configuration SMTP dans la base client."""
     try:
         if client_manager.has_client_db(code):
@@ -1969,7 +1969,7 @@ async def dwh_admin_save_smtp(code: str, smtp: SMTPConfig):
 
 
 @router.get("/dwh-admin/{code}/tunnel/status")
-async def dwh_tunnel_status(code: str):
+def dwh_tunnel_status(code: str):
     """Retourne l'état du tunnel SSH pour un DWH."""
     from ..services.ssh_tunnel_service import get_status
     return {"success": True, "data": get_status(code)}
@@ -1999,7 +1999,7 @@ async def dwh_tunnel_start(code: str):
 
 
 @router.post("/dwh-admin/{code}/tunnel/stop")
-async def dwh_tunnel_stop(code: str):
+def dwh_tunnel_stop(code: str):
     """Arrête le tunnel SSH pour un DWH."""
     from ..services.ssh_tunnel_service import stop_tunnel
     stop_tunnel(code)
@@ -2007,7 +2007,7 @@ async def dwh_tunnel_stop(code: str):
 
 
 @router.post("/dwh-admin/{code}/smtp/test")
-async def dwh_admin_test_smtp(code: str, smtp: SMTPConfig):
+def dwh_admin_test_smtp(code: str, smtp: SMTPConfig):
     """Envoie un email de test."""
     import smtplib
     from email.mime.text import MIMEText
@@ -2032,7 +2032,7 @@ async def dwh_admin_test_smtp(code: str, smtp: SMTPConfig):
 # =============================================================================
 
 @router.get("/dwh-admin/{code}/sources")
-async def dwh_admin_list_sources(code: str):
+def dwh_admin_list_sources(code: str):
     """Liste les sources Sage d'un DWH (metadata uniquement — credentials dans APP_ETL_Agents)."""
     try:
         rows = execute_query(
@@ -2047,7 +2047,7 @@ async def dwh_admin_list_sources(code: str):
 
 
 @router.post("/dwh-admin/{code}/sources")
-async def dwh_admin_add_source(code: str, source: Dict[str, Any] = Body(...)):
+def dwh_admin_add_source(code: str, source: Dict[str, Any] = Body(...)):
     """Ajoute une source Sage (entrée monitoring) à un DWH.
     Les credentials Sage doivent être configurés via l'agent ETL (APP_ETL_Agents).
     """
@@ -2069,7 +2069,7 @@ async def dwh_admin_add_source(code: str, source: Dict[str, Any] = Body(...)):
 
 
 @router.delete("/dwh-admin/{code}/sources/{source_code}")
-async def dwh_admin_delete_source(code: str, source_code: str):
+def dwh_admin_delete_source(code: str, source_code: str):
     """Supprime une source Sage."""
     try:
         with get_db_cursor() as cursor:
@@ -2221,7 +2221,7 @@ async def dwh_admin_reset_client_db(code: str, req: ResetClientDBRequest):
 # =============================================================================
 
 @router.post("/dwh-admin/{code}/init-menus")
-async def dwh_admin_init_menus(code: str):
+def dwh_admin_init_menus(code: str):
     """
     Insère les menus et sous-menus par défaut dans la base client OptiBoard_{code}.
     N'agit que si APP_Menus est vide — aucune table créée.
@@ -2254,7 +2254,7 @@ CUSTOMIZABLE_TABLES = {"APP_Menus", "APP_GridViews", "APP_Pivots_V2", "APP_Dashb
 
 
 @router.post("/dwh-admin/{dwh_code}/mark-customized")
-async def dwh_admin_mark_customized(dwh_code: str, req: MarkCustomizedRequest):
+def dwh_admin_mark_customized(dwh_code: str, req: MarkCustomizedRequest):
     """
     Marque/démarque une ligne comme personnalisée (is_customized).
     Une ligne is_customized=1 ne sera jamais écrasée par les syncs Master.
@@ -2279,7 +2279,7 @@ async def dwh_admin_mark_customized(dwh_code: str, req: MarkCustomizedRequest):
 # =============================================================================
 
 @router.get("/dwh-admin/{code}/optiboard-sql-script")
-async def dwh_admin_optiboard_sql_script(code: str):
+def dwh_admin_optiboard_sql_script(code: str):
     """
     Génère et retourne le script SQL complet pour créer manuellement
     la base OptiBoard du client (CREATE DATABASE + toutes les tables).
@@ -2330,7 +2330,7 @@ class RepairClientDBRequest(BaseModel):
 
 
 @router.get("/dwh-admin/{code}/agent-config")
-async def dwh_admin_agent_config(code: str, request: Request):
+def dwh_admin_agent_config(code: str, request: Request):
     """
     Génère un fichier de configuration chiffré (AES-256-GCM) pour l'Agent ETL Sage.
     Contient le couple (server_url + dwh_code) lié au client — évite toute
@@ -2369,8 +2369,11 @@ async def dwh_admin_agent_config(code: str, request: Request):
         "client_nom": dwh["nom"]
     }
 
-    # Chiffrement AES-256-GCM — clé partagée avec l'agent C#
-    _KEY = b"kasoft_optiboard_etl_key_2026!!!"  # 32 octets
+    # Chiffrement AES-256-GCM — clé partagée avec l'agent C#.
+    # Configurable via OPTIBOARD_ETL_AES_KEY (32 octets) ; repli sur la clé
+    # historique pour rester compatible avec les agents déjà déployés.
+    _env_key = _os.environ.get("OPTIBOARD_ETL_AES_KEY")
+    _KEY = _env_key.encode() if _env_key else b"kasoft_optiboard_etl_key_2026!!!"
     aesgcm = AESGCM(_KEY)
     nonce = _os.urandom(12)
     plaintext = _json.dumps(payload, ensure_ascii=False).encode()

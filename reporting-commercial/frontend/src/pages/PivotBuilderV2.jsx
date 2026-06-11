@@ -16,6 +16,7 @@ import {
 import AIBuilderGenerator from '../components/ai/AIBuilderGenerator'
 import { useToast } from '../components/common/Toast'
 import useSidebarResize from '../hooks/useSidebarResize'
+import { APP_DOT, APP_BG } from '../utils/applicationThemes'
 
 const TABS = [
   { id: 'general', label: 'General', icon: Settings2 },
@@ -39,30 +40,6 @@ const APPLICATION_OPTIONS = [
   { value: 'paie', label: 'Paie' },
   { value: 'tresorerie', label: 'Gestion Trésorerie' },
 ]
-
-const APP_DOT = {
-  commercial:   'bg-blue-500',
-  comptabilite: 'bg-emerald-500',
-  paie:         'bg-orange-400',
-  tresorerie:   'bg-violet-500',
-}
-const APP_TEXT = {
-  commercial:   'text-blue-600 dark:text-blue-400',
-  comptabilite: 'text-emerald-600 dark:text-emerald-400',
-  paie:         'text-orange-500 dark:text-orange-400',
-  tresorerie:   'text-violet-600 dark:text-violet-400',
-}
-const APP_BG = {
-  commercial:   'bg-blue-100 dark:bg-blue-900/30',
-  comptabilite: 'bg-emerald-100 dark:bg-emerald-900/30',
-  paie:         'bg-orange-100 dark:bg-orange-900/30',
-  tresorerie:   'bg-violet-100 dark:bg-violet-900/30',
-}
-const APP_LABEL = {
-  commercial: 'Commerciale', comptabilite: 'Comptabilité',
-  paie: 'Paie', tresorerie: 'Trésorerie',
-}
-
 
 // Generateur d'ID unique pour les champs dans les zones
 let _uidCounter = 0

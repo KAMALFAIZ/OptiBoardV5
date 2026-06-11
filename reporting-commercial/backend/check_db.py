@@ -1,12 +1,20 @@
 """Script pour verifier la base de donnees"""
+import os
+import sys
+
 import pyodbc
+
+# Secrets lus dans l'environnement — jamais en dur dans le code.
+_PWD = os.environ.get("DB_PASSWORD")
+if not _PWD:
+    sys.exit("ERREUR: definissez DB_PASSWORD (et optionnellement DB_SERVER/DB_USER/DB_NAME).")
 
 conn_str = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=kasoft.selfip.net;"
-    "DATABASE=OptiBoard_SaaS;"
-    "UID=sa;"
-    "PWD=SQL@2019;"
+    f"SERVER={os.environ.get('DB_SERVER', 'kasoft.selfip.net')};"
+    f"DATABASE={os.environ.get('DB_NAME', 'OptiBoard_SaaS')};"
+    f"UID={os.environ.get('DB_USER', 'sa')};"
+    f"PWD={_PWD};"
     "TrustServerCertificate=yes"
 )
 

@@ -87,8 +87,9 @@ class PasswordChange(BaseModel):
 
 
 def hash_password(password: str) -> str:
-    """Hash un mot de passe avec SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash bcrypt (vérification rétro-compatible SHA256 côté login)."""
+    from app.services.password_utils import hash_password as _h
+    return _h(password)
 
 
 def init_tables():
@@ -198,7 +199,7 @@ def get_societe_connection_string(societe: dict) -> str:
 
 
 @router.get("/societes")
-async def get_societes():
+def get_societes():
     """Liste toutes les societes/DWH (sans les mots de passe)"""
     try:
         init_tables()
@@ -255,7 +256,7 @@ async def create_societe(societe: SocieteCreate):
 
 
 @router.get("/societes/schema")
-async def get_societes_schema():
+def get_societes_schema():
     """Retourne la structure de la table APP_Societes (pour debug)"""
     try:
         init_tables()
@@ -272,7 +273,7 @@ async def get_societes_schema():
 
 
 @router.post("/societes/migrate")
-async def migrate_societes_table():
+def migrate_societes_table():
     """Migration: Recree la table APP_Societes avec la nouvelle structure"""
     try:
         with get_db_cursor() as cursor:
@@ -521,7 +522,7 @@ async def execute_societe_query(code: str, request: dict):
 # Societe = DWH Client dans la nouvelle architecture
 
 @router.get("/dwh")
-async def get_dwh_list():
+def get_dwh_list():
     """Liste tous les DWH disponibles depuis APP_DWH"""
     logger.debug("[DEBUG] get_dwh_list CALLED")
     try:
@@ -580,7 +581,7 @@ async def test_dwh_connection(code: str):
 # ===================== USERS =====================
 
 @router.get("/users")
-async def get_users():
+def get_users():
     """Liste tous les utilisateurs avec leurs societes, pages et DWH"""
     try:
         init_tables()
@@ -623,7 +624,7 @@ async def get_users():
 
 
 @router.post("/users")
-async def create_user(user: UserCreate):
+def create_user(user: UserCreate):
     """Cree un nouvel utilisateur"""
     try:
         init_tables()
@@ -670,7 +671,7 @@ async def create_user(user: UserCreate):
 
 
 @router.put("/users/{user_id}")
-async def update_user(user_id: int, user: UserUpdate):
+def update_user(user_id: int, user: UserUpdate):
     """Met a jour un utilisateur"""
     try:
         updates = []
@@ -736,7 +737,7 @@ async def update_user(user_id: int, user: UserUpdate):
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: int):
+def delete_user(user_id: int):
     """Supprime un utilisateur"""
     try:
         with get_db_cursor() as cursor:
@@ -747,7 +748,7 @@ async def delete_user(user_id: int):
 
 
 @router.post("/users/{user_id}/password")
-async def change_password(user_id: int, data: PasswordChange):
+def change_password(user_id: int, data: PasswordChange):
     """Change le mot de passe d'un utilisateur"""
     try:
         old_hash = hash_password(data.old_password)
@@ -777,7 +778,7 @@ async def change_password(user_id: int, data: PasswordChange):
 
 
 @router.post("/users/{user_id}/reset-password")
-async def reset_password(user_id: int):
+def reset_password(user_id: int):
     """Reset le mot de passe (admin only) - nouveau mdp = username"""
     try:
         # Recuperer le username
@@ -808,7 +809,7 @@ async def reset_password(user_id: int):
 # ===================== AUTH =====================
 
 @router.post("/login")
-async def login(credentials: UserLogin):
+def login(credentials: UserLogin):
     """Authentification utilisateur (central + client DB si dwh_code fourni)"""
     try:
         password_hash = hash_password(credentials.password)
@@ -939,7 +940,7 @@ async def login(credentials: UserLogin):
 
 
 @router.get("/pages")
-async def get_available_pages():
+def get_available_pages():
     """Liste les pages disponibles"""
     return {
         "success": True,

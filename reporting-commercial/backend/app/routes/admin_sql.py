@@ -181,7 +181,7 @@ AVAILABLE_QUERIES = {
 
 
 @router.get("/queries")
-async def get_queries(
+def get_queries(
     category: Optional[str] = Query(None, description="Filtrer par catégorie")
 ):
     """
@@ -208,7 +208,7 @@ async def get_queries(
 
 
 @router.get("/queries/{query_id}")
-async def get_query_detail(query_id: str):
+def get_query_detail(query_id: str):
     """
     Récupère le détail d'une requête.
     """
@@ -233,7 +233,7 @@ async def get_query_detail(query_id: str):
 
 
 @router.post("/queries/execute")
-async def execute_custom_query(
+def execute_custom_query(
     query: str = Query(..., description="Requête SQL à exécuter"),
     limit: int = Query(100, ge=1, le=1000, description="Nombre max de lignes"),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
@@ -294,12 +294,16 @@ async def execute_custom_query(
             "execution_time": round(execution_time, 4)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Console SQL superadmin : l'erreur SQL est l'information attendue par
+        # l'utilisateur (requete saisie invalide) -> 400, non sanitise.
+        raise HTTPException(status_code=400, detail=f"Erreur SQL: {e}")
 
 
 @router.get("/queries/history")
-async def get_query_history(
+def get_query_history(
     limit: int = Query(100, ge=1, le=500),
     query_id: Optional[str] = Query(None)
 ):
@@ -316,7 +320,7 @@ async def get_query_history(
 
 
 @router.get("/queries/stats")
-async def get_query_stats():
+def get_query_stats():
     """
     Récupère les statistiques globales des requêtes.
     """
@@ -347,7 +351,7 @@ async def get_query_stats():
 
 
 @router.post("/queries/preview/{query_id}")
-async def preview_query(
+def preview_query(
     query_id: str,
     date_debut: Optional[str] = Query("2025-01-01"),
     date_fin: Optional[str] = Query("2025-12-31"),
@@ -391,12 +395,16 @@ async def preview_query(
             "execution_time": round(execution_time, 4)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Console SQL superadmin : l'erreur SQL est l'information attendue par
+        # l'utilisateur (requete saisie invalide) -> 400, non sanitise.
+        raise HTTPException(status_code=400, detail=f"Erreur SQL: {e}")
 
 
 @router.delete("/queries/history")
-async def clear_history():
+def clear_history():
     """
     Efface l'historique des requêtes.
     """
@@ -405,7 +413,7 @@ async def clear_history():
 
 
 @router.delete("/queries/stats")
-async def clear_stats():
+def clear_stats():
     """
     Réinitialise les statistiques des requêtes.
     """

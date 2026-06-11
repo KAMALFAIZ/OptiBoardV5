@@ -266,7 +266,7 @@ async def _retry_failed_sql(
 # =====================================================
 
 @router.get("/status", response_model=AIStatusResponse)
-async def get_ai_status():
+def get_ai_status():
     """Retourne le statut et la configuration du module IA."""
     current_settings = reload_settings()  # Toujours relire le .env pour avoir la config a jour
 
@@ -599,7 +599,7 @@ async def chat_stream(
 
 
 @router.get("/schema")
-async def get_schema(
+def get_schema(
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
@@ -616,7 +616,7 @@ async def get_schema(
 
 
 @router.post("/sql/validate")
-async def validate_sql(request: SQLValidateRequest):
+def validate_sql(request: SQLValidateRequest):
     """Valide une requete SQL generee par l'IA sans l'executer."""
     current_settings = get_settings()
     is_valid, safe_sql, error = validate_ai_sql(
@@ -631,7 +631,7 @@ async def validate_sql(request: SQLValidateRequest):
 
 
 @router.post("/sql/execute")
-async def execute_ai_sql(
+def execute_ai_sql(
     request: SQLExecuteRequest,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
@@ -702,7 +702,7 @@ async def execute_ai_sql(
 
 
 @router.delete("/session/{session_id}")
-async def clear_session(session_id: str):
+def clear_session(session_id: str):
     """Efface l'historique d'une session de conversation."""
     conversation_manager.clear_session(session_id)
     return {"success": True, "message": "Session effacee"}

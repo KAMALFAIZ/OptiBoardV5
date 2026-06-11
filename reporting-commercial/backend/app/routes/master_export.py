@@ -73,7 +73,7 @@ def _safe_select(sql: str, label: str) -> list:
 # ============================================================
 
 @router.get("/info")
-async def master_info(
+def master_info(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Ping + comptage des entités exposées par le catalogue maître."""
@@ -100,7 +100,7 @@ async def master_info(
 # ============================================================
 
 @router.get("/menus")
-async def master_menus(
+def master_menus(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Liste complète des menus actifs (template maître)."""
@@ -118,7 +118,7 @@ async def master_menus(
 # ============================================================
 
 @router.get("/dashboards")
-async def master_dashboards(
+def master_dashboards(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Liste complète des dashboards actifs (template maître)."""
@@ -136,7 +136,7 @@ async def master_dashboards(
 # ============================================================
 
 @router.get("/gridviews")
-async def master_gridviews(
+def master_gridviews(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Liste complète des gridviews actifs (template maître)."""
@@ -155,7 +155,7 @@ async def master_gridviews(
 # ============================================================
 
 @router.get("/pivots")
-async def master_pivots(
+def master_pivots(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Liste complète des pivots V2 actifs (template maître)."""
@@ -174,7 +174,7 @@ async def master_pivots(
 # ============================================================
 
 @router.get("/datasources")
-async def master_datasources(
+def master_datasources(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Liste complète des sources de données (template maître)."""
@@ -193,7 +193,7 @@ async def master_datasources(
 # ============================================================
 
 @router.get("/etl-tables")
-async def master_etl_tables(
+def master_etl_tables(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Catalogue officiel des tables ETL à synchroniser depuis Sage."""
@@ -214,7 +214,7 @@ async def master_etl_tables(
 # ============================================================
 
 @router.get("/all")
-async def master_all(
+def master_all(
     x_master_api_key: Optional[str] = Header(None, alias="X-Master-Api-Key"),
 ):
     """Renvoie l'intégralité du catalogue maître en un seul payload."""

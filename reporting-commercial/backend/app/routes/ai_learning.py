@@ -51,7 +51,7 @@ class LibraryEntryUpdate(BaseModel):
 
 
 @router.post("/feedback")
-async def submit_feedback(
+def submit_feedback(
     request: FeedbackRequest,
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
@@ -70,7 +70,7 @@ async def submit_feedback(
 
 
 @router.get("/library")
-async def get_query_library(
+def get_query_library(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
     """Retourne la liste des requêtes (superadmin uniquement)."""
@@ -83,7 +83,7 @@ async def get_query_library(
 
 
 @router.post("/library")
-async def add_library_entry(
+def add_library_entry(
     entry: LibraryEntryCreate,
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
@@ -102,7 +102,7 @@ async def add_library_entry(
 
 
 @router.put("/library/{entry_id}")
-async def update_entry(
+def update_entry(
     entry_id: int,
     update: LibraryEntryUpdate,
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
@@ -121,7 +121,7 @@ async def update_entry(
 
 
 @router.delete("/library/{entry_id}")
-async def delete_entry(
+def delete_entry(
     entry_id: int,
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
@@ -133,7 +133,7 @@ async def delete_entry(
 
 
 @router.get("/stats")
-async def get_stats(
+def get_stats(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
     """Statistiques de la query library (superadmin)."""
@@ -144,7 +144,7 @@ async def get_stats(
 
 
 @router.post("/seed")
-async def seed_examples(
+def seed_examples(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
     """Initialise la Query Library avec les 15 exemples de référence (superadmin)."""
