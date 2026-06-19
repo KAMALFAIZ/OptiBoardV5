@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 LICENSE_SIGNING_SECRET = os.environ.get("LICENSE_SIGNING_SECRET", "")
 LICENSE_CACHE_FILE = Path(__file__).parent.parent.parent / ".license_cache"
+# Cle publique de la console KASOFT — verifie les licences signees (JWT RS256).
+CONSOLE_PUBLIC_KEY_FILE = Path(__file__).parent.parent / "license-public.pem"
 
 
 def _get_signing_secret() -> str:
@@ -287,6 +289,92 @@ def validate_license_remote(license_key: str, machine_id: str, server_url: str) 
         return None
 
 
+def _load_console_public_key():
+    """Charge la cle publique de la console KASOFT (PEM embarque)."""
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+        return load_pem_public_key(CONSOLE_PUBLIC_KEY_FILE.read_bytes())
+    except Exception as e:
+        logger.warning(f"[LICENSE] Cle publique console indisponible: {e}")
+        return None
+
+
+def _verify_console_jwt(token: str):
+    """
+    Verifie un JWT RS256 signe par la console KASOFT (cle publique embarquee).
+    Renvoie le payload (dict) si la signature est valide, sinon None (→ repli HMAC).
+    """
+    try:
+        if not token or token.count(".") != 2:
+            return None
+        import base64
+        import json as _json
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
+        header_b64, payload_b64, sig_b64 = token.split(".")
+
+        def _b64url(s: str) -> bytes:
+            return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+        header = _json.loads(_b64url(header_b64))
+        if header.get("alg") != "RS256":
+            return None
+        pub = _load_console_public_key()
+        if pub is None:
+            return None
+        pub.verify(
+            _b64url(sig_b64),
+            (header_b64 + "." + payload_b64).encode("ascii"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return _json.loads(_b64url(payload_b64))
+    except Exception as e:
+        logger.debug(f"[LICENSE] license_key n'est pas un JWT KASOFT valide (repli HMAC): {e}")
+        return None
+
+
+def _status_from_console_jwt(license_key: str, machine_id: str, claims: dict) -> LicenseStatus:
+    """Construit un LicenseStatus depuis les claims d'une licence KASOFT signee (console)."""
+    status = LicenseStatus()
+    status.machine_id = machine_id
+    status.organization = claims.get("customer", "") or ""
+    status.plan = claims.get("pack", "") or ""
+    status.is_trial = (status.plan == "trial")
+    status.max_users = int(claims.get("maxUsers", 0) or 0)
+    status.max_dwh = int(claims.get("maxCompanies", 0) or 0)
+    feats = list(claims.get("modules", []) or [])
+    feats += [m for m in (claims.get("engines", []) or []) if m not in feats]
+    status.features = feats
+
+    exp = claims.get("exp")
+    if exp is not None:
+        status.expiry_date = datetime.fromtimestamp(int(exp))
+        now = datetime.now()
+        if status.expiry_date < now:
+            status.status = "expired"
+            status.days_remaining = 0
+            status.message = f"Licence KASOFT expiree le {status.expiry_date.strftime('%d/%m/%Y')}"
+            return status
+        status.days_remaining = (status.expiry_date - now).days
+
+    # Binding machine SOUPLE : claim hostname optionnel (ERP-Vision). Mismatch → toleré.
+    hostname = claims.get("hostname")
+    if hostname and str(hostname).strip() and str(hostname).strip() != machine_id:
+        logger.info("[LICENSE] hostname de la licence != machine_id (binding souple, toleré)")
+
+    status.valid = True
+    status.status = "valid"
+    status.message = "Licence KASOFT valide"
+    try:
+        _save_license_cache(status.to_dict())
+        set_cached_license_status(status)
+    except Exception:
+        pass
+    return status
+
+
 def validate_license(license_key: str, server_url: str = "", grace_days: int = 7) -> LicenseStatus:
     """
     Valide une licence complete:
@@ -304,6 +392,14 @@ def validate_license(license_key: str, server_url: str = "", grace_days: int = 7
         status.status = "no_license"
         status.message = "Aucune cle de licence configuree"
         return status
+
+    # ── Licence KASOFT signee par la console (JWT RS256) — additif, prioritaire ──
+    # Si le license_key est un JWT signe par la console, on le verifie avec la cle
+    # publique embarquee et on ignore le flux HMAC/serveur externe. Sinon (None),
+    # on retombe sur le systeme historique (HMAC + machine_id + serveur distant).
+    console_claims = _verify_console_jwt(license_key)
+    if console_claims is not None:
+        return _status_from_console_jwt(license_key, machine_id, console_claims)
 
     # 1. Decoder le payload
     payload = decode_license_payload(license_key)
