@@ -65,9 +65,9 @@ SESSION_OPTIONAL_PREFIXES = (
 )
 
 # ── Routage SaaS par sous-domaine ────────────────────────────────────────────
-# xxxx.optiboard.kasoft.ma  →  DWH "XXXX". Domaine de base configurable via
+# xxxx.kasoft.ma  →  DWH "XXXX". Domaine de base configurable via
 # l'env BASE_DOMAIN. Les sous-domaines réservés ne sont pas des tenants.
-_BASE_DOMAIN = (os.environ.get("BASE_DOMAIN", "optiboard.kasoft.ma") or "").lower()
+_BASE_DOMAIN = (os.environ.get("BASE_DOMAIN", "kasoft.ma") or "").lower()
 _RESERVED_SUBDOMAINS = {"www", "app", "api", "portal", "admin", "static", "cdn", "mail"}
 
 

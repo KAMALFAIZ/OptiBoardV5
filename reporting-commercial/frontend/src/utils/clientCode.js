@@ -1,14 +1,12 @@
 // Résolution du code client (tenant) pour le SaaS.
 //
-// Priorité :
-//   1. Sous-domaine  →  xxxx.optiboard.kasoft.ma  ⇒  code = "XXXX"
-//   2. Repli ?client=xxxx (dev local / localhost, sans sous-domaine)
-//
-// Le domaine de base est configurable au build via VITE_BASE_DOMAIN
-// (défaut : optiboard.kasoft.ma). Les sous-domaines réservés (www, app, api…)
-// ne sont PAS des tenants → on retombe sur ?client= ou null (login central).
+// Le tenant est porté UNIQUEMENT par le sous-domaine : xxxx.kasoft.ma ⇒ code = "XXXX".
+// En local (localhost / 127.0.0.1:PORT), une instance ne sert qu'un client → pas de
+// code (null) : le DWH est choisi au login. Le domaine de base est configurable au
+// build via VITE_BASE_DOMAIN (défaut : kasoft.ma). Les sous-domaines réservés
+// (www, app, api…) ne sont PAS des tenants.
 
-const BASE_DOMAIN = (import.meta.env.VITE_BASE_DOMAIN || 'optiboard.kasoft.ma').toLowerCase()
+const BASE_DOMAIN = (import.meta.env.VITE_BASE_DOMAIN || 'kasoft.ma').toLowerCase()
 const RESERVED_SUBDOMAINS = ['www', 'app', 'api', 'portal', 'admin', 'static', 'cdn', 'mail']
 
 function _subdomainCode() {
@@ -28,17 +26,9 @@ function _subdomainCode() {
   return sub.toUpperCase()
 }
 
-function _queryCode() {
-  try {
-    return new URLSearchParams(window.location.search).get('client')?.toUpperCase() || null
-  } catch {
-    return null
-  }
-}
-
-/** Code client courant (sous-domaine prioritaire, puis ?client=), ou null. */
+/** Code client courant — porté par le sous-domaine ({client}.kasoft.ma), ou null. */
 export function getClientCode() {
-  return _subdomainCode() || _queryCode()
+  return _subdomainCode()
 }
 
 /** True si le client est porté par le sous-domaine (l'URL encode déjà le tenant). */

@@ -203,7 +203,7 @@ function TwoFactorForm({ tempToken, clientInfo, rememberMe, onLogin, onCancel })
 
 // ── Page de login principale ─────────────────────────────────────────────────
 export default function LoginPage({ onLogin, appName }) {
-  // Sous-domaine prioritaire (xxxx.optiboard.kasoft.ma), repli ?client=xxxx en dev.
+  // Tenant porté par le sous-domaine ({client}.kasoft.ma) ; null en local.
   const clientCode = getClientCode()
 
   const [username, setUsername]         = useState('')

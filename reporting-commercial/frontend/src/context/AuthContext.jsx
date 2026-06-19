@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import api, { refreshSession } from '../services/api'
-import { hasSubdomainClient } from '../utils/clientCode'
 
 const AuthContext = createContext(null)
 
@@ -44,13 +43,6 @@ export function AuthProvider({ children }) {
       } catch (_) { /* ignore — on déconnecte quand même */ }
     }
 
-    // Lire le code client AVANT d'effacer le storage
-    let clientCode = null
-    try {
-      const saved = localStorage.getItem('currentDWH') || sessionStorage.getItem('currentDWH')
-      if (saved) clientCode = JSON.parse(saved)?.code || null
-    } catch {}
-
     setUser(null)
     setSessionWarning(false)
     localStorage.removeItem('user');    localStorage.removeItem('token')
@@ -62,12 +54,10 @@ export function AuthProvider({ children }) {
       document.title = 'Session expirée - OptiBoard'
     }
 
-    // Rediriger vers la page de login du client.
-    // Sur un sous-domaine (xxxx.optiboard.kasoft.ma), l'URL encode déjà le
-    // tenant → simple retour à '/'. Sinon (dev local), conserver ?client=.
-    window.location.replace(
-      hasSubdomainClient() ? '/' : (clientCode ? `/?client=${clientCode}` : '/')
-    )
+    // Rediriger vers la page de login du client. Le tenant est porté par le
+    // sous-domaine ({client}.kasoft.ma) ; en local, l'instance ne sert qu'un
+    // client → simple retour à '/'.
+    window.location.replace('/')
   }, [])
 
   // ── Réinitialisation du timer d'inactivité ────────────────────────────────
