@@ -184,6 +184,8 @@ app.include_router(datasource_templates.router)
 app.include_router(sql_jobs.router, dependencies=[Depends(require_superadmin)])  # ETL/SQL jobs (superadmin)
 app.include_router(pivot_v2.router)
 app.include_router(license.router)
+from app.routes.console_stats import router as console_stats_router
+app.include_router(console_stats_router)    # Monitoring console KASOFT (X-Console-Token)
 app.include_router(ai_assistant.router)
 app.include_router(ai_learning.router)
 app.include_router(ai_prompts.router)

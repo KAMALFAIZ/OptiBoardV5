@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     MASTER_API_KEY: str = ""        # clé API partagée serveur central <-> clients
     MASTER_TIMEOUT: int = 30        # timeout HTTP en secondes
 
+    # Console KASOFT (monitoring du parc multi-produits)
+    # Token de service attendu dans le header X-Console-Token sur
+    # /api/console/instance-stats. Vide = endpoint désactivé (404).
+    CONSOLE_TOKEN: str = ""
+
     # AI Module settings
     AI_PROVIDER: str = ""  # "openai" | "anthropic" | "ollama" | "google" | "mistral" | "groq" | "deepseek"
     AI_MODEL: str = ""

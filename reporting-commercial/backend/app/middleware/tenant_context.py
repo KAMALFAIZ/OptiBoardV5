@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 EXEMPT_PREFIXES = (
     "/api/setup",
     "/api/license",
+    "/api/console",   # monitoring console KASOFT (auth par X-Console-Token dans la route)
     "/api/auth/login",
     "/api/health",
     "/api/docs",
