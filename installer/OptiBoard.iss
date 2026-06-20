@@ -98,6 +98,14 @@ Source: "payload\scripts\FIX_SERVICE.bat"; DestDir: "{app}"; \
 Source: "payload\scripts\FIX_ADMIN_CLIENT.ps1"; DestDir: "{app}"; \
     Flags: ignoreversion
 
+; ---- Sauvegarde SQL (voir docs/BACKUP_RESTORE.md) -------------------------
+Source: "payload\scripts\backup_dbs.ps1"; DestDir: "{app}"; \
+    Flags: ignoreversion
+Source: "payload\scripts\restore_db.ps1"; DestDir: "{app}"; \
+    Flags: ignoreversion
+Source: "payload\scripts\INSTALL_BACKUP_TASK.bat"; DestDir: "{app}"; \
+    Flags: ignoreversion
+
 [Icons]
 Name: "{group}\OptiBoard"; \
     Filename: "{app}\OptiBoard-Launcher.bat"; \

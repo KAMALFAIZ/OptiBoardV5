@@ -831,7 +831,10 @@
       "Bash(update\")",
       "Bash(DB_SERVER=ci-no-database DB_PASSWORD=ci python -m pytest tests/test_auth_security.py -q)",
       "Bash(DB_SERVER=ci-no-database DB_PASSWORD=ci python -m pytest tests/test_calculs_coherence.py tests/test_auth_security.py tests/test_ai_security.py -q)",
-      "Bash(DB_SERVER=ci-no-database DB_PASSWORD=ci python -m pytest tests/test_calculs_coherence.py tests/test_auth_security.py tests/test_ai_security.py tests/test_tenant_isolation.py -q)"
+      "Bash(DB_SERVER=ci-no-database DB_PASSWORD=ci python -m pytest tests/test_calculs_coherence.py tests/test_auth_security.py tests/test_ai_security.py tests/test_tenant_isolation.py -q)",
+      "PowerShell(foreach \\($f in @\\(\"scripts\\\\backup\\\\backup_dbs.ps1\", \"scripts\\\\backup\\\\restore_db.ps1\", \"scripts\\\\release\\\\bump_version.ps1\"\\)\\) { $errs = $null; [void][System.Management.Automation.Language.Parser]::ParseFile\\(\\(Resolve-Path $f\\), [ref]$null, [ref]$errs\\); if \\($errs.Count -eq 0\\) { Write-Host \"[OK] $f\" } else { Write-Host \"[ERREUR] $f :\"; $errs | ForEach-Object { Write-Host \\(\"  L{0}: {1}\" -f $_.Extent.StartLineNumber, $_.Message\\) } } })",
+      "PowerShell(python -c \"import yaml, sys; yaml.safe_load\\(open\\('.github/workflows/deploy.yml', encoding='utf-8'\\)\\); yaml.safe_load\\(open\\('.github/workflows/build-images.yml', encoding='utf-8'\\)\\); print\\('[OK] YAML valides'\\)\")",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"scripts\\\\backup\\\\backup_dbs.ps1\" -Pattern \"OptiBoard_Licenses\")"
     ]
   }
 }

@@ -28,12 +28,12 @@ if not exist "%NSSM%" (
     exit /b 1
 )
 
-echo [1/4] Arret du service...
+echo [1/5] Arret du service...
 "%NSSM%" stop %SVC% confirm >nul 2>&1
 sc stop %SVC% >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-echo [2/4] Correction AppDirectory (suppression du guillemet final)...
+echo [2/5] Correction AppDirectory (suppression du guillemet final)...
 "%NSSM%" set %SVC% AppDirectory "%APP_DIR%\backend"
 if errorlevel 1 (
     echo [ERREUR] Impossible de corriger AppDirectory.
@@ -41,10 +41,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/4] Verification...
+echo [3/5] Activation de la rotation des logs (10 MB max par fichier)...
+"%NSSM%" set %SVC% AppRotateFiles 1
+"%NSSM%" set %SVC% AppRotateOnline 1
+"%NSSM%" set %SVC% AppRotateBytes 10485760
+
+echo [4/5] Verification...
 "%NSSM%" get %SVC% AppDirectory
 
-echo [4/4] Demarrage du service...
+echo [5/5] Demarrage du service...
 "%NSSM%" start %SVC%
 timeout /t 3 /nobreak >nul
 

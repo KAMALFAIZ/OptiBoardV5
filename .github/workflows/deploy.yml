@@ -10,12 +10,46 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────
+  # TESTS : bloquent le deploiement production
+  # (meme sous-ensemble hermetique que build-images.yml)
+  # ─────────────────────────────────────────────────────────
+  tests:
+    name: Tests backend (gating deploy)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: reporting-commercial/backend
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq unixodbc
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run tests
+        working-directory: reporting-commercial/backend
+        env:
+          DB_SERVER: ci-no-database
+          DB_PASSWORD: ci
+        run: |
+          python -m pytest tests/test_calculs_coherence.py tests/test_auth_security.py tests/test_ai_security.py tests/test_tenant_isolation.py -q
+
+  # ─────────────────────────────────────────────────────────
   # DEPLOY : tourne directement sur le serveur Windows
   # Python + Node deja installes, IIS actif
   # ─────────────────────────────────────────────────────────
   deploy:
     name: Deploy to Windows Server
     runs-on: self-hosted
+    needs: tests
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:

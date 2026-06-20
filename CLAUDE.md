@@ -14,10 +14,20 @@ C:\OptiBoard\                       <- Dossier d'installation
   OptiBoard-Launcher.bat            <- Lanceur intelligent (double-clic)
   install_service.bat               <- Installe le service Windows NSSM
   uninstall_service.bat             <- Désinstalle le service Windows NSSM
-  FIX_SERVICE.bat                   <- Corrige AppDirectory NSSM (admin)
+  FIX_SERVICE.bat                   <- Corrige AppDirectory NSSM + active rotation logs (admin)
   FIX_ADMIN_CLIENT.ps1              <- Recrée admin client dans DB client (si login échoue)
+  backup_dbs.ps1                    <- Sauvegarde toutes les bases OptiBoard_* (+ vérif + rétention)
+  restore_db.ps1                    <- Restaure une base depuis un .bak
+  INSTALL_BACKUP_TASK.bat           <- Crée la tâche planifiée de sauvegarde (quotidienne 02:00)
   REBUILD_ALL.bat                   <- Pipeline rebuild complet : Cython + Vite + ISCC
 ```
+
+**Sauvegardes SQL** : sources dans `scripts/backup/` (copies déployées via `installer/payload/scripts/`).
+Doc complète : `docs/BACKUP_RESTORE.md`. Gère SQL local ET distant (auto-découverte du dossier
+de backup serveur, `xp_create_subdir`, rétention via `xp_delete_file`).
+
+**Versioning** : `scripts/release/bump_version.ps1 -Version x.y.z` synchronise package.json,
+run.py, OptiBoard.iss et CHANGELOG.md. Tagger ensuite `git tag vx.y.z`.
 
 **IMPORTANT** : Le `.env` racine (`C:\OptiBoard\.env`) est un template vide créé par Inno Setup.
 La vraie configuration est écrite par le wizard de setup à `C:\OptiBoard\backend\.env`.
