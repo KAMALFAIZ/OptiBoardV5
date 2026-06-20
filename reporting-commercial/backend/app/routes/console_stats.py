@@ -82,12 +82,13 @@ def instance_stats(x_console_token: Optional[str] = Header(None, alias="X-Consol
     _check_token(x_console_token)
 
     companies = _scalar_central("SELECT COUNT(*) AS n FROM APP_DWH")
-    users = _scalar_central("SELECT COUNT(*) AS n FROM APP_User")
+    users_total = _scalar_central("SELECT COUNT(*) AS n FROM APP_Users")
+    users_active = _scalar_central("SELECT COUNT(*) AS n FROM APP_Users WHERE actif = 1")
 
     return {
         "version": os.environ.get("APP_VERSION") or "dev",
-        "usersActive": users,
-        "usersTotal": users,
+        "usersActive": users_active,
+        "usersTotal": users_total,
         "companiesActive": companies,
         "companiesTotal": companies,
         "license": _license_block(companies),
