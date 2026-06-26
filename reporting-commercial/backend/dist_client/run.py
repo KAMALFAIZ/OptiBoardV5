@@ -2,8 +2,10 @@
 import logging
 import os
 import sys
+import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -24,9 +26,12 @@ logging.basicConfig(
     ]
 )
 
+logger = logging.getLogger(__name__)
+
 from app.config import get_settings
 from app.database_unified import test_central_connection as test_connection, DatabaseNotConfiguredError
 from app.middleware.tenant_context import TenantContextMiddleware
+from app.security import require_admin, require_superadmin   # Gardes d'autorisation par rôle
 from app.routes import (
     dashboard, ventes, ventes_detail, stocks, recouvrement,
     admin_sql, export, users, dashboard_builder, gridview_builder,
@@ -38,7 +43,6 @@ from app.routes import (
     client_portal,                        # Portail client (admin_client)
 )
 from app.routes.etl_tables import router as etl_tables_router       # ETL Tables publication
-from app.routes.etl_colonnes import router as etl_colonnes_router   # ETL Colonnes catalogue + choix client
 from app.routes.client_users import router as client_users_router   # Users & UserDWH locaux
 from app.routes.update_manager import router as update_manager_router  # Module MAJ clients
 from app.routes.client_package import router as client_package_router  # Package installation client
@@ -58,6 +62,7 @@ from app.routes.fiche_client import router as fiche_client_router               
 from app.routes.fiche_fournisseur import router as fiche_fournisseur_router                    # Fiche Fournisseur 360°
 from app.routes.demo_portal import router as demo_portal_router                                 # Portail Demo AgentETL
 from app.routes.comptabilite import router as comptabilite_router                               # Module Comptabilité
+from app.routes.dettes_fournisseurs import router as dettes_fournisseurs_router                  # Dettes Fournisseurs
 from app.routes.sage_direct import router as sage_direct_router                                 # Accès direct Sage (lecture seule)
 from app.routes.weekly_digest import router as weekly_digest_router                             # Digest IA hebdomadaire
 from app.routes.two_factor import router as two_factor_router                                   # 2FA TOTP
@@ -65,6 +70,9 @@ from app.routes.ai_presentation import router as ai_presentation_router         
 from app.routes.ai_deck import router as ai_deck_router, init_deck_tables                        # Deck IA interactif
 from app.routes.sage_config_admin import router as sage_config_admin_router                       # Admin Sage Direct config
 from app.routes.spreadsheet_builder import router as spreadsheet_builder_router, init_spreadsheet_tables  # Spreadsheet Builder (FortuneSheet)
+from app.routes.whatsapp_bot import router as whatsapp_bot_router, init_whatsapp_tables              # WhatsApp Business Cloud API (Meta)
+from app.routes.comptabilite_analytique import router as comptabilite_analytique_router              # Comptabilité Analytique (Phase 4)
+from app.routes.budget import router as budget_router                                                # Budget vs Réalisé + Masse Salariale (Phase 5)
 from app.services.cache import query_cache
 from app.services.license_service import validate_license, get_cached_license_status, set_cached_license_status
 from app.routes.gridview_builder import init_gridview_tables
@@ -114,9 +122,44 @@ async def database_not_configured_handler(request: Request, exc: DatabaseNotConf
         }
     )
 
+# ── Gestion globale des erreurs ──────────────────────────────────────────────
+# Les details techniques (erreurs SQL, schema, stack traces) ne partent jamais
+# au client : ils sont logges cote serveur avec une reference courte que
+# l'utilisateur peut communiquer au support. Les 4xx (messages volontaires)
+# passent inchanges.
+
+def _is_dev_mode() -> bool:
+    return str(getattr(settings, "APP_ENV", "") or "").lower() == "development"
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_sanitizer(request: Request, exc: StarletteHTTPException):
+    if exc.status_code >= 500:
+        ref = uuid.uuid4().hex[:8]
+        logger.error("[ERR %s] %s %s -> %s: %s", ref, request.method, request.url.path,
+                     exc.status_code, exc.detail)
+        content = {"success": False, "detail": f"Erreur interne du serveur (ref: {ref})", "ref": ref}
+        if _is_dev_mode():
+            content["debug_detail"] = str(exc.detail)
+        return JSONResponse(status_code=exc.status_code, content=content)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=getattr(exc, "headers", None) or None,
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    ref = uuid.uuid4().hex[:8]
+    logger.exception("[ERR %s] Exception non geree %s %s: %s", ref, request.method,
+                     request.url.path, exc)
+    content = {"success": False, "detail": f"Erreur interne du serveur (ref: {ref})", "ref": ref}
+    if _is_dev_mode():
+        content["debug_detail"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
+
 # Include routers
 # ── Nouveaux routers (enregistrés EN PREMIER pour prendre priorité) ──────────
-app.include_router(dwh_admin.router)        # Règles 1/2/3 — DWH clients
+app.include_router(dwh_admin.router, dependencies=[Depends(require_superadmin)])        # Règles 1/2/3 — DWH clients (superadmin)
 app.include_router(auth_multitenant.router) # Auth multi-tenant
 app.include_router(client_portal.router)    # Portail client (admin_client)
 # ── Routers existants ────────────────────────────────────────────────────────
@@ -125,7 +168,7 @@ app.include_router(ventes.router)
 app.include_router(ventes_detail.router)
 app.include_router(stocks.router)
 app.include_router(recouvrement.router)
-app.include_router(admin_sql.router)
+app.include_router(admin_sql.router, dependencies=[Depends(require_superadmin)])  # SQL admin (superadmin)
 app.include_router(export.router)
 app.include_router(users.router)
 app.include_router(dashboard_builder.router)
@@ -138,23 +181,24 @@ app.include_router(liste_ventes.router)
 app.include_router(analyse_ca_creances.router)
 app.include_router(pic_2026.router)
 app.include_router(datasource_templates.router)
-app.include_router(sql_jobs.router)
+app.include_router(sql_jobs.router, dependencies=[Depends(require_superadmin)])  # ETL/SQL jobs (superadmin)
 app.include_router(pivot_v2.router)
 app.include_router(license.router)
+from app.routes.console_stats import router as console_stats_router
+app.include_router(console_stats_router)    # Monitoring console KASOFT (X-Console-Token)
 app.include_router(ai_assistant.router)
 app.include_router(ai_learning.router)
 app.include_router(ai_prompts.router)
-app.include_router(master_publish.router)
+app.include_router(master_publish.router, dependencies=[Depends(require_superadmin)])  # Publication catalogue (superadmin)
 app.include_router(etl_tables_router)       # ETL Tables : publication central → clients
-app.include_router(etl_colonnes_router)     # ETL Colonnes : catalogue central + choix client
-app.include_router(client_users_router)     # Users & UserDWH locaux client
+app.include_router(client_users_router, dependencies=[Depends(require_admin)])     # Users & UserDWH locaux client (admin)
 app.include_router(update_manager_router)   # Module MAJ : check/pull updates depuis central
 app.include_router(roles_router)            # Gestion rôles & permissions
 app.include_router(client_package_router)   # Package installation client autonome
-app.include_router(env_manager_router)      # Gestion .env via UI admin
+app.include_router(env_manager_router, dependencies=[Depends(require_superadmin)])      # Gestion .env via UI admin (superadmin)
 app.include_router(alerts_router)           # Alertes KPI
 app.include_router(subscriptions_router)       # Abonnements rapports
-app.include_router(admin_subscriptions_router) # Admin abonnements + logs livraison
+app.include_router(admin_subscriptions_router, dependencies=[Depends(require_superadmin)]) # Admin abonnements (superadmin)
 app.include_router(drillthrough_router)     # Drill-through inter-rapports
 app.include_router(favorites_router)        # Favoris & Récents utilisateur
 app.include_router(ai_insights_router)      # AI Insights automatiques
@@ -166,13 +210,17 @@ app.include_router(fiche_client_router)         # Fiche Client 360°
 app.include_router(fiche_fournisseur_router)    # Fiche Fournisseur 360°
 app.include_router(demo_portal_router)          # Portail Demo AgentETL
 app.include_router(comptabilite_router)         # Module Comptabilité
+app.include_router(dettes_fournisseurs_router)  # Dettes Fournisseurs
 app.include_router(sage_direct_router)          # Accès direct Sage (lecture seule, sans ETL)
 app.include_router(weekly_digest_router)        # Digest IA hebdomadaire (direction)
 app.include_router(two_factor_router)          # 2FA TOTP (admins)
 app.include_router(ai_presentation_router)    # Générateur IA de documents (PPTX/Excel)
 app.include_router(ai_deck_router)            # Deck IA interactif (plan + données DWH + narration)
-app.include_router(sage_config_admin_router)   # Admin Sage Direct mappings
+app.include_router(sage_config_admin_router, dependencies=[Depends(require_superadmin)])   # Admin Sage Direct mappings (superadmin)
 app.include_router(spreadsheet_builder_router) # Spreadsheet Builder (FortuneSheet)
+app.include_router(whatsapp_bot_router)        # WhatsApp Business Cloud API (Meta)
+app.include_router(comptabilite_analytique_router)  # Comptabilité Analytique (Phase 4)
+app.include_router(budget_router)              # Budget vs Réalisé + Masse Salariale (Phase 5)
 
 # Routes exemptees de la verification de licence
 LICENSE_EXEMPT_PATHS = {
@@ -187,6 +235,8 @@ LICENSE_EXEMPT_PATHS = {
     "/api/demo/register",
     # Digest IA : trigger admin (pas besoin de vérif licence côté scheduler)
     "/api/admin/digest/status",
+    # WhatsApp webhook (public — Meta doit pouvoir y accéder)
+    "/api/whatsapp/webhook",
 }
 
 
@@ -194,9 +244,9 @@ LICENSE_EXEMPT_PATHS = {
 @app.middleware("http")
 async def license_check_middleware(request: Request, call_next):
     """Verifie la licence avant chaque requete (sauf routes exemptees)"""
-    # ── DEV MODE: licence desactivee pendant le developpement ──
-    # TODO: Reactiver avant la mise en production
-    if settings.DEBUG:
+    # En mode développement uniquement, la vérification licence est désactivée.
+    # En production (APP_ENV=production), la vérification est TOUJOURS active.
+    if not settings.is_production:
         return await call_next(request)
 
     path = request.url.path
@@ -242,8 +292,8 @@ async def startup_event():
     """Initialize database tables on startup"""
     # Verifier si l'application est configuree
     if not settings.is_configured:
-        print("[STARTUP] Application non configuree - Acces a /api/setup/status pour configurer")
-        print("[STARTUP] Les autres modules seront initialises apres configuration")
+        logger.warning("[STARTUP] Application non configuree — accès à /api/setup/status pour configurer")
+        logger.warning("[STARTUP] Les autres modules seront initialisés après configuration")
         return
 
     # Validation de licence au demarrage
@@ -256,105 +306,110 @@ async def startup_event():
             )
             set_cached_license_status(license_status)
             if license_status.valid:
-                print(f"[STARTUP] Licence valide - {license_status.organization} ({license_status.plan})")
+                logger.info(f"[STARTUP] Licence valide — {license_status.organization} ({license_status.plan})")
                 if license_status.grace_mode:
-                    print(f"[STARTUP] MODE GRACE - {license_status.grace_days_remaining} jours restants")
+                    logger.warning(f"[STARTUP] MODE GRACE — {license_status.grace_days_remaining} jours restants")
                 if license_status.days_remaining <= 30:
-                    print(f"[STARTUP] ATTENTION: Licence expire dans {license_status.days_remaining} jours")
+                    logger.warning(f"[STARTUP] Licence expire dans {license_status.days_remaining} jours")
             else:
-                print(f"[STARTUP] LICENCE INVALIDE: {license_status.message}")
+                logger.error(f"[STARTUP] LICENCE INVALIDE: {license_status.message}")
         else:
-            print("[STARTUP] Aucune licence configuree - Activez une licence via /api/license/activate")
+            logger.warning("[STARTUP] Aucune licence configurée — activez une licence via /api/license/activate")
     except Exception as e:
-        print(f"[STARTUP] Erreur validation licence: {e}")
+        logger.error(f"[STARTUP] Erreur validation licence: {e}")
 
     try:
         init_gridview_tables()
-        print("[STARTUP] GridView tables initialized successfully")
+        logger.info("[STARTUP] GridView tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing gridview tables: {e}")
+        logger.error(f"[STARTUP] GridView tables error: {e}")
 
     try:
         from app.sage_direct.db_store import init_sage_config_table
         init_sage_config_table()
-        print("[STARTUP] Sage View Config table initialized successfully")
+        logger.info("[STARTUP] Sage View Config table OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Sage View Config table: {e}")
+        logger.error(f"[STARTUP] Sage View Config table error: {e}")
 
     try:
         init_pivot_v2_tables()
-        print("[STARTUP] Pivot V2 tables initialized successfully")
+        logger.info("[STARTUP] Pivot V2 tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Pivot V2 tables: {e}")
+        logger.error(f"[STARTUP] Pivot V2 tables error: {e}")
 
     try:
         init_spreadsheet_tables()
-        print("[STARTUP] Spreadsheet tables initialized successfully")
+        logger.info("[STARTUP] Spreadsheet tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Spreadsheet tables: {e}")
+        logger.error(f"[STARTUP] Spreadsheet tables error: {e}")
 
     try:
         init_scheduler_tables()
-        print("[STARTUP] Report scheduler tables initialized successfully")
         start_scheduler()
-        print("[STARTUP] Report scheduler started successfully")
+        logger.info("[STARTUP] Scheduler tables + scheduler OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing scheduler tables: {e}")
+        logger.error(f"[STARTUP] Scheduler error: {e}")
 
     try:
         init_query_library_table()
         init_prompts_table()
-        print("[STARTUP] AI Query Library table initialized successfully")
+        logger.info("[STARTUP] AI Query Library tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing AI Query Library table: {e}")
+        logger.error(f"[STARTUP] AI Query Library tables error: {e}")
 
     try:
         init_alert_tables()
-        print("[STARTUP] KPI Alert tables initialized successfully")
+        logger.info("[STARTUP] KPI Alert tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing KPI Alert tables: {e}")
+        logger.error(f"[STARTUP] KPI Alert tables error: {e}")
 
     try:
         init_subscription_tables()
         init_delivery_logs_table()
-        print("[STARTUP] Subscription tables initialized successfully")
+        logger.info("[STARTUP] Subscription tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Subscription tables: {e}")
+        logger.error(f"[STARTUP] Subscription tables error: {e}")
 
     try:
         init_drillthrough_tables()
-        print("[STARTUP] DrillThrough tables initialized successfully")
+        logger.info("[STARTUP] DrillThrough tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing DrillThrough tables: {e}")
+        logger.error(f"[STARTUP] DrillThrough tables error: {e}")
 
     try:
         init_favorites_tables()
-        print("[STARTUP] Favorites tables initialized successfully")
+        logger.info("[STARTUP] Favorites tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing Favorites tables: {e}")
+        logger.error(f"[STARTUP] Favorites tables error: {e}")
 
     try:
         init_deck_tables()
-        print("[STARTUP] AI Deck tables initialized successfully")
+        logger.info("[STARTUP] AI Deck tables OK")
     except Exception as e:
-        print(f"[STARTUP] Error initializing AI Deck tables: {e}")
+        logger.error(f"[STARTUP] AI Deck tables error: {e}")
+
+    try:
+        init_whatsapp_tables()
+        logger.info("[STARTUP] WhatsApp tables OK")
+    except Exception as e:
+        logger.error(f"[STARTUP] WhatsApp tables error: {e}")
 
     # Migration schema ETL_Tables_Config (ajout colonnes manquantes)
     try:
         from etl.config.table_config import _ensure_table_exists
         _ensure_table_exists()
-        print("[STARTUP] ETL schema migration completed")
+        logger.info("[STARTUP] ETL schema migration OK")
     except Exception as e:
-        print(f"[STARTUP] ETL migration error: {e}")
+        logger.error(f"[STARTUP] ETL migration error: {e}")
 
     # Migration APP_DWH : ajout colonne is_demo
     try:
         from app.database_unified import write_central as _wc
         _wc("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='is_demo') ALTER TABLE APP_DWH ADD is_demo BIT NOT NULL DEFAULT 0")
         _wc("UPDATE APP_DWH SET is_demo=1 WHERE code IN ('KA') AND is_demo=0")
-        print("[STARTUP] APP_DWH.is_demo migration OK")
+        logger.info("[STARTUP] APP_DWH.is_demo migration OK")
     except Exception as e:
-        print(f"[STARTUP] APP_DWH migration error: {e}")
+        logger.error(f"[STARTUP] APP_DWH migration error: {e}")
 
     # Migration APP_DWH : colonnes tunnel SSH
     try:
@@ -370,18 +425,18 @@ async def startup_event():
                 f"IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_DWH') AND name='{col}')"
                 f" ALTER TABLE APP_DWH ADD {col} {ddl}"
             )
-        print("[STARTUP] APP_DWH SSH columns migration OK")
+        logger.info("[STARTUP] APP_DWH SSH columns migration OK")
     except Exception as e:
-        print(f"[STARTUP] APP_DWH SSH migration error: {e}")
+        logger.error(f"[STARTUP] APP_DWH SSH migration error: {e}")
 
     # Migration APP_Users (central + client DBs) : ajout colonnes 2FA
     try:
         from app.database_unified import write_central as _wc2
         _wc2("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_secret') ALTER TABLE APP_Users ADD totp_secret NVARCHAR(64) NULL")
         _wc2("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_enabled') ALTER TABLE APP_Users ADD totp_enabled BIT NOT NULL DEFAULT 0")
-        print("[STARTUP] APP_Users 2FA columns migration OK (central)")
+        logger.info("[STARTUP] APP_Users 2FA columns migration OK (central)")
     except Exception as e:
-        print(f"[STARTUP] 2FA migration central error: {e}")
+        logger.error(f"[STARTUP] 2FA migration central error: {e}")
 
     # Migration APP_Users (client DB) : ajout colonne onboarding_done
     try:
@@ -399,9 +454,9 @@ async def startup_event():
                 )
             except Exception:
                 pass
-        print("[STARTUP] APP_Users.onboarding_done migration OK")
+        logger.info("[STARTUP] APP_Users.onboarding_done migration OK")
     except Exception as e:
-        print(f"[STARTUP] onboarding_done migration error: {e}")
+        logger.error(f"[STARTUP] onboarding_done migration error: {e}")
 
 
 @app.on_event("shutdown")
@@ -414,9 +469,9 @@ async def shutdown_event():
     try:
         from app.services.ssh_tunnel_service import stop_all
         stop_all()
-        print("[SHUTDOWN] Tunnels SSH arrêtés")
+        logger.info("[SHUTDOWN] Tunnels SSH arrêtés")
     except Exception as e:
-        print(f"[SHUTDOWN] Erreur arrêt tunnels SSH: {e}")
+        logger.error(f"[SHUTDOWN] Erreur arrêt tunnels SSH: {e}")
 
 
 @app.get("/api")
@@ -432,17 +487,46 @@ async def api_root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check : base centrale, ETL delay, cache stats."""
     from app.config import reload_settings
-    # Recharger les settings pour avoir les valeurs actuelles du .env
+    from datetime import datetime
     reload_settings()
-    db_status = test_connection()
-    cache_stats = query_cache.get_stats()
-    return {
-        "status": "healthy" if db_status else "unhealthy",
-        "database": "connected" if db_status else "disconnected",
-        "cache": cache_stats
-    }
+
+    checks: dict = {}
+
+    # Connexion base centrale
+    db_ok = test_connection()
+    checks["db_centrale"] = "ok" if db_ok else "error"
+
+    # Délai ETL (dernière sync réussie)
+    if db_ok:
+        try:
+            from app.database_unified import execute_central
+            rows = execute_central(
+                "SELECT MAX(last_run) AS last_run FROM APP_ETL_Agents WHERE last_status='success'",
+                use_cache=False,
+            )
+            last_run = rows[0].get("last_run") if rows else None
+            if last_run:
+                delay_h = int((datetime.now() - last_run).total_seconds() // 3600)
+                checks["etl_delay_hours"] = delay_h
+                checks["etl_status"] = "ok" if delay_h < 24 else "warning"
+            else:
+                checks["etl_delay_hours"] = None
+                checks["etl_status"] = "warning"
+        except Exception as e:
+            checks["etl_status"] = "error"
+            checks["etl_error"] = str(e)
+
+    # Statistiques cache
+    checks["cache"] = query_cache.get_stats()
+
+    # Statut global : degraded si au moins une valeur est "error"
+    non_cache = {k: v for k, v in checks.items() if k != "cache"}
+    all_ok = all(v in ("ok", "warning") for v in non_cache.values() if isinstance(v, str))
+    status = "ok" if all_ok else "degraded"
+
+    return {"status": status, **checks}
 
 
 @app.get("/api/cache/stats")
@@ -555,9 +639,9 @@ if os.path.isdir(FRONTEND_DIST):
             return FileResponse(index)
         return JSONResponse(status_code=404, content={"detail": "Frontend not built"})
 
-    print(f"[STARTUP] Frontend SPA servi depuis: {FRONTEND_DIST}")
+    logging.getLogger(__name__).info(f"[STARTUP] Frontend SPA servi depuis: {FRONTEND_DIST}")
 else:
-    print(f"[STARTUP] AVERTISSEMENT: dossier frontend introuvable: {FRONTEND_DIST}")
+    logging.getLogger(__name__).warning(f"[STARTUP] Dossier frontend introuvable: {FRONTEND_DIST}")
 
 
 if __name__ == "__main__":

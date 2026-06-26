@@ -118,7 +118,7 @@ SELECT
     [N° Pièce],
     [CMUP],
     [Prix unitaire],
-    [Prix de revient],
+    [CMUP],
     [Quantité],
     [Sens de mouvement],
     [Montant Stock],
@@ -307,115 +307,160 @@ FROM [Echéances_Ventes]
 
 ECHEANCES_VENTES_NON_REGLEES = """
 SELECT
-    [DB_Caption] AS Societe,
-    [Code client],
-    [Intitulé client],
-    [Code tier payeur],
-    [Inititulé tier payeur] AS Intitule_Tier_Payeur,
-    [Type Document],
-    [N° pièce] AS Num_Piece,
-    [Date document],
-    [Date d'échéance] AS Date_Echeance,
-    [Montant échéance] AS Montant_Echeance,
-    [Montant TTC],
-    [Régler] AS Montant_Regle,
-    [Montant échéance] - ISNULL([Régler], 0) AS Reste_A_Regler,
-    [Mode de réglement] AS Mode_Reglement,
-    [Code collaborateur],
-    [Nom collaborateur] + ' ' + [Prénom collaborateur] AS Commercial,
-    [Charge Recouvr] AS Charge_Recouvrement,
-    DATEDIFF(DAY, [Date d'échéance], GETDATE()) AS Jours_Retard,
+    ev.[DB_Caption] AS Societe,
+    ev.[Code client],
+    ev.[Intitulé client],
+    ev.[Code tier payeur],
+    ev.[Inititulé tier payeur] AS Intitule_Tier_Payeur,
+    ev.[Type Document],
+    ev.[N° pièce] AS Num_Piece,
+    ev.[Date document],
+    ev.[Date d'échéance] AS Date_Echeance,
+    ev.[Montant échéance] AS Montant_Echeance,
+    ev.[Montant TTC],
+    ISNULL(ifv.Total_Regle, 0) AS Montant_Regle,
+    ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS Reste_A_Regler,
+    ev.[Mode de réglement] AS Mode_Reglement,
+    ev.[Code collaborateur],
+    ev.[Nom collaborateur] + ' ' + ev.[Prénom collaborateur] AS Commercial,
+    ev.[Charge Recouvr] AS Charge_Recouvrement,
+    DATEDIFF(DAY, ev.[Date d'échéance], ?) AS Jours_Retard,
     CASE
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0 THEN 'A échoir'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 30 THEN '0-30 jours'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 60 THEN '31-60 jours'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 90 THEN '61-90 jours'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 120 THEN '91-120 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 0 THEN 'A échoir'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 30 THEN '0-30 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 60 THEN '31-60 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 90 THEN '61-90 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 120 THEN '91-120 jours'
         ELSE '+120 jours'
     END AS Tranche_Age
-FROM [Echéances_Ventes]
-WHERE [Montant échéance] > ISNULL([Régler], 0)
+FROM [Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Date document] <= ?
+  AND ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
 """
 
 ECHEANCES_PAR_CLIENT = """
 SELECT
-    [Code client],
-    [Intitulé client],
-    [DB_Caption] AS Societe,
+    ev.[Code client],
+    ev.[Intitulé client],
+    ev.[DB_Caption] AS Societe,
     COUNT(*) AS Nb_Echeances,
-    SUM([Montant échéance]) AS Total_Echeances,
-    SUM(ISNULL([Régler], 0)) AS Total_Regle,
-    SUM([Montant échéance] - ISNULL([Régler], 0)) AS Reste_A_Regler,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS A_Echoir,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 1 AND 30 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_0_30,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 31 AND 60 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_31_60,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 61 AND 90 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_61_90,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 91 AND 120 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_91_120,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_Plus_120,
-    MAX([Date d'échéance]) AS Derniere_Echeance,
-    MAX(DATEDIFF(DAY, [Date d'échéance], GETDATE())) AS Max_Jours_Retard
-FROM [Echéances_Ventes]
-WHERE [Montant échéance] > ISNULL([Régler], 0)
-GROUP BY [Code client], [Intitulé client], [DB_Caption]
+    SUM(ev.[Montant échéance]) AS Total_Echeances,
+    SUM(ISNULL(ifv.Total_Regle, 0)) AS Total_Regle,
+    SUM(ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS Reste_A_Regler,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 0 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS A_Echoir,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 1 AND 30 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_0_30,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 31 AND 60 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_31_60,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 61 AND 90 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_61_90,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 91 AND 120 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_91_120,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) > 120 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_Plus_120,
+    MAX(ev.[Date d'échéance]) AS Derniere_Echeance,
+    MAX(DATEDIFF(DAY, ev.[Date d'échéance], ?)) AS Max_Jours_Retard
+FROM [Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Date document] <= ?
+  AND ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+GROUP BY ev.[Code client], ev.[Intitulé client], ev.[DB_Caption]
 ORDER BY Reste_A_Regler DESC
 """
 
 ECHEANCES_PAR_COMMERCIAL = """
 SELECT
-    [Code collaborateur],
-    [Nom collaborateur] + ' ' + [Prénom collaborateur] AS Commercial,
-    [Charge Recouvr] AS Charge_Recouvrement,
-    COUNT(DISTINCT [Code client]) AS Nb_Clients,
+    ev.[Code collaborateur],
+    ev.[Nom collaborateur] + ' ' + ev.[Prénom collaborateur] AS Commercial,
+    ev.[Charge Recouvr] AS Charge_Recouvrement,
+    COUNT(DISTINCT ev.[Code client]) AS Nb_Clients,
     COUNT(*) AS Nb_Echeances,
-    SUM([Montant échéance] - ISNULL([Régler], 0)) AS Encours_Total,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS A_Echoir,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 1 AND 30 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_0_30,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 31 AND 60 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_31_60,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 61 AND 90 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_61_90,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) BETWEEN 91 AND 120 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_91_120,
-    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) > 120 THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_Plus_120
-FROM [Echéances_Ventes]
-WHERE [Montant échéance] > ISNULL([Régler], 0)
-GROUP BY [Code collaborateur], [Nom collaborateur], [Prénom collaborateur], [Charge Recouvr]
+    SUM(ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS Encours_Total,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 0 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS A_Echoir,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 1 AND 30 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_0_30,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 31 AND 60 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_31_60,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 61 AND 90 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_61_90,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) BETWEEN 91 AND 120 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_91_120,
+    SUM(CASE WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) > 120 THEN ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) ELSE 0 END) AS Tranche_Plus_120
+FROM [Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Date document] <= ?
+  AND ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+GROUP BY ev.[Code collaborateur], ev.[Nom collaborateur], ev.[Prénom collaborateur], ev.[Charge Recouvr]
 ORDER BY Encours_Total DESC
 """
 
 ECHEANCES_PAR_MODE_REGLEMENT = """
 SELECT
-    [Mode de réglement] AS Mode_Reglement,
-    [Code mode règlement] AS Code_Mode,
+    ev.[Mode de réglement] AS Mode_Reglement,
+    ev.[Code mode règlement] AS Code_Mode,
     COUNT(*) AS Nb_Echeances,
-    SUM([Montant échéance]) AS Total_Echeances,
-    SUM([Montant échéance] - ISNULL([Régler], 0)) AS Reste_A_Regler,
-    AVG(DATEDIFF(DAY, [Date d'échéance], GETDATE())) AS Retard_Moyen_Jours
-FROM [Echéances_Ventes]
-WHERE [Montant échéance] > ISNULL([Régler], 0)
-GROUP BY [Mode de réglement], [Code mode règlement]
+    SUM(ev.[Montant échéance]) AS Total_Echeances,
+    SUM(ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0)) AS Reste_A_Regler,
+    AVG(DATEDIFF(DAY, ev.[Date d'échéance], ?)) AS Retard_Moyen_Jours
+FROM [Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Date document] <= ?
+  AND ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+GROUP BY ev.[Mode de réglement], ev.[Code mode règlement]
 ORDER BY Reste_A_Regler DESC
 """
 
 ECHEANCES_A_ECHOIR = """
 SELECT
-    [DB_Caption] AS Societe,
-    [Code client],
-    [Intitulé client],
-    [N° pièce] AS Num_Piece,
-    [Date document],
-    [Date d'échéance] AS Date_Echeance,
-    [Montant échéance] - ISNULL([Régler], 0) AS Montant_A_Regler,
-    [Mode de réglement] AS Mode_Reglement,
-    [Nom collaborateur] + ' ' + [Prénom collaborateur] AS Commercial,
-    DATEDIFF(DAY, GETDATE(), [Date d'échéance]) AS Jours_Avant_Echeance,
+    ev.[DB_Caption] AS Societe,
+    ev.[Code client],
+    ev.[Intitulé client],
+    ev.[N° pièce] AS Num_Piece,
+    ev.[Date document],
+    ev.[Date d'échéance] AS Date_Echeance,
+    ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS Montant_A_Regler,
+    ev.[Mode de réglement] AS Mode_Reglement,
+    ev.[Nom collaborateur] + ' ' + ev.[Prénom collaborateur] AS Commercial,
+    DATEDIFF(DAY, ?, ev.[Date d'échéance]) AS Jours_Avant_Echeance,
     CASE
-        WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 7 THEN 'Cette semaine'
-        WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 15 THEN 'Sous 15 jours'
-        WHEN DATEDIFF(DAY, GETDATE(), [Date d'échéance]) <= 30 THEN 'Sous 30 jours'
+        WHEN DATEDIFF(DAY, ?, ev.[Date d'échéance]) <= 7 THEN 'Cette semaine'
+        WHEN DATEDIFF(DAY, ?, ev.[Date d'échéance]) <= 15 THEN 'Sous 15 jours'
+        WHEN DATEDIFF(DAY, ?, ev.[Date d'échéance]) <= 30 THEN 'Sous 30 jours'
         ELSE 'Plus de 30 jours'
     END AS Urgence
-FROM [Echéances_Ventes]
-WHERE [Date d'échéance] >= GETDATE()
-  AND [Montant échéance] > ISNULL([Régler], 0)
-ORDER BY [Date d'échéance] ASC
+FROM [Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Date d'échéance] >= ?
+  AND ev.[Date document] <= ?
+  AND ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+ORDER BY ev.[Date d'échéance] ASC
 """
 
 # =====================================================
@@ -493,20 +538,29 @@ ORDER BY Total_Regle DESC
 
 FACTURES_NON_REGLEES = """
 SELECT
-    [DB_Caption] AS Societe,
-    [Code client],
-    [Intitulé client],
-    [Type Document],
-    [N° pièce] AS Num_Piece,
-    [Date document],
-    [Montant facture TTC],
-    ISNULL([Montant régler], 0) AS Montant_Regle,
-    [Montant facture TTC] - ISNULL([Montant régler], 0) AS Reste_A_Regler,
-    DATEDIFF(DAY, [Date document], GETDATE()) AS Age_Jours
-FROM [Imputation_Factures_Ventes]
-WHERE [Montant facture TTC] > ISNULL([Montant régler], 0)
-GROUP BY [DB_Caption], [Code client], [Intitulé client], [Type Document],
-         [N° pièce], [Date document], [Montant facture TTC], [Montant régler]
+    ev.[DB_Caption] AS Societe,
+    ev.[Code client],
+    ev.[Intitulé client],
+    ev.[Type Document],
+    ev.[N° pièce] AS Num_Piece,
+    ev.[Date document],
+    ev.[Montant TTC] AS Montant_facture_TTC,
+    ISNULL(ifv.Total_Regle, 0) AS Montant_Regle,
+    ev.[Montant TTC] - ISNULL(ifv.Total_Regle, 0) AS Reste_A_Regler,
+    DATEDIFF(DAY, ev.[Date document], ?) AS Age_Jours
+FROM [Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Date document] <= ?
+  AND ev.[Montant TTC] - ISNULL(ifv.Total_Regle, 0) > 0
+GROUP BY ev.[DB_Caption], ev.[Code client], ev.[Intitulé client], ev.[Type Document],
+         ev.[N° pièce], ev.[Date document], ev.[Montant TTC], ifv.Total_Regle
 ORDER BY Reste_A_Regler DESC
 """
 
@@ -531,47 +585,36 @@ ORDER BY [Date réglement] DESC
 # =====================================================
 
 KPIS_RECOUVREMENT = """
+WITH Reglements AS (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+),
+Encours AS (
+    SELECT
+        ev.[Code client],
+        ev.[Date d'échéance],
+        ev.[Montant échéance] - ISNULL(r.Total_Regle, 0) AS Solde_Restant
+    FROM [Echéances_Ventes] ev
+    LEFT JOIN Reglements r ON ev.[N° pièce] = r.[N° pièce]
+        AND ev.[Code client] = r.[Code client]
+        AND ev.[DB_Id] = r.[DB_Id]
+    WHERE ev.[Date document] <= ?
+      AND ev.[Montant échéance] - ISNULL(r.Total_Regle, 0) > 0
+)
 SELECT
-    -- Encours total
-    (SELECT SUM([Montant échéance] - ISNULL([Régler], 0))
-     FROM [Echéances_Ventes]
-     WHERE [Montant échéance] > ISNULL([Régler], 0)) AS Encours_Total,
-
-    -- Montant à échoir (non encore échu)
-    (SELECT SUM([Montant échéance] - ISNULL([Régler], 0))
-     FROM [Echéances_Ventes]
-     WHERE [Date d'échéance] >= GETDATE()
-       AND [Montant échéance] > ISNULL([Régler], 0)) AS A_Echoir,
-
-    -- Montant échu (en retard)
-    (SELECT SUM([Montant échéance] - ISNULL([Régler], 0))
-     FROM [Echéances_Ventes]
-     WHERE [Date d'échéance] < GETDATE()
-       AND [Montant échéance] > ISNULL([Régler], 0)) AS Echu,
-
-    -- Nombre d'échéances en retard
-    (SELECT COUNT(*)
-     FROM [Echéances_Ventes]
-     WHERE [Date d'échéance] < GETDATE()
-       AND [Montant échéance] > ISNULL([Régler], 0)) AS Nb_Echeances_Retard,
-
-    -- Nombre de clients avec retard
-    (SELECT COUNT(DISTINCT [Code client])
-     FROM [Echéances_Ventes]
-     WHERE [Date d'échéance] < GETDATE()
-       AND [Montant échéance] > ISNULL([Régler], 0)) AS Nb_Clients_Retard,
-
-    -- Règlements du mois en cours
+    (SELECT SUM(Solde_Restant) FROM Encours) AS Encours_Total,
+    (SELECT SUM(Solde_Restant) FROM Encours WHERE [Date d'échéance] >= ?) AS A_Echoir,
+    (SELECT SUM(Solde_Restant) FROM Encours WHERE [Date d'échéance] < ?) AS Echu,
+    (SELECT COUNT(*) FROM Encours WHERE [Date d'échéance] < ?) AS Nb_Echeances_Retard,
+    (SELECT COUNT(DISTINCT [Code client]) FROM Encours WHERE [Date d'échéance] < ?) AS Nb_Clients_Retard,
     (SELECT ISNULL(SUM([Montant réglement]), 0)
      FROM [Imputation_Factures_Ventes]
-     WHERE MONTH([Date réglement]) = MONTH(GETDATE())
-       AND YEAR([Date réglement]) = YEAR(GETDATE())) AS Reglements_Mois,
-
-    -- Retard moyen en jours
-    (SELECT AVG(DATEDIFF(DAY, [Date d'échéance], GETDATE()))
-     FROM [Echéances_Ventes]
-     WHERE [Date d'échéance] < GETDATE()
-       AND [Montant échéance] > ISNULL([Régler], 0)) AS Retard_Moyen_Jours
+     WHERE MONTH([Date réglement]) = MONTH(?)
+       AND YEAR([Date réglement]) = YEAR(?)) AS Reglements_Mois,
+    (SELECT AVG(DATEDIFF(DAY, [Date d'échéance], ?))
+     FROM Encours WHERE [Date d'échéance] < ?) AS Retard_Moyen_Jours
 """
 
 EVOLUTION_RECOUVREMENT = """
@@ -648,29 +691,38 @@ ORDER BY CA_HT DESC
 
 ECHEANCES_NON_REGLEES_CLIENT = """
 SELECT
-    [DB_Caption] AS Societe,
-    [Type Document],
-    [N° pièce] AS Num_Piece,
-    [Date document],
-    [Date d'échéance] AS Date_Echeance,
-    [Montant échéance] AS Montant_Echeance,
-    [Montant TTC],
-    [Régler] AS Montant_Regle,
-    [Montant échéance] - ISNULL([Régler], 0) AS Reste_A_Regler,
-    [Mode de réglement] AS Mode_Reglement,
-    DATEDIFF(DAY, [Date d'échéance], GETDATE()) AS Jours_Retard,
+    ev.[DB_Caption] AS Societe,
+    ev.[Type Document],
+    ev.[N° pièce] AS Num_Piece,
+    ev.[Date document],
+    ev.[Date d'échéance] AS Date_Echeance,
+    ev.[Montant échéance] AS Montant_Echeance,
+    ev.[Montant TTC],
+    ISNULL(ifv.Total_Regle, 0) AS Montant_Regle,
+    ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) AS Reste_A_Regler,
+    ev.[Mode de réglement] AS Mode_Reglement,
+    DATEDIFF(DAY, ev.[Date d'échéance], ?) AS Jours_Retard,
     CASE
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 0 THEN 'A echoir'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 30 THEN '0-30 jours'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 60 THEN '31-60 jours'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 90 THEN '61-90 jours'
-        WHEN DATEDIFF(DAY, [Date d'échéance], GETDATE()) <= 120 THEN '91-120 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 0 THEN 'A echoir'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 30 THEN '0-30 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 60 THEN '31-60 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 90 THEN '61-90 jours'
+        WHEN DATEDIFF(DAY, ev.[Date d'échéance], ?) <= 120 THEN '91-120 jours'
         ELSE '+120 jours'
     END AS Tranche_Age
-FROM [dbo].[Echéances_Ventes]
-WHERE [Intitulé client] = ?
-  AND [Montant échéance] > ISNULL([Régler], 0)
-ORDER BY [Date d'échéance] ASC
+FROM [dbo].[Echéances_Ventes] ev
+LEFT JOIN (
+    SELECT [N° pièce], [Code client], [DB_Id], SUM([Montant régler]) AS Total_Regle
+    FROM [Imputation_Factures_Ventes]
+    WHERE [Date règlement] <= ?
+    GROUP BY [N° pièce], [Code client], [DB_Id]
+) ifv ON ev.[N° pièce] = ifv.[N° pièce]
+     AND ev.[Code client] = ifv.[Code client]
+     AND ev.[DB_Id] = ifv.[DB_Id]
+WHERE ev.[Intitulé client] = ?
+  AND ev.[Date document] <= ?
+  AND ev.[Montant échéance] - ISNULL(ifv.Total_Regle, 0) > 0
+ORDER BY ev.[Date d'échéance] ASC
 """
 
 LISTE_CLIENTS_SAGE = """
@@ -844,6 +896,251 @@ WHERE [Intitulé Fournisseur] = ?
   AND [Type Document] IN ('Facture', 'Avoir fournisseur')
 GROUP BY YEAR([Date]), MONTH([Date])
 ORDER BY Annee, Mois
+"""
+
+# =====================================================
+# COMPTABILITÉ ANALYTIQUE — Phase 4
+# Source : Ecritures_Analytiques + Centres_Analytiques
+# =====================================================
+
+ANALYTIQUE_PAR_CENTRE = """
+SELECT
+    ce.[CA_Num]      AS Code_Centre,
+    ce.[CA_Intitule] AS Centre,
+    SUM(CASE WHEN ea.[EA_Sens]=1 THEN ea.[EA_Montant] ELSE 0 END)  AS Debit,
+    SUM(CASE WHEN ea.[EA_Sens]=2 THEN ea.[EA_Montant] ELSE 0 END)  AS Credit,
+    SUM(CASE WHEN ea.[EA_Sens]=1 THEN ea.[EA_Montant]
+             ELSE -ea.[EA_Montant] END)                            AS Solde
+FROM [dbo].[Ecritures_Analytiques] ea
+JOIN [dbo].[Centres_Analytiques] ce ON ea.[CA_Num] = ce.[CA_Num]
+WHERE ea.[EA_DateEcr] BETWEEN ? AND ?
+GROUP BY ce.[CA_Num], ce.[CA_Intitule]
+ORDER BY Solde DESC
+"""
+
+ANALYTIQUE_EVOLUTION_MENSUELLE = """
+SELECT
+    FORMAT(ea.[EA_DateEcr], 'yyyy-MM')  AS Periode,
+    ce.[CA_Intitule]                    AS Centre,
+    SUM(CASE WHEN ea.[EA_Sens]=1 THEN ea.[EA_Montant] ELSE 0 END)  AS Debit,
+    SUM(CASE WHEN ea.[EA_Sens]=2 THEN ea.[EA_Montant] ELSE 0 END)  AS Credit,
+    SUM(CASE WHEN ea.[EA_Sens]=1 THEN ea.[EA_Montant]
+             ELSE -ea.[EA_Montant] END)                            AS Solde
+FROM [dbo].[Ecritures_Analytiques] ea
+JOIN [dbo].[Centres_Analytiques] ce ON ea.[CA_Num] = ce.[CA_Num]
+WHERE ea.[EA_DateEcr] BETWEEN ? AND ?
+GROUP BY FORMAT(ea.[EA_DateEcr], 'yyyy-MM'), ce.[CA_Intitule]
+ORDER BY Periode, Centre
+"""
+
+ANALYTIQUE_BUDGET_VS_REALISE = """
+SELECT
+    ce.[CA_Num]            AS Code_Centre,
+    ce.[CA_Intitule]       AS Centre,
+    ISNULL(b.Budget, 0)                      AS Budget,
+    ISNULL(SUM(ea.[EA_Montant]), 0)          AS Realise,
+    ISNULL(SUM(ea.[EA_Montant]), 0) - ISNULL(b.Budget, 0) AS Ecart,
+    CASE WHEN ISNULL(b.Budget, 0) > 0
+         THEN ROUND(ISNULL(SUM(ea.[EA_Montant]), 0) / b.Budget * 100, 1)
+         ELSE NULL END AS Taux_Realisation
+FROM [dbo].[Centres_Analytiques] ce
+LEFT JOIN [dbo].[Ecritures_Analytiques] ea
+       ON ea.[CA_Num] = ce.[CA_Num]
+      AND ea.[EA_DateEcr] BETWEEN ? AND ?
+LEFT JOIN (
+    SELECT [CA_Num], SUM([montant]) AS Budget
+    FROM [dbo].[Budgets_Analytiques]
+    WHERE [exercice] = ?
+    GROUP BY [CA_Num]
+) b ON b.[CA_Num] = ce.[CA_Num]
+GROUP BY ce.[CA_Num], ce.[CA_Intitule], b.Budget
+ORDER BY Centre
+"""
+
+ANALYTIQUE_PL_ACTIVITE = """
+-- P&L analytique : Produits (sens Crédit sur comptes 7x) vs Charges (sens Débit sur comptes 6x)
+SELECT
+    ce.[CA_Intitule] AS Centre,
+    SUM(CASE WHEN LEFT(ea.[CG_Num], 1) = '7' AND ea.[EA_Sens]=2
+             THEN ea.[EA_Montant] ELSE 0 END) AS Produits,
+    SUM(CASE WHEN LEFT(ea.[CG_Num], 1) = '6' AND ea.[EA_Sens]=1
+             THEN ea.[EA_Montant] ELSE 0 END) AS Charges,
+    SUM(CASE WHEN LEFT(ea.[CG_Num], 1) = '7' AND ea.[EA_Sens]=2
+             THEN ea.[EA_Montant]
+             WHEN LEFT(ea.[CG_Num], 1) = '6' AND ea.[EA_Sens]=1
+             THEN -ea.[EA_Montant]
+             ELSE 0 END)                      AS Resultat
+FROM [dbo].[Ecritures_Analytiques] ea
+JOIN [dbo].[Centres_Analytiques] ce ON ea.[CA_Num] = ce.[CA_Num]
+WHERE ea.[EA_DateEcr] BETWEEN ? AND ?
+GROUP BY ce.[CA_Intitule]
+ORDER BY Resultat DESC
+"""
+
+LISTE_CENTRES_ANALYTIQUES = """
+SELECT
+    [CA_Num]      AS code_centre,
+    [CA_Intitule] AS intitule,
+    [CA_Niv]      AS niveau
+FROM [dbo].[Centres_Analytiques]
+ORDER BY [CA_Num]
+"""
+
+# =====================================================
+# PAIE / MASSE SALARIALE — Phase 5
+# Source : Ecritures_Comptables (comptes 64x)
+# =====================================================
+
+MASSE_SALARIALE_MENSUELLE = """
+SELECT
+    FORMAT(e.[EC_Date], 'yyyy-MM')  AS Periode,
+    SUM(CASE WHEN LEFT(e.[CG_Num], 3) IN ('641', '642')
+             THEN e.[EC_Montant] ELSE 0 END)  AS Salaires_Bruts,
+    SUM(CASE WHEN LEFT(e.[CG_Num], 3) = '645'
+             THEN e.[EC_Montant] ELSE 0 END)  AS Charges_Patronales,
+    SUM(CASE WHEN LEFT(e.[CG_Num], 3) = '646'
+             THEN e.[EC_Montant] ELSE 0 END)  AS Autres_Charges_Personnel,
+    SUM(e.[EC_Montant])                       AS Total_Charges_Personnel
+FROM [dbo].[Ecritures_Comptables] e
+WHERE LEFT(e.[CG_Num], 2) = '64'
+  AND e.[EC_Sens] = 1
+  AND e.[EC_Date] BETWEEN ? AND ?
+GROUP BY FORMAT(e.[EC_Date], 'yyyy-MM')
+ORDER BY Periode
+"""
+
+RATIO_MASSE_SALARIALE_CA = """
+SELECT
+    FORMAT(e.[EC_Date], 'yyyy-MM')  AS Periode,
+    SUM(e.[EC_Montant])             AS Masse_Salariale,
+    ca.CA_HT,
+    CASE WHEN ca.CA_HT > 0
+         THEN ROUND(SUM(e.[EC_Montant]) / ca.CA_HT * 100, 2)
+         ELSE NULL END               AS Ratio_MS_CA
+FROM [dbo].[Ecritures_Comptables] e
+JOIN (
+    SELECT FORMAT([Date BL], 'yyyy-MM') AS Periode,
+           SUM([Montant HT Net])        AS CA_HT
+    FROM [dbo].[DashBoard_CA]
+    WHERE [Valorise CA] = 'oui'
+    GROUP BY FORMAT([Date BL], 'yyyy-MM')
+) ca ON ca.Periode = FORMAT(e.[EC_Date], 'yyyy-MM')
+WHERE LEFT(e.[CG_Num], 2) = '64'
+  AND e.[EC_Sens] = 1
+  AND e.[EC_Date] BETWEEN ? AND ?
+GROUP BY FORMAT(e.[EC_Date], 'yyyy-MM'), ca.CA_HT
+ORDER BY Periode
+"""
+
+MASSE_SALARIALE_ANNUELLE = """
+SELECT
+    YEAR(e.[EC_Date])  AS Annee,
+    SUM(CASE WHEN LEFT(e.[CG_Num], 3) IN ('641', '642')
+             THEN e.[EC_Montant] ELSE 0 END)  AS Salaires_Bruts,
+    SUM(CASE WHEN LEFT(e.[CG_Num], 3) = '645'
+             THEN e.[EC_Montant] ELSE 0 END)  AS Charges_Patronales,
+    SUM(e.[EC_Montant])                       AS Total_Charges_Personnel,
+    YEAR(e.[EC_Date]) * 0 + (
+        SELECT ISNULL(SUM([Montant HT Net]), 0)
+        FROM [dbo].[DashBoard_CA]
+        WHERE YEAR([Date BL]) = YEAR(e.[EC_Date])
+          AND [Valorise CA] = 'oui'
+    ) AS CA_Annee
+FROM [dbo].[Ecritures_Comptables] e
+WHERE LEFT(e.[CG_Num], 2) = '64'
+  AND e.[EC_Sens] = 1
+  AND YEAR(e.[EC_Date]) IN (?, ?)
+GROUP BY YEAR(e.[EC_Date])
+ORDER BY Annee
+"""
+
+# =====================================================
+# BUDGET VS RÉALISÉ — Phase 5
+# Source : APP_Budgets + DashBoard_CA + Ecritures_Comptables
+# =====================================================
+
+BUDGET_VS_REALISE_CA = """
+SELECT
+    b.exercice     AS Exercice,
+    b.mois         AS Mois,
+    b.code_poste   AS Code_Commercial,
+    b.libelle_poste AS Commercial,
+    b.montant_budget AS Budget_CA,
+    ISNULL(ca.CA_HT, 0) AS Realise_CA,
+    ISNULL(ca.CA_HT, 0) - b.montant_budget AS Ecart,
+    CASE WHEN b.montant_budget > 0
+         THEN ROUND(ISNULL(ca.CA_HT, 0) / b.montant_budget * 100, 1)
+         ELSE NULL END AS Taux_Realisation
+FROM [dbo].[APP_Budgets] b
+LEFT JOIN (
+    SELECT
+        MONTH([Date BL])    AS mois,
+        YEAR([Date BL])     AS exercice,
+        [Représentant]      AS commercial,
+        SUM([Montant HT Net]) AS CA_HT
+    FROM [dbo].[DashBoard_CA]
+    WHERE [Valorise CA] = 'oui'
+    GROUP BY MONTH([Date BL]), YEAR([Date BL]), [Représentant]
+) ca ON ca.exercice = b.exercice
+     AND ca.mois    = b.mois
+     AND ca.commercial = b.code_poste
+WHERE b.axe = 'CA'
+  AND b.exercice = ?
+ORDER BY b.mois, b.code_poste
+"""
+
+BUDGET_VS_REALISE_CHARGES = """
+SELECT
+    b.exercice      AS Exercice,
+    b.mois          AS Mois,
+    b.code_poste    AS Code_Poste,
+    b.libelle_poste AS Libelle,
+    b.montant_budget AS Budget,
+    ISNULL(ch.Realise, 0) AS Realise,
+    ISNULL(ch.Realise, 0) - b.montant_budget AS Ecart,
+    CASE WHEN b.montant_budget > 0
+         THEN ROUND(ISNULL(ch.Realise, 0) / b.montant_budget * 100, 1)
+         ELSE NULL END AS Taux_Consommation
+FROM [dbo].[APP_Budgets] b
+LEFT JOIN (
+    SELECT
+        MONTH(e.[EC_Date])  AS mois,
+        YEAR(e.[EC_Date])   AS exercice,
+        e.[CG_Num]          AS cg_num,
+        SUM(e.[EC_Montant]) AS Realise
+    FROM [dbo].[Ecritures_Comptables] e
+    WHERE e.[EC_Sens] = 1
+      AND LEFT(e.[CG_Num], 1) = '6'
+    GROUP BY MONTH(e.[EC_Date]), YEAR(e.[EC_Date]), e.[CG_Num]
+) ch ON ch.exercice = b.exercice
+     AND ch.mois    = b.mois
+     AND ch.cg_num  = b.code_poste
+WHERE b.axe = 'CHARGES'
+  AND b.exercice = ?
+ORDER BY b.mois, b.code_poste
+"""
+
+BUDGET_GLOBAL_ANNUEL = """
+SELECT
+    b.axe                   AS Axe,
+    SUM(b.montant_budget)   AS Budget_Total,
+    ISNULL(SUM(
+        CASE b.axe
+            WHEN 'CA' THEN (
+                SELECT ISNULL(SUM([Montant HT Net]), 0)
+                FROM [dbo].[DashBoard_CA]
+                WHERE YEAR([Date BL]) = b.exercice
+                  AND [Valorise CA] = 'oui'
+                  AND MONTH([Date BL]) = b.mois
+                  AND [Représentant] = b.code_poste
+            )
+            ELSE 0
+        END
+    ), 0)                   AS Realise_Total
+FROM [dbo].[APP_Budgets] b
+WHERE b.exercice = ?
+GROUP BY b.axe
+ORDER BY b.axe
 """
 
 ACHATS_TOTAL_FOURNISSEUR = """
@@ -1413,6 +1710,61 @@ SELECT
     SUM(CASE WHEN [Date d'échéance] >= GETDATE() THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS A_Echoir,
     COUNT(*) AS Nb_Echeances_Ouvertes,
     COUNT(DISTINCT [Code fournisseur]) AS Nb_Fournisseurs
+FROM [dbo].[Echeances_Fournisseurs]
+WHERE [Montant échéance] > ISNULL([Régler], 0)
+"""
+
+# Balance âgée fournisseurs avec tranches dynamiques (7 paramètres date_ref)
+BALANCE_AGEE_FOURNISSEURS = """
+SELECT
+    [Code fournisseur] AS Code_Fournisseur,
+    [Intitulé fournisseur] AS Nom_Fournisseur,
+    [DB] AS Societe,
+    COUNT(*) AS Nb_Echeances,
+    SUM([Montant échéance] - ISNULL([Régler], 0)) AS Reste_A_Payer,
+    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], ?) <= 0
+             THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS A_Echoir,
+    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], ?) BETWEEN 1 AND 30
+             THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_0_30,
+    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], ?) BETWEEN 31 AND 60
+             THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_31_60,
+    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], ?) BETWEEN 61 AND 90
+             THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_61_90,
+    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], ?) BETWEEN 91 AND 120
+             THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_91_120,
+    SUM(CASE WHEN DATEDIFF(DAY, [Date d'échéance], ?) > 120
+             THEN [Montant échéance] - ISNULL([Régler], 0) ELSE 0 END) AS Tranche_Plus_120,
+    MIN([Date d'échéance]) AS Prochaine_Echeance,
+    MAX(DATEDIFF(DAY, [Date d'échéance], ?)) AS Max_Jours_Retard
+FROM [dbo].[Echeances_Fournisseurs]
+WHERE [Montant échéance] > ISNULL([Régler], 0)
+GROUP BY [Code fournisseur], [Intitulé fournisseur], [DB]
+ORDER BY Reste_A_Payer DESC
+"""
+
+# Échéances fournisseurs non réglées détaillées avec tranches (6 paramètres date_ref)
+ECHEANCES_FOURNISSEURS_NON_REGLEES = """
+SELECT
+    [DB] AS Societe,
+    [Code fournisseur] AS Code_Fournisseur,
+    [Intitulé fournisseur] AS Nom_Fournisseur,
+    [N° pièce] AS Num_Piece,
+    [Type document] AS Type_Document,
+    [Date document],
+    [Date d'échéance] AS Date_Echeance,
+    [Montant échéance] AS Montant_Echeance,
+    ISNULL([Régler], 0) AS Montant_Regle,
+    [Montant échéance] - ISNULL([Régler], 0) AS Reste_A_Payer,
+    [Mode de réglement] AS Mode_Reglement,
+    DATEDIFF(DAY, [Date d'échéance], ?) AS Jours_Retard,
+    CASE
+        WHEN DATEDIFF(DAY, [Date d'échéance], ?) <= 0 THEN 'A échoir'
+        WHEN DATEDIFF(DAY, [Date d'échéance], ?) <= 30 THEN '0-30 jours'
+        WHEN DATEDIFF(DAY, [Date d'échéance], ?) <= 60 THEN '31-60 jours'
+        WHEN DATEDIFF(DAY, [Date d'échéance], ?) <= 90 THEN '61-90 jours'
+        WHEN DATEDIFF(DAY, [Date d'échéance], ?) <= 120 THEN '91-120 jours'
+        ELSE '+120 jours'
+    END AS Tranche_Age
 FROM [dbo].[Echeances_Fournisseurs]
 WHERE [Montant échéance] > ISNULL([Régler], 0)
 """
