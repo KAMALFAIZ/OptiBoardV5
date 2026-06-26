@@ -100,7 +100,7 @@ IF NOT EXISTS (SELECT 1 FROM APP_ClientDB WHERE dwh_code = '$DwhCode')
 Write-Host ""
 Write-Host "=== TERMINE ===" -ForegroundColor Green
 Write-Host "Connectez-vous avec :" -ForegroundColor Cyan
-Write-Host "  URL  : http://127.0.0.1:8084/?client=$($DwhCode.ToLower())"
+Write-Host "  URL  : http://127.0.0.1:8084   (DWH '$DwhCode' selectionne a la connexion)"
 Write-Host "  User : $AdminUser"
 Write-Host "  Pwd  : $AdminPwd"
 Write-Host ""
