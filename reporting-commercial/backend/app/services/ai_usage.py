@@ -151,3 +151,81 @@ def monthly_usage(year_month: Optional[str] = None) -> dict:
     except Exception as e:  # pragma: no cover - dépend de la base
         logger.debug(f"[AI-USAGE] monthly_usage: {e}")
     return {"month": ym, "calls": 0, "tokensIn": 0, "tokensOut": 0, "tokensMonth": 0}
+
+
+# =============================================================================
+# Quota IA mensuel — application configurable (AI_QUOTA_ENFORCE)
+# =============================================================================
+# Modes : 'off' = report seul (aucune contrainte) · 'warn' = laisse passer mais
+# journalise le dépassement · 'block' = refuse l'appel IA (lève AIQuotaExceeded).
+# Le plafond vient du claim `aiMonthlyTokens` de la licence signée (0/absent = ∞).
+
+_VALID_MODES = {"off", "warn", "block"}
+
+
+def _quota_mode() -> str:
+    try:
+        from ..config import get_settings
+        m = (getattr(get_settings(), "AI_QUOTA_ENFORCE", "warn") or "warn").strip().lower()
+        return m if m in _VALID_MODES else "warn"
+    except Exception:
+        return "warn"
+
+
+def _license_ai_limit():
+    """Plafond de tokens IA/mois de la licence (claim aiMonthlyTokens). None = illimité."""
+    try:
+        from ..config import get_settings
+        from .license_service import _verify_console_jwt
+        key = (getattr(get_settings(), "LICENSE_KEY", "") or "").strip()
+        if not key:
+            return None
+        claims = _verify_console_jwt(key)
+        if not claims:
+            return None
+        v = claims.get("aiMonthlyTokens")
+        return int(v) if v else None   # 0/absent → illimité
+    except Exception as e:  # pragma: no cover - dépend de la licence
+        logger.debug(f"[AI-USAGE] license ai limit: {e}")
+        return None
+
+
+def _quota_decision(mode: str, used, limit) -> str:
+    """Décision de quota (logique PURE, testable) : 'ok' | 'warn' | 'block'."""
+    if mode == "off" or not limit:        # report seul, ou plafond illimité
+        return "ok"
+    if int(used) < int(limit):
+        return "ok"
+    return "block" if mode == "block" else "warn"
+
+
+def ai_quota_state() -> dict:
+    """État courant du quota IA mensuel (installation). Ne lève jamais."""
+    mode = _quota_mode()
+    used = int(monthly_usage().get("tokensMonth", 0) or 0)
+    limit = _license_ai_limit()
+    return {"mode": mode, "used": used, "limit": limit,
+            "over": bool(limit) and used >= int(limit)}
+
+
+def enforce_ai_quota() -> None:
+    """À appeler AVANT un appel IA. 'block' → lève AIQuotaExceeded si le plafond est
+    atteint ; 'warn' → journalise ; 'off' → ne fait rien. Fail-open : une erreur
+    interne (base/licence) ne bloque jamais l'IA."""
+    try:
+        state = ai_quota_state()
+        decision = _quota_decision(state["mode"], state["used"], state["limit"])
+    except Exception as e:  # pragma: no cover - dépend base/licence
+        logger.debug(f"[AI-USAGE] enforce quota: {e}")
+        return
+    if decision == "ok":
+        return
+    if decision == "block":
+        from .ai_provider import AIQuotaExceeded
+        raise AIQuotaExceeded(
+            f"Quota IA mensuel atteint ({state['used']:,} / {state['limit']:,} tokens). "
+            "Contactez l'éditeur pour relever le plafond."
+        )
+    logger.warning(
+        f"[AI-USAGE] Quota IA dépassé (mode souple) : {state['used']} / {state['limit']} tokens"
+    )

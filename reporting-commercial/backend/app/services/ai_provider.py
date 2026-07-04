@@ -41,6 +41,13 @@ class AIProviderError(Exception):
     pass
 
 
+class AIQuotaExceeded(AIProviderError):
+    """Quota IA mensuel atteint (mode d'application 'block'). Sous-classe
+    d'AIProviderError pour etre capturee par les routes qui gerent deja les
+    erreurs fournisseur."""
+    pass
+
+
 class BaseAIProvider(ABC):
     """Interface commune pour tous les fournisseurs IA."""
 
@@ -348,6 +355,11 @@ def get_ai_provider() -> Optional[BaseAIProvider]:
 
     if not settings.AI_ENABLED or not settings.AI_PROVIDER:
         return None
+
+    # Controle du quota IA mensuel (mode configurable AI_QUOTA_ENFORCE) :
+    # leve AIQuotaExceeded si le plafond est atteint et le mode = 'block'.
+    from .ai_usage import enforce_ai_quota
+    enforce_ai_quota()
 
     provider = settings.AI_PROVIDER.lower()
     custom_url = (settings.AI_BASE_URL or "").strip()

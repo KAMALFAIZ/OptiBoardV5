@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     AI_RATE_LIMIT_PER_MINUTE: int = 20
     AI_HISTORY_MAX_MESSAGES: int = 50
     AI_SQL_MAX_ROWS: int = 500
+    AI_QUOTA_ENFORCE: str = "warn"  # off | warn | block — application du quota IA mensuel (claim aiMonthlyTokens)
 
     # WhatsApp Business — Provider
     WA_PROVIDER: str = "360dialog"     # "meta" ou "360dialog"
@@ -222,6 +223,7 @@ def save_env_config(config: dict) -> bool:
         f.write(f"AI_RATE_LIMIT_PER_MINUTE={existing_content.get('AI_RATE_LIMIT_PER_MINUTE', '20')}\n")
         f.write(f"AI_HISTORY_MAX_MESSAGES={existing_content.get('AI_HISTORY_MAX_MESSAGES', '50')}\n")
         f.write(f"AI_SQL_MAX_ROWS={existing_content.get('AI_SQL_MAX_ROWS', '500')}\n")
+        f.write(f"AI_QUOTA_ENFORCE={existing_content.get('AI_QUOTA_ENFORCE', 'warn')}\n")
         f.write("\n# WhatsApp Business\n")
         f.write(f"WA_PROVIDER={existing_content.get('WA_PROVIDER', '360dialog')}\n")
         f.write(f"WA_BOT_ENABLED={existing_content.get('WA_BOT_ENABLED', 'False')}\n")
