@@ -23,8 +23,11 @@ namespace SageETLAgent.Services
         private readonly string _agentName;
 
         // Configuration performance
-        public int TurboBatchSize { get; set; } = 50000;  // Augmente de 5000 a 50000
-        public int MergeBatchSize { get; set; } = 5000;   // Augmente de 1000 a 5000
+        // TurboBatchSize reduit de 50000 a 15000: limite les verrous et la croissance du
+        // journal de transactions SQL Server par lot. Surchargeable via appsettings.json
+        // (SageEtl.TurboBatchSize) et applique par ContinuousSyncService.
+        public int TurboBatchSize { get; set; } = 15000;
+        public int MergeBatchSize { get; set; } = 5000;
         public bool UsePersistentConnection { get; set; } = true;
 
         public DwhWriter(string server, string database, string username, string password, string? agentName = null)
@@ -343,6 +346,70 @@ namespace SageETLAgent.Services
             }
         }
 
+        /// <summary>
+        /// Prepare une table cible pour un remplacement par societe en mode STREAME :
+        /// cree la table/les colonnes si besoin (a partir d'une ligne echantillon) puis DELETE la
+        /// societe UNE seule fois. A appeler avant le 1er InsertSocieteBatchAsync. Equivaut a la
+        /// phase d'entete de WriteTableDataForSocieteAsync (memes DELETE societe + INSERT au final).
+        /// Suppose la connexion persistante (defaut) reutilisee entre les lots.
+        /// </summary>
+        public async Task PrepareSocieteReplaceAsync(
+            string tableName,
+            Dictionary<string, object?> sampleRow,
+            string societeCode,
+            CancellationToken cancellationToken = default)
+        {
+            var conn = await GetConnectionAsync(cancellationToken);
+
+            // Echantillon AVEC societe pour que le schema cree inclue la colonne
+            var sample = new Dictionary<string, object?>(sampleRow);
+            if (!sample.ContainsKey("societe"))
+                sample["societe"] = societeCode;
+
+            await EnsureTableExistsAsync(conn, tableName, sample, cancellationToken);
+            await EnsureSocieteColumnExistsAsync(conn, tableName, cancellationToken);
+            await EnsureTargetColumnsExistAsync(conn, tableName, sample, cancellationToken);
+
+            var deleteSql = $"DELETE FROM [{tableName}] WHERE [societe] = @societe";
+            using var deleteCmd = new SqlCommand(deleteSql, conn);
+            deleteCmd.Parameters.AddWithValue("@societe", societeCode);
+            deleteCmd.CommandTimeout = 120;
+            await deleteCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        /// <summary>
+        /// Insere un lot de lignes pour une societe (mode STREAME), sans DELETE prealable
+        /// (le DELETE est fait une fois par PrepareSocieteReplaceAsync). Ajoute la colonne societe
+        /// puis bulk-insere. Retourne le nombre de lignes du lot.
+        /// </summary>
+        public async Task<int> InsertSocieteBatchAsync(
+            string tableName,
+            List<Dictionary<string, object?>> batch,
+            string societeCode,
+            CancellationToken cancellationToken = default)
+        {
+            if (batch.Count == 0) return 0;
+
+            var conn = await GetConnectionAsync(cancellationToken);
+
+            var dataWithSociete = AddSocieteColumn(batch, societeCode);
+            var dataTable = ConvertToDataTable(tableName, dataWithSociete);
+
+            using var bulkCopy = new SqlBulkCopy(conn, SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.UseInternalTransaction, null)
+            {
+                DestinationTableName = $"[{tableName}]",
+                BatchSize = TurboBatchSize,
+                BulkCopyTimeout = 600,
+                EnableStreaming = true
+            };
+
+            foreach (DataColumn col in dataTable.Columns)
+                bulkCopy.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+
+            await bulkCopy.WriteToServerAsync(dataTable, cancellationToken);
+            return batch.Count;
+        }
+
         #endregion
 
         #region Upsert (MERGE)
@@ -404,23 +471,26 @@ namespace SageETLAgent.Services
             int totalInserted = 0;
             int totalUpdated = 0;
 
-            // Traiter par batch de 5000 (augmente de 1000)
+            // Traiter par plage d'index sur la liste dedupliquee (pas de sous-liste
+            // recreee a chaque tour via Skip().Take().ToList()).
             int batchSize = MergeBatchSize;
             for (int i = 0; i < deduped.Count; i += batchSize)
             {
-                var batch = deduped.Skip(i).Take(batchSize).ToList();
+                int count = Math.Min(batchSize, deduped.Count - i);
 
                 var (inserted, updated) = await MergeBatchAsync(
                     conn,
                     tableName,
-                    batch,
+                    deduped,
+                    i,
+                    count,
                     pksWithSociete,
                     cancellationToken);
 
                 totalInserted += inserted;
                 totalUpdated += updated;
 
-                progress?.Report(i + batch.Count);
+                progress?.Report(i + count);
             }
 
             return (totalInserted, totalUpdated);
@@ -439,18 +509,20 @@ namespace SageETLAgent.Services
         private async Task<(int Inserted, int Updated)> MergeBatchAsync(
             SqlConnection conn,
             string tableName,
-            List<Dictionary<string, object?>> batch,
+            List<Dictionary<string, object?>> rows,
+            int offset,
+            int count,
             List<string> primaryKeyColumns,
             CancellationToken ct)
         {
-            if (!batch.Any()) return (0, 0);
+            if (count <= 0) return (0, 0);
 
             const int maxDeadlockRetries = 3;
             for (int deadlockAttempt = 1; deadlockAttempt <= maxDeadlockRetries; deadlockAttempt++)
             {
                 try
                 {
-                    return await MergeBatchInternalAsync(conn, tableName, batch, primaryKeyColumns, ct);
+                    return await MergeBatchInternalAsync(conn, tableName, rows, offset, count, primaryKeyColumns, ct);
                 }
                 catch (Exception ex) when (IsDeadlockError(ex) && deadlockAttempt < maxDeadlockRetries)
                 {
@@ -462,19 +534,22 @@ namespace SageETLAgent.Services
                 }
             }
             // Derniere tentative sans catch deadlock
-            return await MergeBatchInternalAsync(conn, tableName, batch, primaryKeyColumns, ct);
+            return await MergeBatchInternalAsync(conn, tableName, rows, offset, count, primaryKeyColumns, ct);
         }
 
         private async Task<(int Inserted, int Updated)> MergeBatchInternalAsync(
             SqlConnection conn,
             string tableName,
-            List<Dictionary<string, object?>> batch,
+            List<Dictionary<string, object?>> rows,
+            int offset,
+            int count,
             List<string> primaryKeyColumns,
             CancellationToken ct)
         {
-            if (!batch.Any()) return (0, 0);
+            if (count <= 0) return (0, 0);
 
-            var columns = batch.First().Keys.ToList();
+            var sample = rows[offset];
+            var columns = sample.Keys.ToList();
             var cleanColumns = columns.Select(CleanColumnName).ToList();
 
             // Creer une table temporaire
@@ -484,7 +559,7 @@ namespace SageETLAgent.Services
             // puis fallback sur l'inference depuis les donnees
             try
             {
-                var createTempSql = await BuildTempTableFromTargetSchemaAsync(conn, tempTableName, tableName, columns, batch.First(), ct);
+                var createTempSql = await BuildTempTableFromTargetSchemaAsync(conn, tempTableName, tableName, columns, sample, ct);
                 using (var cmd = new SqlCommand(createTempSql, conn))
                 {
                     await cmd.ExecuteNonQueryAsync(ct);
@@ -494,19 +569,19 @@ namespace SageETLAgent.Services
             {
                 // Fallback: creer la table temp basee sur les donnees
                 _logger.Debug(LogCategory.CHARGEMENT, "Schema cible indisponible, fallback inference", _agentName, tableName);
-                var createTempSql = BuildCreateTableSql(tempTableName, batch.First());
+                var createTempSql = BuildCreateTableSql(tempTableName, sample);
                 using (var cmd = new SqlCommand(createTempSql, conn))
                 {
                     await cmd.ExecuteNonQueryAsync(ct);
                 }
             }
 
-            // Bulk insert dans la table temp
-            var dataTable = ConvertToDataTable(tempTableName, batch);
+            // Bulk insert dans la table temp (plage [offset, offset+count[ sans sous-liste)
+            var dataTable = ConvertToDataTable(tempTableName, rows, offset, count);
             using (var bulkCopy = new SqlBulkCopy(conn)
             {
                 DestinationTableName = tempTableName,
-                BatchSize = batch.Count,
+                BatchSize = count,
                 BulkCopyTimeout = 60
             })
             {
@@ -518,7 +593,7 @@ namespace SageETLAgent.Services
             }
 
             // S'assurer que la table cible a toutes les colonnes necessaires
-            await EnsureTargetColumnsExistAsync(conn, tableName, batch.First(), ct);
+            await EnsureTargetColumnsExistAsync(conn, tableName, sample, ct);
 
             // Verifier que toutes les colonnes PK existent dans les donnees (evite 2 erreurs SQL inutiles)
             var cleanPKsCheck = primaryKeyColumns.Select(CleanColumnName).ToList();
@@ -797,10 +872,14 @@ namespace SageETLAgent.Services
                     using var conn = new SqlConnection(_connectionString);
                     await conn.OpenAsync(cancellationToken);
 
-                    var existingIds = await GetExistingIdsInternalAsync(conn, tableName, primaryKeyColumns, societeCode, cancellationToken);
-
+                    // On ne materialise PAS l'ensemble complet des IDs du DWH en memoire.
+                    // Seul l'ensemble source (deja en memoire) est conserve ; la table cible
+                    // est parcourue en streaming et seules les cles orphelines sont retenues.
+                    // Comparaison strictement identique a l'ancienne version (memes cles
+                    // serialisees via SerializeValue, meme HashSet ordinal) -> memes lignes supprimees.
                     var sourceIdSet = new HashSet<string>(sourceIds.Select(id => SerializeId(id)));
-                    var orphanIds = existingIds.Where(id => !sourceIdSet.Contains(id)).ToList();
+                    var orphanIds = await StreamOrphanIdsAsync(
+                        conn, tableName, primaryKeyColumns, societeCode, sourceIdSet, cancellationToken);
 
                     if (!orphanIds.Any())
                         return 0;
@@ -837,6 +916,65 @@ namespace SageETLAgent.Services
             await conn.OpenAsync(cancellationToken);
 
             return await GetExistingIdsInternalAsync(conn, tableName, primaryKeyColumns, societeCode, cancellationToken);
+        }
+
+        /// <summary>
+        /// Parcourt en streaming les cles primaires de la table cible (pour une societe) et
+        /// retourne uniquement les cles absentes de l'ensemble source (orphelines), sans jamais
+        /// materialiser l'ensemble complet des IDs du DWH. La cle serialisee est construite
+        /// exactement comme dans GetExistingIdsInternalAsync (meme SerializeValue, meme jointure "|")
+        /// afin de produire le meme resultat que l'ancien diff de HashSet.
+        /// </summary>
+        private async Task<List<string>> StreamOrphanIdsAsync(
+            SqlConnection conn,
+            string tableName,
+            List<string> primaryKeyColumns,
+            string societeCode,
+            HashSet<string> sourceIdSet,
+            CancellationToken ct)
+        {
+            var orphans = new List<string>();
+
+            var cleanPKs = primaryKeyColumns.Select(CleanColumnName).ToList();
+            var pkCols = string.Join(", ", cleanPKs.Select(pk => $"[{pk}]"));
+            var query = $"SELECT {pkCols} FROM [{tableName}] WHERE [societe] = @societe";
+
+            using var cmd = new SqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@societe", societeCode);
+            cmd.CommandTimeout = 120;
+
+            try
+            {
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+
+                while (await reader.ReadAsync(ct))
+                {
+                    string key;
+                    if (primaryKeyColumns.Count == 1)
+                    {
+                        key = SerializeValue(reader[0]);
+                    }
+                    else
+                    {
+                        var values = new List<string>();
+                        for (int i = 0; i < primaryKeyColumns.Count; i++)
+                        {
+                            values.Add(SerializeValue(reader[i]));
+                        }
+                        key = string.Join("|", values);
+                    }
+
+                    if (!sourceIdSet.Contains(key))
+                        orphans.Add(key);
+                }
+            }
+            catch (Exception)
+            {
+                // Table ou colonne n'existe pas -> aucun orphelin detectable (comme l'ancienne version)
+                _logger.Debug(LogCategory.DETECTION, "Table/colonne inexistante pour streaming orphelins", _agentName, tableName);
+            }
+
+            return orphans;
         }
 
         private async Task<HashSet<string>> GetExistingIdsInternalAsync(
@@ -1168,20 +1306,41 @@ namespace SageETLAgent.Services
         /// Convertit les donnees en DataTable pour SqlBulkCopy
         /// </summary>
         private DataTable ConvertToDataTable(string tableName, List<Dictionary<string, object?>> data)
+            => ConvertToDataTable(tableName, data, 0, data.Count);
+
+        /// <summary>
+        /// Variante par plage d'index : convertit uniquement les lignes [offset, offset+count[
+        /// sans materialiser de sous-liste intermediaire (evite Skip().Take().ToList()).
+        /// </summary>
+        private DataTable ConvertToDataTable(string tableName, List<Dictionary<string, object?>> data, int offset, int count)
         {
             var dt = new DataTable(tableName);
 
-            if (!data.Any()) return dt;
+            if (count <= 0 || offset < 0 || offset >= data.Count) return dt;
 
-            // Creer les colonnes a partir du premier element (noms nettoyes)
-            var sample = data.First();
+            int end = Math.Min(offset + count, data.Count);
+
+            // Creer les colonnes a partir de la premiere ligne de la plage (noms nettoyes)
+            var sample = data[offset];
             var keyToClean = new Dictionary<string, string>();
             foreach (var key in sample.Keys)
             {
                 var cleanKey = CleanColumnName(key);
                 keyToClean[key] = cleanKey;
 
+                // Inferer le type sur la 1ere valeur NON NULLE de la plage pour cette colonne.
+                // Sinon une valeur nulle en tete de lot typerait la colonne en string, et
+                // l'ajout d'une valeur typee (DateTime/decimal...) plus bas dans le meme lot
+                // leverait une exception (surtout critique en mode streame ou l'echantillon
+                // change a chaque lot).
                 var value = sample[key];
+                if (value == null)
+                {
+                    for (int r = offset; r < end; r++)
+                    {
+                        if (data[r].TryGetValue(key, out var v) && v != null) { value = v; break; }
+                    }
+                }
                 var type = value?.GetType() ?? typeof(string);
 
                 // Pour les types nullable, obtenir le type sous-jacent
@@ -1190,9 +1349,10 @@ namespace SageETLAgent.Services
                 dt.Columns.Add(cleanKey, underlyingType);
             }
 
-            // Ajouter les lignes
-            foreach (var row in data)
+            // Ajouter les lignes de la plage
+            for (int r = offset; r < end; r++)
             {
+                var row = data[r];
                 var dataRow = dt.NewRow();
                 foreach (var key in row.Keys)
                 {

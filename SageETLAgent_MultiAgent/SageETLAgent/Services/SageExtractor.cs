@@ -255,6 +255,89 @@ namespace SageETLAgent.Services
         }
 
         /// <summary>
+        /// Extraction STREAMEE : lit le DataReader et invoque onBatchAsync tous les batchSize lignes,
+        /// sans jamais accumuler toute la table en memoire (pic memoire = 1 lot). Le consommateur
+        /// ecrit puis libere chaque lot.
+        /// IMPORTANT: pas de retry inline (un lot deja consomme ne doit pas etre re-emis) — une erreur
+        /// transitoire remonte a l'appelant, qui fera echouer la table pour ce cycle (retentee au suivant).
+        /// </summary>
+        public async Task ExtractTableStreamedAsync(
+            string query,
+            int batchSize,
+            Func<List<Dictionary<string, object?>>, Task> onBatchAsync,
+            IProgress<int>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (batchSize <= 0) batchSize = 5000;
+
+            // Retry UNIQUEMENT a l'ouverture (avant toute ecriture) : recupere les transitoires
+            // courants au demarrage de la requete, comme le chemin non streame. Des qu'un lot est
+            // emis (donc potentiellement ecrit dans le DWH), plus aucun retry — re-emettre un lot
+            // deja consomme provoquerait une double-ecriture.
+            SqlCommand cmd = null!;
+            SqlDataReader reader = null!;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    var conn = await GetConnectionAsync(cancellationToken);
+                    cmd = new SqlCommand(query, conn) { CommandTimeout = 600 }; // 10 min pour gros volumes
+                    reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                    break;
+                }
+                catch (Exception ex) when (attempt < 3 && IsTransientError(ex))
+                {
+                    cmd?.Dispose();
+                    _logger.Warn(LogCategory.EXTRACTION,
+                        $"Extraction streamee: ouverture echouee (tentative {attempt}/3): {ex.Message}", _agentName);
+                    ResetConnection();
+                    await Task.Delay(1000 * attempt, cancellationToken);
+                }
+            }
+
+            using (cmd)
+            using (reader)
+            {
+                var columns = new List<string>();
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    columns.Add(reader.GetName(i));
+                }
+
+                var batch = new List<Dictionary<string, object?>>(batchSize);
+                int rowCount = 0;
+
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var row = new Dictionary<string, object?>();
+                    foreach (var col in columns)
+                    {
+                        var value = reader[col];
+                        row[col] = value == DBNull.Value ? null : value;
+                    }
+                    batch.Add(row);
+                    rowCount++;
+
+                    if (batch.Count >= batchSize)
+                    {
+                        await onBatchAsync(batch);
+                        progress?.Report(rowCount);
+                        // Nouveau lot : l'ancien pourra etre collecte apres consommation
+                        batch = new List<Dictionary<string, object?>>(batchSize);
+                    }
+                }
+
+                // Dernier lot partiel
+                if (batch.Count > 0)
+                {
+                    await onBatchAsync(batch);
+                }
+
+                progress?.Report(rowCount);
+            }
+        }
+
+        /// <summary>
         /// Extrait les donnees avec un filtre WHERE additionnel
         /// </summary>
         public async Task<List<Dictionary<string, object?>>> ExtractTableWithFilterAsync(

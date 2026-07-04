@@ -34,20 +34,40 @@ namespace SageETLAgent.Services
         private Task? _syncLoopTask;
 
         /// <summary>
+        /// Tables (nom source ou cible) exclues de la detection des suppressions,
+        /// alimente depuis appsettings.json (SageEtl.DeleteDetectionDisabledTables).
+        /// </summary>
+        private readonly HashSet<string> _deleteDetectionDisabledTables =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Intervalle de verification des tables (defaut: 15 secondes pour reactivite)
         /// Verifie toutes les 15s quelles tables ont atteint leur intervalle individuel
         /// </summary>
         public int SyncCheckIntervalMs { get; set; } = 15000;
 
         /// <summary>
-        /// Nombre de tables a synchroniser en parallele (defaut: 3)
+        /// Nombre de tables a synchroniser en parallele (defaut: 1).
+        /// Chaque table traitee en parallele materialise ses donnees en memoire
+        /// simultanement : 1 minimise le pic RAM. Surchargeable via appsettings.json
+        /// (SageEtl.MaxParallelTables) pour les postes disposant de plus de memoire.
         /// </summary>
-        public int MaxParallelTables { get; set; } = 3;
+        public int MaxParallelTables { get; set; } = 1;
 
         /// <summary>
-        /// Activer la sync parallele des tables
+        /// Activer la sync parallele des tables (bornee par MaxParallelTables).
         /// </summary>
         public bool EnableParallelSync { get; set; } = true;
+
+        /// <summary>
+        /// Taille de lot SqlBulkCopy transmise au DwhWriter (defaut: 15000).
+        /// </summary>
+        public int WriterTurboBatchSize { get; set; } = 15000;
+
+        /// <summary>
+        /// Taille de lot MERGE transmise au DwhWriter (defaut: 5000).
+        /// </summary>
+        public int WriterMergeBatchSize { get; set; } = 5000;
 
         /// <summary>
         /// Indique si le service est en cours d'execution
@@ -102,6 +122,39 @@ namespace SageETLAgent.Services
                 AgentId = agent.AgentId,
                 AgentName = agent.Name
             };
+        }
+
+        /// <summary>
+        /// Applique les reglages de performance issus de la configuration (appsettings.json,
+        /// section SageEtl). Chaque valeur absente (null) conserve le defaut du service.
+        /// A appeler juste apres le constructeur, avant StartAsync.
+        /// </summary>
+        public void ApplyPerformanceConfig(ServiceConfig? config)
+        {
+            if (config == null) return;
+
+            if (config.MaxParallelTables.HasValue && config.MaxParallelTables.Value > 0)
+                MaxParallelTables = config.MaxParallelTables.Value;
+            if (config.EnableParallelSync.HasValue)
+                EnableParallelSync = config.EnableParallelSync.Value;
+            if (config.TurboBatchSize.HasValue && config.TurboBatchSize.Value > 0)
+                WriterTurboBatchSize = config.TurboBatchSize.Value;
+            if (config.MergeBatchSize.HasValue && config.MergeBatchSize.Value > 0)
+                WriterMergeBatchSize = config.MergeBatchSize.Value;
+
+            _deleteDetectionDisabledTables.Clear();
+            if (config.DeleteDetectionDisabledTables != null)
+            {
+                foreach (var t in config.DeleteDetectionDisabledTables)
+                    if (!string.IsNullOrWhiteSpace(t))
+                        _deleteDetectionDisabledTables.Add(t.Trim());
+            }
+
+            _logger.Info(LogCategory.GENERAL,
+                $"Perf config: MaxParallelTables={MaxParallelTables}, EnableParallelSync={EnableParallelSync}, " +
+                $"TurboBatchSize={WriterTurboBatchSize}, MergeBatchSize={WriterMergeBatchSize}, " +
+                $"DeleteDetectionDisabled=[{string.Join(", ", _deleteDetectionDisabledTables)}]",
+                _agent.Name);
         }
 
         /// <summary>
@@ -459,6 +512,8 @@ namespace SageETLAgent.Services
                     _agent.DwhUsername ?? "sa",
                     _agent.DwhPassword ?? "",
                     _agent.Name);
+                dwhWriter.TurboBatchSize = WriterTurboBatchSize;
+                dwhWriter.MergeBatchSize = WriterMergeBatchSize;
 
                 // Obtenir la derniere sync
                 var lastSync = table.ForceFullReload ? null : _syncScheduler?.GetLastSync(table.TableName);
@@ -471,173 +526,42 @@ namespace SageETLAgent.Services
                     ReportProgress(table.TableName, tableIndex, totalTables, rows, $"Extraction: {rows:N0}");
                 });
 
-                List<Dictionary<string, object?>> data;
-
-                // Mode special: extraction dynamique des informations libres Sage (EAV)
-                if (table.CustomQuery == "__INFO_LIBRES_VALUES__")
-                {
-                    data = await sageExtractor.ExtractInfoLibresValuesAsync(extractProgress, ct);
-                }
-                else if (_incrementalEngine != null &&
-                    table.SyncType == "incremental" &&
-                    !string.IsNullOrEmpty(table.TimestampColumn) &&
-                    lastSync != null &&
-                    !table.ForceFullReload)
-                {
-                    // Mode incremental
-                    data = await _incrementalEngine.ExtractIncrementalAsync(
-                        sageExtractor,
-                        table,
-                        lastSync,
-                        extractProgress,
-                        ct);
-                }
-                else
-                {
-                    // Mode full
-                    data = await sageExtractor.ExtractTableAsync(
-                        table.TableName,
-                        table.CustomQuery,
-                        table.BatchSize > 0 ? table.BatchSize : 5000,
-                        extractProgress,
-                        ct);
-                }
-
-                // Diagnostic: detecter les lignes exclues par les JOINs (full reload uniquement)
-                if (!table.ForceFullReload && table.SyncType != "incremental" || (lastSync == null && !table.ForceFullReload))
-                {
-                    try
-                    {
-                        var (baseCount, queryCount, excluded) = await sageExtractor.DiagnoseJoinExclusionsAsync(
-                            table.TableName, table.CustomQuery, null, ct);
-                        if (excluded > 0)
-                            Log($"[{table.TableName}] ATTENTION: {excluded:N0} lignes exclues par les JOINs ({baseCount:N0} base vs {queryCount:N0} extraites)");
-                    }
-                    catch { /* diagnostic non-bloquant */ }
-                }
-
-                // Injecter DB_Id (identifiant client multi-tenant) dans chaque ligne
-                if (data.Any() && !string.IsNullOrWhiteSpace(_agent.DwhCode))
-                {
-                    foreach (var row in data)
-                        row["DB_Id"] = _agent.DwhCode;
-                }
-
-                // Determiner les PKs et le mode incremental AVANT le check 0 lignes
-                // Car on a besoin de ces infos pour la detection des suppressions
+                // PKs + mode calcules tot: necessaires a la strategie, au streaming ET a la detection.
                 var pks = _deleteDetectionService?.ParsePrimaryKeys(table.PrimaryKeyColumns) ?? new List<string>();
                 bool isIncremental = table.SyncType == "incremental" && !table.ForceFullReload;
                 bool forceFullReload = table.ForceFullReload;
 
-                int rowsWritten = 0;
-                string strategy = "skip";
+                bool isInfoLibres = table.CustomQuery == "__INFO_LIBRES_VALUES__";
+                bool useIncrementalEngine = _incrementalEngine != null &&
+                    table.SyncType == "incremental" &&
+                    !string.IsNullOrEmpty(table.TimestampColumn) &&
+                    lastSync != null &&
+                    !table.ForceFullReload;
 
-                if (!data.Any())
+                // Guard diagnostic identique a l'origine (precedence: && avant ||).
+                bool runDiagnostic = (!table.ForceFullReload && table.SyncType != "incremental")
+                    || (lastSync == null && !table.ForceFullReload);
+
+                // Eligible au streaming (extraction complete -> ecriture par lots ; pic memoire = 1 lot)
+                // UNIQUEMENT quand la strategie sera OBLIGATOIREMENT truncate_insert quel que soit le
+                // nombre de lignes : forceFull OU non-incremental OU sans PK. Les autres cas (incremental
+                // etabli, 1er chargement d'une table incrementale) restent materialises pour preserver
+                // A L'IDENTIQUE la selection de strategie basee sur data.Count.
+                bool streamingEligible = !isInfoLibres && !useIncrementalEngine
+                    && (forceFullReload || !isIncremental || !pks.Any());
+
+                int rowsWritten;
+                string strategy;
+                if (streamingEligible)
                 {
-                    Log($"[{table.TableName}] 0 lignes modifiees");
-                    // Creer la table vide dans le DWH si elle n'existe pas encore
-                    try
-                    {
-                        var targetTableName = table.TargetTable ?? table.TableName;
-                        var sourceQuery = table.CustomQuery ?? $"SELECT * FROM [{table.TableName}]";
-                        var schemaColumns = await sageExtractor.GetQueryColumnsAsync(sourceQuery, ct);
-                        if (schemaColumns.Any())
-                        {
-                            await dwhWriter.EnsureTableExistsFromColumnsAsync(
-                                targetTableName, schemaColumns, _agent.DwhCode, ct);
-                        }
-                    }
-                    catch (Exception emptyEx)
-                    {
-                        _logger.Warn(LogCategory.CHARGEMENT,
-                            $"Creation table vide ignoree: {emptyEx.Message}",
-                            _agent.Name, table.TableName);
-                    }
+                    (rowsWritten, strategy) = await ExtractAndReplaceStreamedAsync(
+                        table, sageExtractor, dwhWriter, tableIndex, totalTables, extractProgress, runDiagnostic, ct);
                 }
                 else
                 {
-                    // Ecriture dans le DWH
-                    ReportProgress(table.TableName, tableIndex, totalTables, data.Count, "Ecriture DWH...");
-
-                    var writeProgress = new Progress<int>(rows =>
-                    {
-                        ReportProgress(table.TableName, tableIndex, totalTables, rows, $"Ecrit: {rows:N0}");
-                    });
-
-                    // === STRATEGIE AUTO (comme Python agent-etl) ===
-                    // Determiner la strategie: auto, merge, ou truncate_insert
-                    // - truncate_insert: Plus robuste (DELETE societe + INSERT)
-                    // - merge: Plus efficace pour syncs incrementales (MERGE SQL)
-                    // - auto: Choisir automatiquement selon le contexte
-                    strategy = "auto";
-                    if (strategy == "auto")
-                    {
-                        if (forceFullReload || !isIncremental || data.Count > 100000 || !pks.Any())
-                        {
-                            strategy = "truncate_insert";
-                        }
-                        else
-                        {
-                            strategy = "merge";
-                        }
-                    }
-                    // Meme en truncate_insert, si incremental avec peu de lignes, forcer MERGE
-                    if (strategy == "truncate_insert" && isIncremental && pks.Any() && data.Count > 0 && data.Count < 10000)
-                    {
-                        strategy = "merge";
-                        Log($"[{table.TableName}] Mode incremental avec {data.Count} lignes: MERGE au lieu de truncate_insert");
-                    }
-
-                    _logger.Info(LogCategory.TRANSFORMATION, $"Strategie: {strategy} (force_full={forceFullReload}, rows={data.Count}, incremental={isIncremental}, has_pk={pks.Any()})", _agent.Name, table.TableName);
-
-                    if (strategy == "merge" && pks.Any())
-                    {
-                        // Mode MERGE pour incremental avec FALLBACK automatique
-                        try
-                        {
-                            var (inserted, updated) = await dwhWriter.UpsertTableDataAsync(
-                                table.TargetTable ?? table.TableName,
-                                data,
-                                pks,
-                                _agent.DwhCode,
-                                writeProgress,
-                                ct);
-                            rowsWritten = inserted + updated;
-
-                            // Log detaille INSERT vs UPDATE
-                            if (inserted > 0 || updated > 0)
-                            {
-                                _logger.Info(LogCategory.CHARGEMENT, $"MERGE: +{inserted} ajoutees, ~{updated} modifiees", _agent.Name, table.TableName);
-                            }
-                        }
-                        catch (Exception mergeEx)
-                        {
-                            // === FALLBACK GLOBAL: MERGE echoue → DELETE societe + INSERT ===
-                            _logger.Error(LogCategory.CHARGEMENT, $"MERGE echoue: {mergeEx.Message}", mergeEx, _agent.Name, table.TableName);
-                            _logger.Warn(LogCategory.CHARGEMENT, $"Fallback → DELETE societe + INSERT...", _agent.Name, table.TableName);
-
-                            ReportProgress(table.TableName, tableIndex, totalTables, 0, "Fallback DELETE+INSERT...");
-
-                            rowsWritten = await dwhWriter.WriteTableDataForSocieteAsync(
-                                table.TargetTable ?? table.TableName,
-                                data,
-                                _agent.DwhCode,
-                                writeProgress,
-                                ct);
-
-                            _logger.Info(LogCategory.CHARGEMENT, $"Fallback DELETE+INSERT OK: {rowsWritten:N0} lignes", _agent.Name, table.TableName);
-                        }
-                    }
-                    else
-                    {
-                        // Mode DELETE societe + INSERT (avec colonne societe)
-                        rowsWritten = await dwhWriter.WriteTableDataForSocieteAsync(
-                            table.TargetTable ?? table.TableName,
-                            data,
-                            _agent.DwhCode,
-                            writeProgress,
-                            ct);
-                    }
+                    (rowsWritten, strategy) = await ExtractAndWriteMaterializedAsync(
+                        table, sageExtractor, dwhWriter, tableIndex, totalTables, extractProgress,
+                        lastSync, pks, isIncremental, forceFullReload, runDiagnostic, isInfoLibres, useIncrementalEngine, ct);
                 }
 
                 // === DETECTION DES SUPPRESSIONS ===
@@ -645,7 +569,13 @@ namespace SageETLAgent.Services
                 // Car supprimer une ligne dans Sage ne modifie PAS cbModification des autres lignes
                 // → l'incremental retourne 0 lignes, mais la ligne supprimee est absente de la source
                 // → il faut comparer les PKs source vs DWH pour detecter les orphelins
-                bool shouldDetectDeletes = table.DeleteDetection || (isIncremental && pks.Any());
+                bool detectionDisabledByConfig = IsDeleteDetectionDisabled(table);
+                if (detectionDisabledByConfig)
+                    _logger.Debug(LogCategory.DETECTION,
+                        "Detection suppressions desactivee par configuration (SageEtl.DeleteDetectionDisabledTables)",
+                        _agent.Name, table.TableName);
+                bool shouldDetectDeletes = !detectionDisabledByConfig
+                    && (table.DeleteDetection || (isIncremental && pks.Any()));
                 if (shouldDetectDeletes && _deleteDetectionService != null && pks.Any())
                 {
                     ReportProgress(table.TableName, tableIndex, totalTables, rowsWritten, "Detection suppressions...");
@@ -699,6 +629,272 @@ namespace SageETLAgent.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Chemin materialise (historique) : extraction complete en memoire puis choix de strategie
+        /// (merge / truncate_insert) selon data.Count. Logique inchangee ; sortie de SyncTableAsync
+        /// pour cohabiter proprement avec le chemin streame.
+        /// </summary>
+        private async Task<(int rowsWritten, string strategy)> ExtractAndWriteMaterializedAsync(
+            TableConfig table,
+            SageExtractor sageExtractor,
+            DwhWriter dwhWriter,
+            int tableIndex,
+            int totalTables,
+            IProgress<int> extractProgress,
+            DateTime? lastSync,
+            List<string> pks,
+            bool isIncremental,
+            bool forceFullReload,
+            bool runDiagnostic,
+            bool isInfoLibres,
+            bool useIncrementalEngine,
+            CancellationToken ct)
+        {
+            List<Dictionary<string, object?>> data;
+
+            if (isInfoLibres)
+            {
+                data = await sageExtractor.ExtractInfoLibresValuesAsync(extractProgress, ct);
+            }
+            else if (useIncrementalEngine)
+            {
+                data = await _incrementalEngine!.ExtractIncrementalAsync(
+                    sageExtractor,
+                    table,
+                    lastSync,
+                    extractProgress,
+                    ct);
+            }
+            else
+            {
+                data = await sageExtractor.ExtractTableAsync(
+                    table.TableName,
+                    table.CustomQuery,
+                    table.BatchSize > 0 ? table.BatchSize : 5000,
+                    extractProgress,
+                    ct);
+            }
+
+            // Diagnostic: detecter les lignes exclues par les JOINs
+            if (runDiagnostic)
+            {
+                try
+                {
+                    var (baseCount, queryCount, excluded) = await sageExtractor.DiagnoseJoinExclusionsAsync(
+                        table.TableName, table.CustomQuery, null, ct);
+                    if (excluded > 0)
+                        Log($"[{table.TableName}] ATTENTION: {excluded:N0} lignes exclues par les JOINs ({baseCount:N0} base vs {queryCount:N0} extraites)");
+                }
+                catch { /* diagnostic non-bloquant */ }
+            }
+
+            // Injecter DB_Id (identifiant client multi-tenant) dans chaque ligne
+            if (data.Any() && !string.IsNullOrWhiteSpace(_agent.DwhCode))
+            {
+                foreach (var row in data)
+                    row["DB_Id"] = _agent.DwhCode;
+            }
+
+            int rowsWritten = 0;
+            string strategy = "skip";
+
+            if (!data.Any())
+            {
+                Log($"[{table.TableName}] 0 lignes modifiees");
+                // Creer la table vide dans le DWH si elle n'existe pas encore
+                try
+                {
+                    var targetTableName = table.TargetTable ?? table.TableName;
+                    var sourceQuery = table.CustomQuery ?? $"SELECT * FROM [{table.TableName}]";
+                    var schemaColumns = await sageExtractor.GetQueryColumnsAsync(sourceQuery, ct);
+                    if (schemaColumns.Any())
+                    {
+                        await dwhWriter.EnsureTableExistsFromColumnsAsync(
+                            targetTableName, schemaColumns, _agent.DwhCode, ct);
+                    }
+                }
+                catch (Exception emptyEx)
+                {
+                    _logger.Warn(LogCategory.CHARGEMENT,
+                        $"Creation table vide ignoree: {emptyEx.Message}",
+                        _agent.Name, table.TableName);
+                }
+            }
+            else
+            {
+                // Ecriture dans le DWH
+                ReportProgress(table.TableName, tableIndex, totalTables, data.Count, "Ecriture DWH...");
+
+                var writeProgress = new Progress<int>(rows =>
+                {
+                    ReportProgress(table.TableName, tableIndex, totalTables, rows, $"Ecrit: {rows:N0}");
+                });
+
+                // === STRATEGIE AUTO (comme Python agent-etl) ===
+                // - truncate_insert: Plus robuste (DELETE societe + INSERT)
+                // - merge: Plus efficace pour syncs incrementales (MERGE SQL)
+                strategy = "auto";
+                if (strategy == "auto")
+                {
+                    if (forceFullReload || !isIncremental || data.Count > 100000 || !pks.Any())
+                    {
+                        strategy = "truncate_insert";
+                    }
+                    else
+                    {
+                        strategy = "merge";
+                    }
+                }
+                // Meme en truncate_insert, si incremental avec peu de lignes, forcer MERGE
+                if (strategy == "truncate_insert" && isIncremental && pks.Any() && data.Count > 0 && data.Count < 10000)
+                {
+                    strategy = "merge";
+                    Log($"[{table.TableName}] Mode incremental avec {data.Count} lignes: MERGE au lieu de truncate_insert");
+                }
+
+                _logger.Info(LogCategory.TRANSFORMATION, $"Strategie: {strategy} (force_full={forceFullReload}, rows={data.Count}, incremental={isIncremental}, has_pk={pks.Any()})", _agent.Name, table.TableName);
+
+                if (strategy == "merge" && pks.Any())
+                {
+                    // Mode MERGE pour incremental avec FALLBACK automatique
+                    try
+                    {
+                        var (inserted, updated) = await dwhWriter.UpsertTableDataAsync(
+                            table.TargetTable ?? table.TableName,
+                            data,
+                            pks,
+                            _agent.DwhCode,
+                            writeProgress,
+                            ct);
+                        rowsWritten = inserted + updated;
+
+                        if (inserted > 0 || updated > 0)
+                        {
+                            _logger.Info(LogCategory.CHARGEMENT, $"MERGE: +{inserted} ajoutees, ~{updated} modifiees", _agent.Name, table.TableName);
+                        }
+                    }
+                    catch (Exception mergeEx)
+                    {
+                        // === FALLBACK GLOBAL: MERGE echoue → DELETE societe + INSERT ===
+                        _logger.Error(LogCategory.CHARGEMENT, $"MERGE echoue: {mergeEx.Message}", mergeEx, _agent.Name, table.TableName);
+                        _logger.Warn(LogCategory.CHARGEMENT, $"Fallback → DELETE societe + INSERT...", _agent.Name, table.TableName);
+
+                        ReportProgress(table.TableName, tableIndex, totalTables, 0, "Fallback DELETE+INSERT...");
+
+                        rowsWritten = await dwhWriter.WriteTableDataForSocieteAsync(
+                            table.TargetTable ?? table.TableName,
+                            data,
+                            _agent.DwhCode,
+                            writeProgress,
+                            ct);
+
+                        _logger.Info(LogCategory.CHARGEMENT, $"Fallback DELETE+INSERT OK: {rowsWritten:N0} lignes", _agent.Name, table.TableName);
+                    }
+                }
+                else
+                {
+                    // Mode DELETE societe + INSERT (avec colonne societe)
+                    rowsWritten = await dwhWriter.WriteTableDataForSocieteAsync(
+                        table.TargetTable ?? table.TableName,
+                        data,
+                        _agent.DwhCode,
+                        writeProgress,
+                        ct);
+                }
+            }
+
+            return (rowsWritten, strategy);
+        }
+
+        /// <summary>
+        /// Chemin STREAME : extraction complete traitee par lots (BatchSize) — chaque lot est ecrit
+        /// puis libere, le pic memoire vaut un seul lot au lieu de toute la table. Reserve aux cas ou
+        /// la strategie est forcement truncate_insert (DELETE societe + INSERT) : surete des donnees
+        /// identique au chemin materialise. On DELETE la societe UNE seule fois (au 1er lot) puis on
+        /// insere les lots successifs. 0 ligne => aucun DELETE (comme l'ancien comportement).
+        /// Remarque: pas de retry inline pendant le flux (un lot deja ecrit ne doit pas etre re-emis) ;
+        /// une erreur transitoire fait echouer la table pour ce cycle, retentee au cycle suivant.
+        /// </summary>
+        private async Task<(int rowsWritten, string strategy)> ExtractAndReplaceStreamedAsync(
+            TableConfig table,
+            SageExtractor sageExtractor,
+            DwhWriter dwhWriter,
+            int tableIndex,
+            int totalTables,
+            IProgress<int> extractProgress,
+            bool runDiagnostic,
+            CancellationToken ct)
+        {
+            var targetTable = table.TargetTable ?? table.TableName;
+            var query = table.CustomQuery ?? $"SELECT * FROM [{table.TableName}]";
+            int batchSize = table.BatchSize > 0 ? table.BatchSize : 5000;
+
+            ReportProgress(table.TableName, tableIndex, totalTables, 0, "Ecriture DWH (flux)...");
+            IProgress<int> writeProgress = new Progress<int>(rows =>
+                ReportProgress(table.TableName, tableIndex, totalTables, rows, $"Ecrit: {rows:N0}"));
+
+            bool prepared = false;
+            int written = 0;
+
+            await sageExtractor.ExtractTableStreamedAsync(query, batchSize, async batch =>
+            {
+                // Injecter DB_Id (multi-tenant) par ligne, comme le chemin materialise
+                if (!string.IsNullOrWhiteSpace(_agent.DwhCode))
+                {
+                    foreach (var row in batch)
+                        row["DB_Id"] = _agent.DwhCode;
+                }
+
+                // 1er lot : preparer la cible (schema + colonnes) puis DELETE societe UNE seule fois.
+                if (!prepared)
+                {
+                    await dwhWriter.PrepareSocieteReplaceAsync(targetTable, batch[0], _agent.DwhCode, ct);
+                    prepared = true;
+                }
+
+                written += await dwhWriter.InsertSocieteBatchAsync(targetTable, batch, _agent.DwhCode, ct);
+                writeProgress.Report(written);
+            }, extractProgress, ct);
+
+            if (!prepared)
+            {
+                // 0 ligne extraite : pas de DELETE (on ne vide pas la societe), juste creer la table vide.
+                Log($"[{table.TableName}] 0 lignes modifiees");
+                try
+                {
+                    var schemaColumns = await sageExtractor.GetQueryColumnsAsync(query, ct);
+                    if (schemaColumns.Any())
+                        await dwhWriter.EnsureTableExistsFromColumnsAsync(targetTable, schemaColumns, _agent.DwhCode, ct);
+                }
+                catch (Exception emptyEx)
+                {
+                    _logger.Warn(LogCategory.CHARGEMENT,
+                        $"Creation table vide ignoree: {emptyEx.Message}", _agent.Name, table.TableName);
+                }
+            }
+            else
+            {
+                _logger.Info(LogCategory.TRANSFORMATION,
+                    $"Strategie: truncate_insert streaming (rows={written}, batch={batchSize})",
+                    _agent.Name, table.TableName);
+            }
+
+            // Diagnostic JOINs (memes conditions que le chemin materialise), reader deja ferme.
+            if (runDiagnostic)
+            {
+                try
+                {
+                    var (baseCount, queryCount, excluded) = await sageExtractor.DiagnoseJoinExclusionsAsync(
+                        table.TableName, table.CustomQuery, null, ct);
+                    if (excluded > 0)
+                        Log($"[{table.TableName}] ATTENTION: {excluded:N0} lignes exclues par les JOINs ({baseCount:N0} base vs {queryCount:N0} extraites)");
+                }
+                catch { /* diagnostic non-bloquant */ }
+            }
+
+            return (written, "truncate_insert");
         }
 
         /// <summary>
@@ -823,6 +1019,18 @@ namespace SageETLAgent.Services
             {
                 _ = _commandProcessor.ProcessCommandAsync(command);
             }
+        }
+
+        /// <summary>
+        /// Indique si la detection des suppressions est desactivee pour cette table
+        /// via la configuration (nom source ou table cible).
+        /// </summary>
+        private bool IsDeleteDetectionDisabled(TableConfig table)
+        {
+            if (_deleteDetectionDisabledTables.Count == 0) return false;
+            return _deleteDetectionDisabledTables.Contains(table.TableName)
+                || (!string.IsNullOrEmpty(table.TargetTable)
+                    && _deleteDetectionDisabledTables.Contains(table.TargetTable));
         }
 
         private void ReportProgress(string tableName, int tableIndex, int totalTables, int rows, string message)

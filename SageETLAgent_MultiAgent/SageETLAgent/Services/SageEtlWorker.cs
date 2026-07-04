@@ -50,6 +50,7 @@ namespace SageETLAgent.Services
                     if (stoppingToken.IsCancellationRequested) break;
 
                     var service = new ContinuousSyncService(_config.ServerUrl, agent);
+                    service.ApplyPerformanceConfig(_config);
                     service.SyncCompleted += (s, result) =>
                     {
                         _logger.Info(LogCategory.ORCHESTRATION,
@@ -256,6 +257,44 @@ namespace SageETLAgent.Services
         /// </summary>
         [JsonProperty("AgentFilter")]
         public string? AgentFilter { get; set; }
+
+        // ── Reglages de performance / memoire (optionnels, null = defaut du service) ──
+
+        /// <summary>
+        /// Nb de tables synchronisees en parallele par agent (defaut service: 1).
+        /// Chaque table en parallele charge ses donnees en RAM simultanement.
+        /// 1 = pic memoire minimal ; augmenter (2-3) uniquement si le poste a de la marge.
+        /// </summary>
+        [JsonProperty("MaxParallelTables")]
+        public int? MaxParallelTables { get; set; }
+
+        /// <summary>
+        /// Active la sync parallele des tables (defaut service: true, bornee par MaxParallelTables).
+        /// </summary>
+        [JsonProperty("EnableParallelSync")]
+        public bool? EnableParallelSync { get; set; }
+
+        /// <summary>
+        /// Taille de lot SqlBulkCopy cote DWH (defaut service: 15000).
+        /// </summary>
+        [JsonProperty("TurboBatchSize")]
+        public int? TurboBatchSize { get; set; }
+
+        /// <summary>
+        /// Taille de lot MERGE cote DWH (defaut service: 5000).
+        /// </summary>
+        [JsonProperty("MergeBatchSize")]
+        public int? MergeBatchSize { get; set; }
+
+        /// <summary>
+        /// Liste des tables (nom source ou table cible) pour lesquelles la detection des
+        /// suppressions est desactivee, quel que soit le mode. A reserver aux tables
+        /// volumineuses qui ne suppriment jamais de lignes cote Sage (ex: Ecritures_Analytiques) :
+        /// la detection charge tous les IDs source + DWH en memoire.
+        /// Vide/absent = comportement historique inchange.
+        /// </summary>
+        [JsonProperty("DeleteDetectionDisabledTables")]
+        public List<string>? DeleteDetectionDisabledTables { get; set; }
     }
 
     #endregion

@@ -21,6 +21,9 @@ namespace SageETLAgent.Forms
         private List<AgentProfile> _agents = new();
         private string _serverUrl = "http://optiboard.kasoft.ma";
         private string _dwhCode = "";
+        // Reglages de performance charges depuis appsettings.json (section SageEtl),
+        // appliques a chaque ContinuousSyncService via ApplyPerformanceConfig.
+        private SageETLAgent.Services.ServiceConfig? _perfConfig;
 
         // ── Theme Colors (Professional — tons clairs) ──
         private static readonly Color ThemePrimary      = Color.FromArgb(96, 165, 250);   // #60A5FA blue-400
@@ -107,6 +110,7 @@ namespace SageETLAgent.Forms
                         if (!string.IsNullOrWhiteSpace(root.SageEtl.ServerUrl))
                             _serverUrl = root.SageEtl.ServerUrl;
                         _dwhCode = root.SageEtl.DwhCode ?? "";
+                        _perfConfig = root.SageEtl;
                     }
                 }
             }
@@ -1110,6 +1114,7 @@ namespace SageETLAgent.Forms
                     continue;
 
                 var service = new ContinuousSyncService(_serverUrl, agent);
+                service.ApplyPerformanceConfig(_perfConfig);
                 // LogMessage/ErrorOccurred n'est plus necessaire: les services logguent directement via SyncLogger
                 service.ProgressChanged += SyncManager_ProgressChanged;
                 service.SyncCompleted += ContinuousService_SyncCompleted;
@@ -1890,6 +1895,7 @@ namespace SageETLAgent.Forms
             {
                 // Demarrer un nouveau service
                 var service = new ContinuousSyncService(_serverUrl, agent);
+                service.ApplyPerformanceConfig(_perfConfig);
                 // LogMessage n'est plus necessaire: les services logguent directement via SyncLogger
                 service.ProgressChanged += SyncManager_ProgressChanged;
                 service.SyncCompleted += ContinuousService_SyncCompleted;
