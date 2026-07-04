@@ -36,7 +36,7 @@ if not exist "build_protected.bat" (
     echo ERREUR: build_protected.bat introuvable dans %BACKEND%
     popd & goto :error
 )
-call build_protected.bat
+call "%BACKEND%\build_protected.bat"
 if errorlevel 1 (
     echo.
     echo ERREUR: Compilation Cython echouee
@@ -91,7 +91,7 @@ if not exist "build_installer.bat" (
     echo ERREUR: build_installer.bat introuvable dans %INSTALLER%
     popd & goto :error
 )
-call build_installer.bat
+call "%INSTALLER%\build_installer.bat"
 if errorlevel 1 (
     echo.
     echo ERREUR: Build installeur echoue
