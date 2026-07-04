@@ -11,6 +11,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _record_stream_usage(provider: str, model: str, messages: "List[AIMessage]", acc: "List[str]") -> None:
+    """Enregistre l'usage d'un appel IA en streaming (tokens ESTIMÉS ≈ 4 c/token).
+
+    Fail-safe : ne perturbe jamais le flux si le métrage échoue.
+    """
+    try:
+        from .ai_usage import record_usage, estimate_tokens
+        tin = estimate_tokens("".join((m.content or "") for m in messages))
+        tout = estimate_tokens("".join(acc))
+        record_usage(provider, model, tin, tout)
+    except Exception:
+        pass
+
+
 class AIMessage:
     """Representation d'un message dans une conversation IA."""
 
@@ -97,6 +111,13 @@ class OpenAICompatibleProvider(BaseAIProvider):
                     f"OpenAI API error {response.status_code}: {response.text}"
                 )
             data = response.json()
+            try:
+                from .ai_usage import record_usage
+                u = data.get("usage") or {}
+                record_usage(self.provider_label.lower(), self.model,
+                             u.get("prompt_tokens", 0), u.get("completion_tokens", 0))
+            except Exception:
+                pass
             return data["choices"][0]["message"]["content"]
 
     async def chat_stream(self, messages: List[AIMessage]) -> AsyncGenerator[str, None]:
@@ -111,25 +132,30 @@ class OpenAICompatibleProvider(BaseAIProvider):
             "temperature": self.temperature,
             "stream": True
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            data = json.loads(data_str)
-                            delta = data["choices"][0]["delta"].get("content", "")
-                            if delta:
-                                yield delta
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            pass
+        _acc: List[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(data_str)
+                                delta = data["choices"][0]["delta"].get("content", "")
+                                if delta:
+                                    _acc.append(delta)
+                                    yield delta
+                            except (json.JSONDecodeError, KeyError, IndexError):
+                                pass
+        finally:
+            _record_stream_usage(self.provider_label.lower(), self.model, messages, _acc)
 
     def get_provider_name(self) -> str:
         return f"{self.provider_label} ({self.model})"
@@ -186,6 +212,13 @@ class AnthropicProvider(BaseAIProvider):
                     f"Anthropic API error {response.status_code}: {response.text}"
                 )
             data = response.json()
+            try:
+                from .ai_usage import record_usage
+                u = data.get("usage") or {}
+                record_usage("anthropic", self.model,
+                             u.get("input_tokens", 0), u.get("output_tokens", 0))
+            except Exception:
+                pass
             return data["content"][0]["text"]
 
     async def chat_stream(self, messages: List[AIMessage]) -> AsyncGenerator[str, None]:
@@ -205,24 +238,29 @@ class AnthropicProvider(BaseAIProvider):
         if system:
             payload["system"] = system
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/messages",
-                headers=headers,
-                json=payload
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        try:
-                            data = json.loads(data_str)
-                            if data.get("type") == "content_block_delta":
-                                delta = data.get("delta", {}).get("text", "")
-                                if delta:
-                                    yield delta
-                        except (json.JSONDecodeError, KeyError):
-                            pass
+        _acc: List[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/messages",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            try:
+                                data = json.loads(data_str)
+                                if data.get("type") == "content_block_delta":
+                                    delta = data.get("delta", {}).get("text", "")
+                                    if delta:
+                                        _acc.append(delta)
+                                        yield delta
+                            except (json.JSONDecodeError, KeyError):
+                                pass
+        finally:
+            _record_stream_usage("anthropic", self.model, messages, _acc)
 
     def get_provider_name(self) -> str:
         return f"Anthropic ({self.model})"
@@ -257,6 +295,12 @@ class OllamaProvider(BaseAIProvider):
                     f"Ollama API error {response.status_code}: {response.text}"
                 )
             data = response.json()
+            try:
+                from .ai_usage import record_usage
+                record_usage("ollama", self.model,
+                             data.get("prompt_eval_count", 0), data.get("eval_count", 0))
+            except Exception:
+                pass
             return data["message"]["content"]
 
     async def chat_stream(self, messages: List[AIMessage]) -> AsyncGenerator[str, None]:
@@ -269,21 +313,26 @@ class OllamaProvider(BaseAIProvider):
                 "num_predict": self.max_tokens
             }
         }
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/api/chat",
-                json=payload
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            content = data.get("message", {}).get("content", "")
-                            if content:
-                                yield content
-                        except json.JSONDecodeError:
-                            pass
+        _acc: List[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/chat",
+                    json=payload
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                content = data.get("message", {}).get("content", "")
+                                if content:
+                                    _acc.append(content)
+                                    yield content
+                            except json.JSONDecodeError:
+                                pass
+        finally:
+            _record_stream_usage("ollama", self.model, messages, _acc)
 
     def get_provider_name(self) -> str:
         return f"Ollama ({self.model})"
