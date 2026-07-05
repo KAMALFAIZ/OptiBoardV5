@@ -835,7 +835,17 @@
       "PowerShell(foreach \\($f in @\\(\"scripts\\\\backup\\\\backup_dbs.ps1\", \"scripts\\\\backup\\\\restore_db.ps1\", \"scripts\\\\release\\\\bump_version.ps1\"\\)\\) { $errs = $null; [void][System.Management.Automation.Language.Parser]::ParseFile\\(\\(Resolve-Path $f\\), [ref]$null, [ref]$errs\\); if \\($errs.Count -eq 0\\) { Write-Host \"[OK] $f\" } else { Write-Host \"[ERREUR] $f :\"; $errs | ForEach-Object { Write-Host \\(\"  L{0}: {1}\" -f $_.Extent.StartLineNumber, $_.Message\\) } } })",
       "PowerShell(python -c \"import yaml, sys; yaml.safe_load\\(open\\('.github/workflows/deploy.yml', encoding='utf-8'\\)\\); yaml.safe_load\\(open\\('.github/workflows/build-images.yml', encoding='utf-8'\\)\\); print\\('[OK] YAML valides'\\)\")",
       "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File \"scripts\\\\backup\\\\backup_dbs.ps1\" -Pattern \"OptiBoard_Licenses\")",
-      "PowerShell(cmd /c \"REBUILD_ALL.bat\" 2>&1 | Tee-Object -FilePath \"$env:TEMP\\\\optiboard_rebuild.log\")"
+      "PowerShell(cmd /c \"REBUILD_ALL.bat\" 2>&1 | Tee-Object -FilePath \"$env:TEMP\\\\optiboard_rebuild.log\")",
+      "Bash(ls -la \"B:/Kasoft-Platform/OptiBoardV5/\" 2>&1 | head -50; echo \"---B root---\"; ls \"B:/\" 2>&1 | head -30)",
+      "Read(//d/kasoft-platform/**)",
+      "Read(//d/kasoft-platform/ERP-Vision-V2/console/**)",
+      "Bash(grep -vE '^\\(bin|obj\\)$')",
+      "PowerShell(cmd /c \"echo NoDefaultCurrentDirectoryInExePath=[%NoDefaultCurrentDirectoryInExePath%]\")",
+      "Bash(python -m py_compile app/routes/two_factor.py app/routes/auth_multitenant.py)",
+      "Bash(npm run *)",
+      "Bash(curl.exe -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" --max-time 8 http://127.0.0.1:8084/api/setup/status)",
+      "Bash(curl.exe -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" --max-time 8 -X POST http://127.0.0.1:8084/api/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"username\\\\\":\\\\\"__probe__\\\\\",\\\\\"password\\\\\":\\\\\"__probe__\\\\\"}\")",
+      "Bash(git config *)"
     ]
   }
 }

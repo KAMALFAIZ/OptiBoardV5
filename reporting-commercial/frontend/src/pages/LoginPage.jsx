@@ -130,7 +130,11 @@ function TwoFactorForm({ tempToken, clientInfo, rememberMe, onLogin, onCancel })
           role_dwh: res.data.context?.role_dwh,
         }
         store('user', JSON.stringify(twoFaUserToStore))
-        if (res.data.token) store('token', res.data.token)
+        // /api/auth/2fa/verify renvoie session_token : le stocker comme token (restauration
+        // AuthContext) ET comme session_token (X-Session-Token injecté par l'intercepteur).
+        const tok = res.data.session_token || res.data.token
+        if (tok) store('token', tok)
+        if (res.data.session_token) store('session_token', res.data.session_token)
         onLogin(twoFaUserToStore)
       }
     } catch (err) {
@@ -247,7 +251,7 @@ export default function LoginPage({ onLogin, appName }) {
           role_dwh: response.data.context?.role_dwh,
         }
         store('user', JSON.stringify(autoUserToStore))
-        store('token', response.data.token)
+        store('token', response.data.session_token || response.data.token)
         if (response.data.session_token) store('session_token', response.data.session_token)
         if (clientCode) store('currentDWH', JSON.stringify({ code: clientCode, nom: clientInfo?.nom || clientCode }))
         onLogin(autoUserToStore)
@@ -354,7 +358,9 @@ export default function LoginPage({ onLogin, appName }) {
         }
 
         // ── B) Base OptiBoard_CODE absente → erreur sans passer au dashboard ──
-        if (clientCode && response.data.has_client_db === false) {
+        // /api/auth/login expose has_client_db dans context ; on lit les deux emplacements.
+        const hasClientDb = response.data.has_client_db ?? response.data.context?.has_client_db
+        if (clientCode && hasClientDb === false) {
           setError(
             `La base de données OptiBoard_${clientCode} n'a pas encore été créée. ` +
             `Contactez l'administrateur.`
@@ -368,7 +374,9 @@ export default function LoginPage({ onLogin, appName }) {
           role_dwh: response.data.context?.role_dwh,
         }
         store('user',  JSON.stringify(userToStore))
-        store('token', response.data.token)
+        // /api/auth/login renvoie session_token (pas de token top-level) : on l'utilise
+        // comme token pour que AuthContext restaure la session au rechargement.
+        store('token', response.data.session_token || response.data.token)
         if (response.data.session_token) store('session_token', response.data.session_token)
 
         // ── C) Toujours écrire currentDWH complet si clientCode présent ──────

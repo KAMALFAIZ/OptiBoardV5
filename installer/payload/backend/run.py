@@ -458,6 +458,37 @@ async def startup_event():
     except Exception as e:
         logger.error(f"[STARTUP] onboarding_done migration error: {e}")
 
+    # Migration APP_Sessions : table des sessions serveur (token, expiry, révocation).
+    # Schéma identique à setup.py::init_all_tables() (installs neufs via /configure) ;
+    # ici pour les installs déjà configurées AVANT l'ajout de cette table.
+    try:
+        from app.database_unified import write_central as _wc_sess
+        _wc_sess("""
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_Sessions' AND xtype='U')
+            CREATE TABLE APP_Sessions (
+                id            INT IDENTITY(1,1) PRIMARY KEY,
+                token         VARCHAR(64) NOT NULL,
+                user_id       INT NOT NULL,
+                dwh_code      NVARCHAR(50) NULL,
+                created_at    DATETIME NOT NULL DEFAULT GETDATE(),
+                expires_at    DATETIME NOT NULL,
+                last_activity DATETIME NOT NULL DEFAULT GETDATE(),
+                ip_address    VARCHAR(45) NULL,
+                is_active     BIT NOT NULL DEFAULT 1
+            )
+        """)
+        _wc_sess("""
+            IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_APP_Sessions_token')
+                CREATE UNIQUE INDEX IX_APP_Sessions_token ON APP_Sessions(token)
+        """)
+        _wc_sess("""
+            IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_APP_Sessions_user')
+                CREATE INDEX IX_APP_Sessions_user ON APP_Sessions(user_id, is_active)
+        """)
+        logger.info("[STARTUP] APP_Sessions table OK")
+    except Exception as e:
+        logger.error(f"[STARTUP] APP_Sessions migration error: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

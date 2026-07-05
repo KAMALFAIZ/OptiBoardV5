@@ -245,7 +245,11 @@ export const deleteUser = (id) => api.delete(`/admin/users/${id}`)
 export const resetUserPassword = (id) => api.post(`/admin/users/${id}/reset-password`)
 
 export const getAvailablePages = () => api.get('/admin/pages')
-export const login = (credentials) => api.post('/admin/login', credentials)
+// Login multi-tenant : /api/auth/login (auth_multitenant) est LE point d'entrée.
+// Il est exempté du plancher d'auth du middleware, crée une vraie session serveur
+// (session_token) et gère 2FA / premier login. L'ancien /api/admin/login n'est PAS
+// exempté (→ 401 « Authentification requise ») et ne crée pas de session : ne plus l'utiliser.
+export const login = (credentials) => api.post('/auth/login', credentials)
 // Keep-alive session : prolonge la session côté serveur (headers X-Session-Token
 // injectés par l'intercepteur). skipErrorToast : échec silencieux — les vieux
 // backends n'exposent pas cet endpoint.

@@ -143,6 +143,14 @@ def get_setup_status():
     """
     Verifie si l'application est configuree.
     Retourne le statut de configuration pour rediriger vers le setup si necessaire.
+
+    Route exemptee du plancher d'auth (nécessaire avant login, cf. tenant_context.py
+    EXEMPT_PREFIXES) — donc accessible SANS AUCUNE authentification. Ne JAMAIS y
+    exposer de secret (mot de passe SQL, etc.) : le seul consommateur légitime côté
+    non-authentifié (App.jsx) ne lit que `configured` et `app_name`. Le mot de passe
+    a été retiré de cette réponse (fuite corrigée le 2026-07-05) — un consommateur
+    authentifié qui a besoin de tester/afficher la config DB doit passer par une
+    route protégée (ex: /api/env/config, masqué) et non par ce endpoint public.
     """
     from ..config import reload_settings
 
@@ -155,7 +163,6 @@ def get_setup_status():
         "server": settings.DB_SERVER if settings.is_configured else None,
         "database": settings.DB_NAME if settings.is_configured else None,
         "username": settings.DB_USER if settings.is_configured else None,
-        "password": settings.DB_PASSWORD if settings.is_configured else None
     }
 
 

@@ -441,6 +441,8 @@ def login(request: LoginRequest, http_request: Request):
                 "pages_accessibles":    effective_pages if (from_client_db and request.dwh_code) else context.pages_accessibles,
                 "has_client_db": True if from_client_db else (client_manager.has_client_db(context.current_dwh_code) if context.current_dwh_code else False),
             },
+            # Liaison tenant de la session créée après vérification 2FA (None = central).
+            "dwh_code": request.dwh_code,
             "totp_secret": user["totp_secret"],   # stocké côté serveur uniquement
         }
         temp_token = create_temp_token(user["id"], user["username"], _login_payload)

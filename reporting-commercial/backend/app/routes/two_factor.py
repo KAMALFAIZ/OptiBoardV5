@@ -229,10 +229,20 @@ def verify_2fa(body: VerifyRequest):
         _pending_2fa[body.temp_token] = {**pending, "expires": time.time() + 60}
         raise HTTPException(status_code=400, detail="Code 2FA invalide")
 
-    # Retourner les données complètes de login (sans le secret TOTP)
-    safe_data = {k: v for k, v in login_data.items() if k != "totp_secret"}
+    # Créer la session serveur MAINTENANT (le flux non-2FA la crée après le login ;
+    # ici elle n'est créée qu'une fois le second facteur validé). Sans ça, le client
+    # obtient user+context mais aucun session_token → 401 au premier appel /api/*.
+    session_token = None
+    try:
+        from ..database_unified import create_session
+        session_token = create_session(pending["user_id"], login_data.get("dwh_code"))
+    except Exception as e:
+        logger.warning(f"[2FA] create_session échoué: {e}")
+
+    # Retourner les données complètes de login (sans le secret TOTP ni le dwh_code interne)
+    safe_data = {k: v for k, v in login_data.items() if k not in ("totp_secret", "dwh_code")}
     logger.info(f"[2FA] Vérifié avec succès pour user_id={pending['user_id']}")
-    return {"success": True, "verified": True, **safe_data}
+    return {"success": True, "verified": True, "session_token": session_token, **safe_data}
 
 
 # ── Route : statut 2FA d'un utilisateur ──────────────────────────────────────
