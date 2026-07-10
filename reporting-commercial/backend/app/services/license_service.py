@@ -229,19 +229,11 @@ def _machine_id_matches(payload: dict, machine_id: str) -> bool:
 
 def is_license_dev_bypass() -> bool:
     """
-    True uniquement si APP_ENV=development ET LICENSE_DEV_MODE=True.
-    Remplace l'ancien bypass basé sur DEBUG (qui pouvait être activé en prod
-    par un simple DEBUG=True dans le .env, contournant toute la licence).
+    Contrôle de licence désactivé (décision produit) : toujours True,
+    quel que soit l'environnement. Gate unique utilisé par license_guard
+    et /api/license/status.
     """
-    try:
-        from app.config import get_settings
-        s = get_settings()
-        return (
-            str(getattr(s, "APP_ENV", "") or "").lower() == "development"
-            and bool(getattr(s, "LICENSE_DEV_MODE", False))
-        )
-    except Exception:
-        return False
+    return True
 
 
 def _grace_max_cumulative(default: int = 30) -> int:

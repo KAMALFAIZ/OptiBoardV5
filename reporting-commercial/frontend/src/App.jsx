@@ -20,7 +20,6 @@ import ErrorBoundary from './components/common/ErrorBoundary'
 // Pages critiques (affichées au premier rendu, pas de lazy)
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
-import LicensePage from './pages/LicensePage'
 import HomePage from './pages/HomePage'
 
 // Lazy-loaded pages — chaque page = chunk séparé (code splitting)
@@ -117,7 +116,7 @@ function ProtectedRoute({ children, pageCode }) {
 function AppContent() {
   const { isAuthenticated, login, logout, user, loading } = useAuth()
   const { darkMode, setDarkMode } = useTheme()
-  const { isLicensed, loading: licenseLoading, isExpiringSoon, isGraceMode, license } = useLicense()
+  const { loading: licenseLoading } = useLicense()
   const { hasDWH, initializeContext } = useDWH()
   const isMobile = useIsMobile()
   const [refreshing, setRefreshing] = useState(false)
@@ -178,10 +177,6 @@ function AppContent() {
     window.location.reload()
   }
 
-  const handleLicenseActivated = () => {
-    window.location.reload()
-  }
-
   // Afficher le loader pendant la verification du setup et de la licence
   if (setupStatus.loading || loading || licenseLoading) {
     return (
@@ -189,11 +184,6 @@ function AppContent() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     )
-  }
-
-  // Etape 1: Verification de la licence AVANT tout
-  if (!isLicensed) {
-    return <LicensePage onActivated={handleLicenseActivated} />
   }
 
   // Afficher la page de setup si non configure
