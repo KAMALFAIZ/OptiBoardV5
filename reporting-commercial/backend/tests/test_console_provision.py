@@ -17,10 +17,16 @@ def test_normalize_code_accepts_digits_and_underscore():
     assert _normalize_code("cli_01") == "CLI_01"
 
 
+def test_normalize_code_accepts_hyphen_console_style():
+    # Les codes console (^[a-z0-9][a-z0-9-]{1,28}$) contiennent des tirets.
+    assert _normalize_code("client-az") == "CLIENT-AZ"
+
+
 @pytest.mark.parametrize("bad", [
     "",                       # vide
     "x]; DROP DATABASE [y",   # injection identifiant SQL
-    "a-b",                    # tiret interdit
+    "a.b",                    # point interdit
+    "a;b",                    # point-virgule interdit
     "société",               # accents/caractères non ASCII
     "x" * 41,                 # trop long (>40)
 ])

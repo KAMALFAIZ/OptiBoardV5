@@ -45,8 +45,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/console", tags=["Console KASOFT"])
 
 # Le code devient un identifiant SQL bracketé (CREATE DATABASE [OptiBoard_<CODE>]).
-# On n'autorise QUE des caractères sûrs — pas d'espace, crochet, point-virgule.
-_CODE_RE = re.compile(r"^[A-Z0-9_]{1,40}$")
+# On n'autorise QUE des caractères sûrs — pas d'espace, crochet, point-virgule, quote.
+# Le tiret est accepté (codes console type "client-az" ; sûr dans un identifiant
+# SQL bracketé et préservé par le routage sous-domaine, cf. _subdomain_dwh_code).
+_CODE_RE = re.compile(r"^[A-Z0-9_-]{1,40}$")
 
 
 class ProvisionRequest(BaseModel):
@@ -87,7 +89,7 @@ def _normalize_code(raw: str) -> str:
     if not _CODE_RE.match(code):
         raise HTTPException(
             status_code=400,
-            detail="Code invalide : lettres majuscules, chiffres et '_' uniquement (max 40).",
+            detail="Code invalide : lettres, chiffres, '_' et '-' uniquement (max 40).",
         )
     return code
 
