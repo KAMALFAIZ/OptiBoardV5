@@ -492,8 +492,10 @@ curl -X POST -H "X-Console-Token: <token>" -H "Content-Type: application/json" ^
 ```
 
 Tests : `tests/test_console_provision.py` (validation code) + smoke TestClient des
-portes 404/401/400/409/200. **Rappel rebuild** : `console_provision.py` doit être
-compilé en `.pyd` par `build_protected.bat` avant packaging.
+portes 404/401/400/409/200. **Rappel rebuild** : `console_provision.py` définit un
+modèle Pydantic (`ProvisionRequest`) → `build_protected.py` le compile en `.pyc`
+(bytecode protégé, Pydantic-safe), PAS en `.pyd` — comme `setup.py`/`dwh_admin.py`.
+Seul `console_stats.py` (sans modèle Pydantic) part en `.pyd` natif.
 
 ---
 
