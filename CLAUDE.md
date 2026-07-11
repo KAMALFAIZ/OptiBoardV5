@@ -452,6 +452,51 @@ curl -X POST -H "X-DWH-Code: SG" http://127.0.0.1:8084/api/updates/pull/builder
 
 ---
 
+## Console KASOFT — Monitoring & Provisioning d'instances
+
+La console éditeur (repo **séparé** `ERP-Vision-V2/console`, Java/Spring + React-TS)
+supervise le parc d'instances OptiBoard. Deux canaux, tous deux authentifiés par le
+**secret partagé `CONSOLE_TOKEN`** (header `X-Console-Token`) et exemptés du plancher
+d'auth via `tenant_context.EXEMPT_PREFIXES` (`/api/console`). L'auth se fait DANS la
+route (`console_stats._check_token`) : **404** si `CONSOLE_TOKEN` non configuré,
+**401** si absent/invalide.
+
+### Monitoring (lecture) — `console_stats.py`
+`GET /api/console/instance-stats` → snapshot : users, sociétés (`APP_DWH`), modules,
+quotas licence (claims **JWT RS256** vérifiés via `license-public.pem`), usage IA
+(`APP_AI_Usage`). Voir le contrat aligné sur le front console (`api.ts`).
+
+### Provisioning (écriture) — `console_provision.py`
+Récepteur du `ProvisioningService` de la console (l'émetteur existe déjà côté
+ERP-Vision-V2). Deux routes :
+- `POST /api/console/provision-instance` — crée une **instance client complète**.
+- `GET  /api/console/instances` — liste les instances (réconciliation).
+
+**Zéro duplication métier** — compose les deux helpers canoniques :
+1. `setup._create_first_local_dwh()` → `APP_DWH` + admin client (bcrypt) +
+   `APP_UserDWH` (superadmin/admin) + `APP_ClientDB` (routage) + source Sage optionnelle.
+2. `dwh_admin._create_client_optiboard_db()` → complète `OptiBoard_<CODE>` avec toutes
+   les tables client + données Master + menus par défaut.
+
+**Sécurité critique** : le `code` est interpolé dans `CREATE DATABASE [OptiBoard_{code}]`.
+`_normalize_code()` le valide STRICTEMENT `^[A-Z0-9_]{1,40}$` (rejette `x]; DROP...` en
+400) **avant tout accès DB**. `409` si le code existe déjà (sauf `overwrite=true`). Le
+mot de passe admin est généré (`secrets.token_urlsafe`) et renvoyé **une seule fois** si
+non fourni par la console. La **déprovision (DROP)** n'est volontairement PAS exposée.
+
+```powershell
+# Provisionner une instance depuis la console (ou test manuel)
+curl -X POST -H "X-Console-Token: <token>" -H "Content-Type: application/json" ^
+  -d "{\"code\":\"SG\",\"nom\":\"Ste Generale\",\"admin_username\":\"admin_sg\"}" ^
+  http://127.0.0.1:8084/api/console/provision-instance
+```
+
+Tests : `tests/test_console_provision.py` (validation code) + smoke TestClient des
+portes 404/401/400/409/200. **Rappel rebuild** : `console_provision.py` doit être
+compilé en `.pyd` par `build_protected.bat` avant packaging.
+
+---
+
 ## Dashboard Builder — Affichage libellés axe X (charts)
 
 ### Problème
