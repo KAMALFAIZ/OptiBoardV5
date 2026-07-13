@@ -43,14 +43,34 @@ jobs:
           python -m pytest tests/test_calculs_coherence.py tests/test_auth_security.py tests/test_ai_security.py tests/test_tenant_isolation.py -q
 
   # ─────────────────────────────────────────────────────────
-  # DEPLOY : tourne directement sur le serveur Windows
-  # Python + Node deja installes, IIS actif
+  # DEPLOY : cible l'instance backend REELLEMENT en production
+  #   -> B:\Kasoft-Platform\OptiBoardV5\reporting-commercial\backend  (port 8084)
+  #      C'est le backend qu'utilisent la console KASOFT (provisioning /
+  #      monitoring, /api/console/*) ET les tenants OptiBoard.
+  #
+  #   L'ancienne version copiait vers C:\optiboard\backend (port 8080), une
+  #   instance DISTINCTE jamais utilisee par la console -> les deploiements
+  #   n'atteignaient jamais la prod (cause du 405 sur /api/console/*, le serveur
+  #   restant N commits en retard sur origin/main).
+  #
+  #   Le redemarrage passe par une TACHE PLANIFIEE : un process lance directement
+  #   dans un step (Start-Process) serait tue a la fermeture du job-object du
+  #   runner. La tache 'OptiBoard-Backend-8084' survit au job.
   # ─────────────────────────────────────────────────────────
   deploy:
-    name: Deploy to Windows Server
+    name: Deploy to live backend (8084)
     runs-on: self-hosted
     needs: tests
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      # Dossier d'ou tourne REELLEMENT le backend 8084 (python run.py).
+      LIVE_BACKEND: B:\Kasoft-Platform\OptiBoardV5\reporting-commercial\backend
+      # Endpoint de sante du backend 8084.
+      HEALTH_URL: http://127.0.0.1:8084/api
+      # Tache planifiee qui (re)lance le backend 8084. Doit exister (creee une
+      # fois hors CI) ; action = cmd /c "python run.py >> backend_prod.log 2>&1",
+      # WorkingDirectory = LIVE_BACKEND. Une tache planifiee survit a la fin du job.
+      BACKEND_TASK: OptiBoard-Backend-8084
 
     steps:
       - name: Checkout code
@@ -58,7 +78,7 @@ jobs:
         with:
           clean: true
 
-      # ── Backend : installer les dependances Python ──────
+      # ── Backend : dependances Python (Python 3.11 systeme du serveur) ──
       - name: Install Python dependencies
         working-directory: reporting-commercial/backend
         run: |
@@ -66,7 +86,10 @@ jobs:
           pip install -r requirements.txt
         shell: powershell
 
-      # ── Frontend : build React ───────────────────────────
+      # ── Frontend : build React + deploiement IIS ─────────────────────────
+      # NOTE : le frontend utilisateur est servi par IIS. Le backend 8084 ne
+      # sert que l'API (sa route SPA pointe sur un template Vite non-builde).
+      # Etapes conservees telles quelles — orthogonales au fix backend 8084.
       - name: Install Node dependencies
         working-directory: reporting-commercial/frontend
         run: npm ci
@@ -79,7 +102,6 @@ jobs:
         env:
           VITE_API_URL: ${{ secrets.PROD_API_URL }}
 
-      # ── Copier le frontend dans IIS ──────────────────────
       - name: Deploy frontend to IIS
         run: |
           $dest = "C:\inetpub\wwwroot\optiboard"
@@ -89,46 +111,63 @@ jobs:
           Write-Host "Frontend deploye dans $dest"
         shell: powershell
 
-      # ── Copier le backend ────────────────────────────────
-      - name: Deploy backend files
+      # ── Backend : copie vers l'instance LIVE 8084 ────────────────────────
+      # robocopy SANS /MIR : met a jour les fichiers suivis, ne supprime RIEN.
+      # .env (token console, gitignore), logs, uploads et __pycache__ sont
+      # preserves (/XF /XD par securite : ils ne sont de toute facon pas dans
+      # le checkout propre du runner).
+      - name: Deploy backend to live 8084 instance
         run: |
-          $dest = "C:\optiboard\backend"
-          New-Item -ItemType Directory -Path $dest -Force | Out-Null
-          Copy-Item -Path "reporting-commercial\backend\*" -Destination $dest -Recurse -Force
-          Write-Host "Backend deploye dans $dest"
+          $src  = "reporting-commercial\backend"
+          $dest = "$env:LIVE_BACKEND"
+          Write-Host "Copie $src -> $dest"
+          robocopy $src $dest /E /XF .env *.log *.pyc /XD __pycache__ .git logs uploads /NFL /NDL /NP /R:2 /W:2
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) { Write-Error "robocopy a echoue (code $rc)"; exit 1 }
+          Write-Host "Backend copie dans $dest (robocopy=$rc)"
+          exit 0
         shell: powershell
 
-      # ── Redemarrer le backend ────────────────────────────
-      - name: Restart backend service
+      # ── Redemarrage du backend 8084 via tache planifiee ──────────────────
+      - name: Restart backend (scheduled task)
         run: |
-          $task = "OptiBoard-Backend"
-          $existing = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-          if ($existing) {
-            Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 3
-            Start-ScheduledTask -TaskName $task
-            Write-Host "Backend redémarre"
+          $task = "$env:BACKEND_TASK"
+          $t = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+          if (-not $t) {
+            Write-Error "Tache planifiee '$task' introuvable. La creer une fois (voir docs deploy) : action cmd /c 'python run.py >> backend_prod.log 2>&1', WorkingDirectory=$env:LIVE_BACKEND. Deploiement interrompu."
+            exit 1
+          }
+          # Stopper le process 8084 courant (la tache le relance proprement)
+          Get-NetTCPConnection -LocalPort 8084 -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique |
+            ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+          Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          Start-ScheduledTask -TaskName $task
+          Write-Host "Tache '$task' relancee."
+        shell: powershell
+
+      # ── Health check sur le VRAI port (8084) ─────────────────────────────
+      - name: Health check (8084)
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 12; $i++) {
+            Start-Sleep -Seconds 5
+            try {
+              $r = Invoke-WebRequest -Uri "$env:HEALTH_URL" -UseBasicParsing -TimeoutSec 10
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { }
+          }
+          if ($ok) {
+            Write-Host "Backend 8084 OK"
           } else {
-            Write-Host "Service backend non trouve - lancer setup-prod.ps1 d'abord"
+            Write-Error "Backend 8084 ne repond pas apres redemarrage"
+            Get-Content "$env:LIVE_BACKEND\backend_prod.log" -Tail 40 -ErrorAction SilentlyContinue
             exit 1
           }
         shell: powershell
 
-      # ── Health check ─────────────────────────────────────
-      - name: Health check
-        run: |
-          Start-Sleep -Seconds 15
-          try {
-            $r = Invoke-WebRequest -Uri "http://localhost:8080/api/docs" -UseBasicParsing -TimeoutSec 30
-            if ($r.StatusCode -eq 200) { Write-Host "Backend OK" }
-          } catch {
-            Write-Error "Backend ne repond pas"
-            Get-Content "C:\optiboard\logs\backend.log" -Tail 30 -ErrorAction SilentlyContinue
-            exit 1
-          }
-        shell: powershell
-
-      # ── Reload IIS ───────────────────────────────────────
+      # ── Reload IIS (frontend) ────────────────────────────────────────────
       - name: Reload IIS
         run: iisreset /noforce
         shell: cmd
