@@ -204,6 +204,8 @@ def save_env_config(config: dict) -> bool:
         f.write("\n# Query Settings\n")
         f.write(f"MAX_ROWS={existing_content.get('MAX_ROWS', '10000')}\n")
         f.write(f"QUERY_TIMEOUT={existing_content.get('QUERY_TIMEOUT', '30')}\n")
+        f.write("\n# Console KASOFT (monitoring + provisioning — header X-Console-Token)\n")
+        f.write(f"CONSOLE_TOKEN={existing_content.get('CONSOLE_TOKEN', '')}\n")
         f.write("\n# License Settings\n")
         f.write(f"LICENSE_KEY={existing_content.get('LICENSE_KEY', '')}\n")
         f.write(f"LICENSE_SERVER_URL={existing_content.get('LICENSE_SERVER_URL', 'http://kasoft.selfip.net:44100/api')}\n")
