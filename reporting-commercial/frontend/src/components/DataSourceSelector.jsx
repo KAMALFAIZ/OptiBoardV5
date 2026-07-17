@@ -37,6 +37,7 @@ export default function DataSourceSelector({
   onChange,
   onPreview,
   showPreview = true,
+  showCode = true,
   category = null,
   className = '',
   placeholder = 'Sélectionner une source de données...'
@@ -146,15 +147,17 @@ export default function DataSourceSelector({
               <span className="font-medium text-gray-900 dark:text-white truncate">
                 {selectedDataSource.nom}
               </span>
-              <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{selectedDataSource.code}</code>
-                {selectedDataSource.origin === 'template' && (
-                  <span className="text-primary-500 flex items-center gap-1">
-                    <Settings2 className="w-3 h-3" />
-                    Template
-                  </span>
-                )}
-              </span>
+              {showCode && (
+                <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                  <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{selectedDataSource.code}</code>
+                  {selectedDataSource.origin === 'template' && (
+                    <span className="text-primary-500 flex items-center gap-1">
+                      <Settings2 className="w-3 h-3" />
+                      Template
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
           ) : (
             <span className="text-gray-500 dark:text-gray-400">{placeholder}</span>

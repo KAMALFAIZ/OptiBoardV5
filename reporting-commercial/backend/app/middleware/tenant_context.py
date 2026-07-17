@@ -68,7 +68,7 @@ SESSION_OPTIONAL_PREFIXES = (
 # xxxx.kasoft.ma  →  DWH "XXXX". Domaine de base configurable via
 # l'env BASE_DOMAIN. Les sous-domaines réservés ne sont pas des tenants.
 _BASE_DOMAIN = (os.environ.get("BASE_DOMAIN", "kasoft.ma") or "").lower()
-_RESERVED_SUBDOMAINS = {"www", "app", "api", "portal", "admin", "static", "cdn", "mail"}
+_RESERVED_SUBDOMAINS = {"www", "app", "api", "portal", "admin", "static", "cdn", "mail", "optiboard"}
 
 
 def _subdomain_dwh_code(host: str):

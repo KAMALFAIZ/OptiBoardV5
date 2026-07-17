@@ -7,7 +7,7 @@
 // (www, app, api…) ne sont PAS des tenants.
 
 const BASE_DOMAIN = (import.meta.env.VITE_BASE_DOMAIN || 'kasoft.ma').toLowerCase()
-const RESERVED_SUBDOMAINS = ['www', 'app', 'api', 'portal', 'admin', 'static', 'cdn', 'mail']
+const RESERVED_SUBDOMAINS = ['www', 'app', 'api', 'portal', 'admin', 'static', 'cdn', 'mail', 'optiboard']
 
 function _subdomainCode() {
   let host = ''

@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   getPivotsV2, getPivotV2, createPivotV2, updatePivotV2, deletePivotV2,
-  previewPivotV2, getPivotV2Fields, getUnifiedDataSourceFields, resetPivotV2UserPrefs
+  previewPivotV2, getPivotV2Fields, getUnifiedDataSourceFields, resetPivotV2UserPrefs,
+  deleteDataSource, getMenusFlat, createMenu, updateMenu, deleteMenu
 } from '../services/api'
 import DataSourceSelector from '../components/DataSourceSelector'
+import QueryBuilder from '../components/QueryBuilder'
 import { FieldList, DropZone, FormatRuleEditor, PivotTable } from '../components/PivotV2'
 import {
   ArrowLeft, Plus, Trash2, Save, Play, Eye, Loader2,
   Settings2, Rows3, Columns3, BarChart3, Palette,
   ToggleLeft, ToggleRight, Globe, Lock, Search, X, Sparkles,
-  TrendingUp, BookOpen, Users, Landmark, LayoutGrid, Copy
+  TrendingUp, BookOpen, Users, Landmark, LayoutGrid, Copy,
+  ChevronLeft, ChevronRight, ChevronDown, Pencil, Link
 } from 'lucide-react'
 import AIBuilderGenerator from '../components/ai/AIBuilderGenerator'
 import { useToast } from '../components/common/Toast'
@@ -23,7 +27,6 @@ const TABS = [
   { id: 'config', label: 'Axes & Valeurs', icon: Rows3 },
   { id: 'formatting', label: 'Formatage', icon: Palette },
   { id: 'preview', label: 'Apercu', icon: Eye },
-  { id: 'doc', label: 'Doc', icon: BookOpen },
 ]
 
 const COMPARISON_MODES = [
@@ -58,6 +61,7 @@ const safeArray = (val) => {
 }
 
 export default function PivotBuilderV2() {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { filters: globalFilters } = useGlobalFilters()
   const toast = useToast()
@@ -68,7 +72,33 @@ export default function PivotBuilderV2() {
   const [listLoading, setListLoading] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [sidebarAppFilter, setSidebarAppFilter] = useState('')
+  const [showSidebar, setShowSidebar] = useState(true)
   const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(256)
+
+  // Refonte UI : documentation en modale, calculs avances repliables
+  const [showDocsModal, setShowDocsModal] = useState(false)
+  const [showAdvancedCalcs, setShowAdvancedCalcs] = useState(false)
+
+  // Source de donnees selectionnee (objet complet) + actions (creer/modifier/supprimer)
+  const [selectedDataSource, setSelectedDataSource] = useState(null)
+  const [showQueryBuilder, setShowQueryBuilder] = useState(false)
+  const [editingSourceId, setEditingSourceId] = useState(null)
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false)
+  const [drilldownMenuOpen, setDrilldownMenuOpen] = useState(false)
+
+  // Attacher ce pivot au menu dynamique
+  const [showMenuModal, setShowMenuModal] = useState(false)
+  const [menuFlat, setMenuFlat] = useState([])
+  const [menuLoading, setMenuLoading] = useState(false)
+  const [menuSaving, setMenuSaving] = useState(false)
+  const [newMenuNom, setNewMenuNom] = useState('')
+  const [newMenuCode, setNewMenuCode] = useState('')
+  const [newMenuParentId, setNewMenuParentId] = useState('')
+  const [attachExistingId, setAttachExistingId] = useState('')
+  const [parentPickerOpen, setParentPickerOpen] = useState(false)
+  const [parentSearch, setParentSearch] = useState('')
+  const [existingPickerOpen, setExistingPickerOpen] = useState(false)
+  const [existingSearch, setExistingSearch] = useState('')
 
   // Config du pivot actif
   const [config, setConfig] = useState({
@@ -177,6 +207,20 @@ export default function PivotBuilderV2() {
         setSelectedPivotId(id)
         setDirty(false)
         setPreviewData(null)
+        setActiveTab('preview') // Apercu d'abord : on affiche le resultat en priorite
+        setShowAdvancedCalcs(safeArray(data.window_calculations).length > 0)
+
+        // Reconstruire la source selectionnee (pour le menu d'actions Créer/Modifier/Supprimer)
+        if (data.data_source_id || data.data_source_code) {
+          setSelectedDataSource({
+            id: data.data_source_id || null,
+            code: data.data_source_code || null,
+            nom: data.data_source_nom || `Source ${data.data_source_code || data.data_source_id}`,
+            origin: data.data_source_code ? 'template' : 'local'
+          })
+        } else {
+          setSelectedDataSource(null)
+        }
 
         // Charger les champs de la source
         if (data.data_source_code || data.data_source_id) {
@@ -224,11 +268,157 @@ export default function PivotBuilderV2() {
     if (source) {
       updateConfig('data_source_code', source.code || null)
       updateConfig('data_source_id', source.id || null)
+      setSelectedDataSource(source)
       loadFields(source.code || source.id)
     } else {
       updateConfig('data_source_code', null)
       updateConfig('data_source_id', null)
+      setSelectedDataSource(null)
       setAvailableFields([])
+    }
+  }
+
+  // Creer/modifier une source via le Query Builder (depuis le menu d'actions de la source)
+  const handleQueryBuilderSave = (sourceId, sourceName) => {
+    updateConfig('data_source_id', sourceId)
+    updateConfig('data_source_code', null)
+    setSelectedDataSource({ id: sourceId, code: null, nom: sourceName || `Source ${sourceId}`, origin: 'local' })
+    loadFields(sourceId)
+  }
+
+  // Supprimer une source locale (depuis le menu d'actions de la source)
+  const deleteDataSourceHandler = async (id) => {
+    if (!confirm('Supprimer cette source de données?')) return
+    try {
+      await deleteDataSource(id)
+      if (config.data_source_id === id) {
+        updateConfig('data_source_id', null)
+        updateConfig('data_source_code', null)
+        setSelectedDataSource(null)
+        setAvailableFields([])
+      }
+    } catch (err) {
+      console.error('Erreur suppression datasource:', err)
+      toast.error('Erreur lors de la suppression de la source de données')
+    }
+  }
+
+  // Attacher/detacher ce pivot au menu dynamique
+  const openMenuModal = async () => {
+    if (!selectedPivotId) return
+    setShowMenuModal(true)
+    setNewMenuNom(config.nom || '')
+    setNewMenuCode(
+      (config.nom || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+    )
+    setNewMenuParentId('')
+    setAttachExistingId('')
+    setParentPickerOpen(false)
+    setParentSearch('')
+    setExistingPickerOpen(false)
+    setExistingSearch('')
+    setMenuLoading(true)
+    try {
+      const res = await getMenusFlat()
+      if (res.data.success === false) {
+        console.error('Erreur backend /menus/flat:', res.data.error)
+        toast.error(res.data.error || 'Erreur lors du chargement des menus', { title: 'Menus' })
+        setMenuFlat([])
+      } else {
+        setMenuFlat(res.data.data || [])
+      }
+    } catch (err) {
+      console.error('Erreur chargement menus:', err)
+      toast.error(err.response?.data?.detail || err.message || 'Erreur lors du chargement des menus')
+      setMenuFlat([])
+    } finally {
+      setMenuLoading(false)
+    }
+  }
+
+  const refreshMenuFlat = async () => {
+    try {
+      const res = await getMenusFlat()
+      if (res.data.success === false) {
+        console.error('Erreur backend /menus/flat:', res.data.error)
+        toast.error(res.data.error || 'Erreur lors du rechargement des menus', { title: 'Menus' })
+        return
+      }
+      setMenuFlat(res.data.data || [])
+    } catch (err) {
+      console.error('Erreur rechargement menus:', err)
+    }
+  }
+
+  const createAndAttachMenu = async () => {
+    if (!selectedPivotId || !newMenuNom.trim() || !newMenuCode.trim()) return
+    setMenuSaving(true)
+    try {
+      await createMenu({
+        parent_id: newMenuParentId ? parseInt(newMenuParentId, 10) : null,
+        nom: newMenuNom.trim(),
+        code: newMenuCode.trim(),
+        icon: 'Sigma',
+        type: 'pivot-v2',
+        target_id: selectedPivotId,
+        url: '',
+        ordre: 0,
+        is_active: true
+      })
+      toast.success('Menu créé et rapport attaché')
+      await refreshMenuFlat()
+      setNewMenuNom('')
+      setNewMenuCode('')
+      setNewMenuParentId('')
+    } catch (err) {
+      console.error('Erreur création menu:', err)
+      toast.error(err.response?.data?.detail || 'Erreur lors de la création du menu')
+    } finally {
+      setMenuSaving(false)
+    }
+  }
+
+  const attachToExistingMenu = async () => {
+    if (!selectedPivotId || !attachExistingId) return
+    const menu = menuFlat.find(m => m.id === parseInt(attachExistingId, 10))
+    if (!menu) return
+    setMenuSaving(true)
+    try {
+      await updateMenu(menu.id, {
+        parent_id: menu.parent_id,
+        nom: menu.nom,
+        code: menu.code,
+        icon: menu.icon || 'Sigma',
+        type: 'pivot-v2',
+        target_id: selectedPivotId,
+        url: menu.url || '',
+        ordre: menu.ordre,
+        is_active: menu.is_active
+      })
+      toast.success(`"${menu.nom}" pointe maintenant vers ce rapport`)
+      await refreshMenuFlat()
+      setAttachExistingId('')
+    } catch (err) {
+      console.error('Erreur attachement menu:', err)
+      toast.error(err.response?.data?.detail || 'Erreur lors de l\'attachement')
+    } finally {
+      setMenuSaving(false)
+    }
+  }
+
+  const detachMenu = async (menu) => {
+    if (!confirm(`Détacher "${menu.nom}" du menu ?`)) return
+    try {
+      await deleteMenu(menu.id)
+      toast.success('Menu détaché')
+      await refreshMenuFlat()
+    } catch (err) {
+      console.error('Erreur détachement menu:', err)
+      toast.error('Erreur lors du détachement')
     }
   }
 
@@ -483,6 +673,7 @@ export default function PivotBuilderV2() {
     setDirty(true)
     setActiveTab('config')
     setShowAIGenerator(false)
+    setSelectedDataSource(dsId ? { id: dsId, code: null, nom: `[IA] ${nom || 'Source pivot'}`, origin: 'local' } : null)
   }
 
   // Nouveau pivot
@@ -493,6 +684,8 @@ export default function PivotBuilderV2() {
     setPreviewData(null)
     setDirty(false)
     setActiveTab('general')
+    setShowAdvancedCalcs(false)
+    setSelectedDataSource(null)
   }
 
   // Preview
@@ -534,9 +727,9 @@ export default function PivotBuilderV2() {
     <>
     <div className="flex h-full -m-3 lg:-m-4 overflow-hidden">
       {/* ── SIDEBAR ── */}
-      <div className="bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0 relative" style={{ width: sidebarWidth }}>
+      <div className="bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0 relative overflow-hidden transition-[width] duration-200" style={{ width: showSidebar ? sidebarWidth : 0 }}>
         {/* Sidebar header */}
-        <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
+        <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800" style={{ width: sidebarWidth }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Pivots</h2>
             <div className="flex items-center gap-1">
@@ -547,6 +740,10 @@ export default function PivotBuilderV2() {
               <button onClick={handleNew}
                 className="p-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors" title="Nouveau pivot">
                 <Plus size={13} />
+              </button>
+              <button onClick={() => setShowSidebar(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 transition-colors" title="Masquer les pivots">
+                <ChevronLeft size={13} />
               </button>
             </div>
           </div>
@@ -571,7 +768,7 @@ export default function PivotBuilderV2() {
         </div>
 
         {/* Liste */}
-        <div className="flex-1 overflow-y-auto py-2 px-2">
+        <div className="flex-1 overflow-y-auto py-2 px-2" style={{ width: sidebarWidth }}>
           {listLoading ? (
             <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-gray-300" /></div>
           ) : pivots.length === 0 ? (
@@ -615,12 +812,23 @@ export default function PivotBuilderV2() {
             </>
           )}
         </div>
-        <div onMouseDown={handleSidebarResizeStart}
-          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary-400/40 active:bg-primary-500/50 transition-colors z-10" />
+        {showSidebar && (
+          <div onMouseDown={handleSidebarResizeStart}
+            className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary-400/40 active:bg-primary-500/50 transition-colors z-10" />
+        )}
       </div>
 
+      {/* Rail de bascule — toujours visible, même quand la barre est masquée */}
+      <button
+        onClick={() => setShowSidebar(v => !v)}
+        title={showSidebar ? 'Masquer les pivots' : 'Afficher les pivots'}
+        className="w-5 flex-shrink-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800 hover:bg-primary-100 dark:hover:bg-primary-900/40 border-r border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary-600 transition-colors"
+      >
+        {showSidebar ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+      </button>
+
       {/* ── ZONE PRINCIPALE ── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
+      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 min-w-0">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -635,6 +843,18 @@ export default function PivotBuilderV2() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={() => setShowDocsModal(true)}
+              title="Documentation du rapport"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-primary-600 rounded-xl transition-colors">
+              <BookOpen size={13} />Documentation
+            </button>
+            {selectedPivotId && (
+              <button onClick={openMenuModal}
+                title="Attacher ce rapport à un menu dynamique"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-primary-600 rounded-xl transition-colors">
+                <Link size={13} />Menu
+              </button>
+            )}
             {selectedPivotId && (
               <button onClick={handleDelete}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors">
@@ -701,7 +921,62 @@ export default function PivotBuilderV2() {
                 <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Source de données</h3>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Source principale (agrégation pivot)</label>
-                  <DataSourceSelector value={config.data_source_code || config.data_source_id} onChange={handleSourceChange} />
+                  <div className="flex items-stretch gap-1.5">
+                    <div className="flex-1 min-w-0">
+                      <DataSourceSelector value={config.data_source_code || config.data_source_id} onChange={handleSourceChange} showCode={false} />
+                    </div>
+                    <div className="relative flex-shrink-0">
+                      <button
+                        onClick={() => setSourceMenuOpen(o => !o)}
+                        title="Actions sur la source"
+                        className="w-10 h-full flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary-600 hover:border-primary-400 dark:hover:border-primary-500 transition-colors"
+                      >
+                        <Settings2 className="w-4 h-4" />
+                      </button>
+                      {sourceMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setSourceMenuOpen(false)} />
+                          <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 text-sm">
+                            <button
+                              onClick={() => { setSourceMenuOpen(false); setEditingSourceId(null); setShowQueryBuilder(true) }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                            >
+                              <Plus className="w-4 h-4 text-primary-500" /> Créer une source
+                            </button>
+                            {selectedDataSource?.origin === 'local' && (
+                              <>
+                                <button
+                                  onClick={() => { setSourceMenuOpen(false); setEditingSourceId(selectedDataSource.id); setShowQueryBuilder(true) }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                >
+                                  <Pencil className="w-4 h-4 text-gray-400" /> Modifier la source
+                                </button>
+                                <button
+                                  onClick={() => { setSourceMenuOpen(false); deleteDataSourceHandler(selectedDataSource.id) }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                >
+                                  <Trash2 className="w-4 h-4" /> Supprimer la source
+                                </button>
+                              </>
+                            )}
+                            {selectedDataSource?.origin === 'template' && (
+                              <>
+                                <button
+                                  onClick={() => { setSourceMenuOpen(false); navigate(`/admin/datasources?search=${encodeURIComponent(selectedDataSource.code)}`) }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700 mt-1"
+                                >
+                                  <Pencil className="w-4 h-4 text-gray-400" /> Modifier le template
+                                </button>
+                                <div className="px-3 py-1.5 text-xs text-gray-400 flex items-center gap-1.5">
+                                  <Settings2 className="w-3.5 h-3.5" /> {selectedDataSource.code}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
@@ -717,12 +992,55 @@ export default function PivotBuilderV2() {
                       </button>
                     )}
                   </div>
-                  <DataSourceSelector
-                    value={config.drilldown_data_source_code}
-                    onChange={(src) => updateConfig('drilldown_data_source_code', src?.code || null)}
-                    placeholder="Meme source (agregee par defaut)"
-                    showPreview={false}
-                  />
+                  <div className="flex items-stretch gap-1.5">
+                    <div className="flex-1 min-w-0">
+                      <DataSourceSelector
+                        value={config.drilldown_data_source_code}
+                        onChange={(src) => updateConfig('drilldown_data_source_code', src?.code || null)}
+                        placeholder="Meme source (agregee par defaut)"
+                        showPreview={false}
+                        showCode={false}
+                      />
+                    </div>
+                    <div className="relative flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setDrilldownMenuOpen(o => !o)}
+                        title="Actions sur la source drilldown"
+                        className="w-10 h-full flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary-600 hover:border-primary-400 dark:hover:border-primary-500 transition-colors"
+                      >
+                        <Settings2 className="w-4 h-4" />
+                      </button>
+                      {drilldownMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setDrilldownMenuOpen(false)} />
+                          <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 text-sm">
+                            <button
+                              type="button"
+                              onClick={() => { setDrilldownMenuOpen(false); navigate('/admin/datasources') }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                            >
+                              <Plus className="w-4 h-4 text-primary-500" /> Créer une source
+                            </button>
+                            {config.drilldown_data_source_code && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => { setDrilldownMenuOpen(false); navigate(`/admin/datasources?search=${encodeURIComponent(config.drilldown_data_source_code)}`) }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700 mt-1"
+                                >
+                                  <Pencil className="w-4 h-4 text-gray-400" /> Modifier le template
+                                </button>
+                                <div className="px-3 py-1.5 text-xs text-gray-400 flex items-center gap-1.5">
+                                  <Settings2 className="w-3.5 h-3.5" /> {config.drilldown_data_source_code}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                   {config.drilldown_data_source_code ? (
                     <>
                       <div className="mt-2 p-2.5 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
@@ -970,10 +1288,26 @@ export default function PivotBuilderV2() {
                     </div>
                   </div>
 
-                  {/* Calculs de fenetre */}
+                  {/* Calculs de fenetre — divulgation progressive (repliable, avance/rare) */}
                   <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Calculs avances</h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedCalcs(v => !v)}
+                      className="w-full flex items-center justify-between mb-2 text-left"
+                    >
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${showAdvancedCalcs ? '' : '-rotate-90'}`} />
+                        Calculs avances
+                        {safeArray(config.window_calculations).length > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                            {safeArray(config.window_calculations).length}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {showAdvancedCalcs && (
+                    <>
+                    <div className="flex items-center justify-end mb-2">
                       <button
                         onClick={() => {
                           const wc = [...safeArray(config.window_calculations), {
@@ -1088,6 +1422,8 @@ export default function PivotBuilderV2() {
                         </button>
                       </div>
                     ))}
+                    </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1156,45 +1492,291 @@ export default function PivotBuilderV2() {
               )}
             </div>
           )}
-
-          {/* ONGLET DOC */}
-          {activeTab === 'doc' && (
-            <div className="max-w-2xl space-y-4">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Documentation du rapport</h3>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Objectif</label>
-                <textarea value={config.doc_description || ''} onChange={e => updateConfig('doc_description', e.target.value)} rows={3}
-                  placeholder="Decrivez ce que ce rapport affiche..."
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Descriptif des colonnes</label>
-                <textarea value={config.doc_fields || ''} onChange={e => updateConfig('doc_fields', e.target.value)} rows={4}
-                  placeholder="Ex: CA HT = chiffre d'affaires hors taxes&#10;Marge = CA HT - Achats&#10;Client = raison sociale..."
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Formule / Logique</label>
-                <textarea value={config.doc_formula || ''} onChange={e => updateConfig('doc_formula', e.target.value)} rows={2}
-                  placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Avantage</label>
-                <textarea value={config.doc_advantage || ''} onChange={e => updateConfig('doc_advantage', e.target.value)} rows={2}
-                  placeholder="A quoi sert ce rapport, quel gain pour l'utilisateur..."
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-              </div>
-              <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <p className="text-xs text-blue-600 dark:text-blue-400">
-                  Cette documentation sera visible par tous les utilisateurs au clic sur le titre du rapport.
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
+
+    {/* Modal Documentation du rapport */}
+    {showDocsModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setShowDocsModal(false)} />
+        <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto">
+          <div className="flex items-center gap-2 mb-4">
+            <BookOpen className="w-5 h-5 text-primary-500" />
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documentation du rapport</h2>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Objectif</label>
+              <textarea value={config.doc_description || ''} onChange={e => updateConfig('doc_description', e.target.value)} rows={3}
+                placeholder="Decrivez ce que ce rapport affiche..."
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Descriptif des colonnes</label>
+              <textarea value={config.doc_fields || ''} onChange={e => updateConfig('doc_fields', e.target.value)} rows={4}
+                placeholder="Ex: CA HT = chiffre d'affaires hors taxes&#10;Marge = CA HT - Achats&#10;Client = raison sociale..."
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Formule / Logique</label>
+              <textarea value={config.doc_formula || ''} onChange={e => updateConfig('doc_formula', e.target.value)} rows={2}
+                placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Avantage</label>
+              <textarea value={config.doc_advantage || ''} onChange={e => updateConfig('doc_advantage', e.target.value)} rows={2}
+                placeholder="A quoi sert ce rapport, quel gain pour l'utilisateur..."
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+            </div>
+            <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <p className="text-xs text-blue-600 dark:text-blue-400">
+                Cette documentation sera visible par tous les utilisateurs au clic sur le titre du rapport.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end mt-4">
+            <button onClick={() => setShowDocsModal(false)} className="btn-primary">Fermer</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Query Builder Modal — creer/modifier une source locale */}
+    <QueryBuilder
+      isOpen={showQueryBuilder}
+      onClose={() => { setShowQueryBuilder(false); setEditingSourceId(null) }}
+      onSave={handleQueryBuilderSave}
+      targetType="pivot"
+      initialSourceId={editingSourceId}
+    />
+
+    {/* Modal Attacher au menu dynamique */}
+    {showMenuModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setShowMenuModal(false)} />
+        <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Link className="w-5 h-5 text-primary-500" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Attacher au menu dynamique</h2>
+            </div>
+            <button onClick={() => setShowMenuModal(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {menuLoading ? (
+            <div className="py-10 text-center text-gray-400">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Chargement des menus...
+            </div>
+          ) : (() => {
+            const linkedMenus = menuFlat.filter(m => m.type === 'pivot-v2' && m.target_id === selectedPivotId)
+            const attachableMenus = menuFlat.filter(m => m.type === 'pivot-v2' && m.target_id !== selectedPivotId && m.is_custom === true)
+            return (
+              <div className="space-y-5">
+                {/* Menus actuellement liés */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                    Menus liés à ce rapport
+                  </label>
+                  {linkedMenus.length === 0 ? (
+                    <p className="text-sm text-gray-400">Ce rapport n'est encore attaché à aucun menu.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {linkedMenus.map(m => (
+                        <div key={m.id} className="flex items-center justify-between px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm">
+                          <span className="flex items-center gap-2 text-gray-700 dark:text-gray-200 min-w-0 truncate">
+                            <Rows3 className="w-3.5 h-3.5 text-primary-500 flex-shrink-0" />
+                            <span className="truncate">{m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}</span>
+                            {!m.is_active && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">masqué</span>}
+                          </span>
+                          {m.is_custom === true ? (
+                            <button onClick={() => detachMenu(m)} className="text-red-500 hover:text-red-700 text-xs font-medium flex-shrink-0 ml-2">
+                              Détacher
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">standard</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Créer un nouveau menu */}
+                <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                    Créer un nouveau menu pour ce rapport
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Nom</label>
+                      <input
+                        value={newMenuNom}
+                        onChange={e => setNewMenuNom(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Code</label>
+                      <input
+                        value={newMenuCode}
+                        onChange={e => setNewMenuCode(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+                        className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 relative">
+                    <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Emplacement (parent)</label>
+                    <button
+                      type="button"
+                      onClick={() => setParentPickerOpen(o => !o)}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
+                    >
+                      <span className="truncate">
+                        {newMenuParentId ? (() => {
+                          const m = menuFlat.find(x => String(x.id) === String(newMenuParentId))
+                          return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Racine --'
+                        })() : '-- Racine --'}
+                      </span>
+                      <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${parentPickerOpen ? 'rotate-90' : ''}`} />
+                    </button>
+                    {parentPickerOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setParentPickerOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
+                          <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                              <input
+                                autoFocus
+                                value={parentSearch}
+                                onChange={e => setParentSearch(e.target.value)}
+                                placeholder="Rechercher un dossier..."
+                                className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex-1 overflow-y-auto py-1">
+                            <button
+                              type="button"
+                              onClick={() => { setNewMenuParentId(''); setParentPickerOpen(false); setParentSearch('') }}
+                              className={`w-full text-left px-3 py-1.5 text-sm ${!newMenuParentId ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                            >
+                              -- Racine --
+                            </button>
+                            {menuFlat
+                              .filter(m => {
+                                const q = parentSearch.trim().toLowerCase()
+                                if (!q) return true
+                                return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
+                              })
+                              .map(m => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => { setNewMenuParentId(String(m.id)); setParentPickerOpen(false); setParentSearch('') }}
+                                  className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(newMenuParentId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                >
+                                  {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
+                                </button>
+                              ))}
+                            {parentSearch.trim() && menuFlat.filter(m => m.nom.toLowerCase().includes(parentSearch.trim().toLowerCase())).length === 0 && (
+                              <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={createAndAttachMenu}
+                    disabled={menuSaving || !newMenuNom.trim() || !newMenuCode.trim()}
+                    className="btn-primary mt-3 flex items-center gap-2"
+                  >
+                    {menuSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Créer et attacher
+                  </button>
+                </div>
+
+                {/* Attacher à un menu existant */}
+                {attachableMenus.length > 0 && (
+                  <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                      Ou réattacher un menu existant
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setExistingPickerOpen(o => !o)}
+                          className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
+                        >
+                          <span className="truncate">
+                            {attachExistingId ? (() => {
+                              const m = attachableMenus.find(x => String(x.id) === String(attachExistingId))
+                              return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Sélectionner un menu Pivot --'
+                            })() : '-- Sélectionner un menu Pivot --'}
+                          </span>
+                          <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${existingPickerOpen ? 'rotate-90' : ''}`} />
+                        </button>
+                        {existingPickerOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setExistingPickerOpen(false)} />
+                            <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
+                              <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                                <div className="relative">
+                                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                                  <input
+                                    autoFocus
+                                    value={existingSearch}
+                                    onChange={e => setExistingSearch(e.target.value)}
+                                    placeholder="Rechercher un menu..."
+                                    className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex-1 overflow-y-auto py-1">
+                                {attachableMenus
+                                  .filter(m => {
+                                    const q = existingSearch.trim().toLowerCase()
+                                    if (!q) return true
+                                    return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
+                                  })
+                                  .map(m => (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => { setAttachExistingId(String(m.id)); setExistingPickerOpen(false); setExistingSearch('') }}
+                                      className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(attachExistingId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                    >
+                                      {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
+                                    </button>
+                                  ))}
+                                {existingSearch.trim() && attachableMenus.filter(m => m.nom.toLowerCase().includes(existingSearch.trim().toLowerCase())).length === 0 && (
+                                  <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <button onClick={attachToExistingMenu} disabled={menuSaving || !attachExistingId} className="btn-primary whitespace-nowrap flex-shrink-0">
+                        Attacher
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5">Le menu sélectionné pointera désormais vers ce rapport à la place du sien.</p>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      </div>
+    )}
 
     {showAIGenerator && (
       <AIBuilderGenerator

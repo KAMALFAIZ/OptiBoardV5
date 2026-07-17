@@ -19,7 +19,23 @@ echo ======================================================================
 echo.
 
 REM --- 1. Localiser vcvarsall.bat -----------------------------------------
-set "VCVARS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat"
+REM D'abord via vswhere (officiel Microsoft, marche quelle que soit
+REM l'annee/edition VS installee : BuildTools/Community/Pro/Enterprise,
+REM 2019/2022/2026/...). Fallback sur des chemins codes en dur pour
+REM compat avec des postes sans vswhere (tres ancien VS).
+set "VCVARS="
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not exist "%VSWHERE%" set "VSWHERE=%ProgramFiles%\Microsoft Visual Studio\Installer\vswhere.exe"
+
+if exist "%VSWHERE%" (
+    for /f "usebackq tokens=*" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+        if exist "%%I\VC\Auxiliary\Build\vcvarsall.bat" set "VCVARS=%%I\VC\Auxiliary\Build\vcvarsall.bat"
+    )
+)
+
+if not exist "%VCVARS%" (
+    set "VCVARS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat"
+)
 if not exist "%VCVARS%" (
     set "VCVARS=C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat"
 )

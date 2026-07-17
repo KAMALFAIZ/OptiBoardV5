@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AgGridReact } from 'ag-grid-react'
 import {
   Plus, Save, Trash2, Play, RefreshCw, X, GripVertical, Search,
   Table, Columns, Settings, Eye, EyeOff, ArrowUpDown, Pin, Layers,
   AlignLeft, AlignCenter, AlignRight, ChevronLeft, ChevronRight, Database, Settings2, Pencil, Sparkles,
-  TrendingUp, BookOpen, Users, Landmark, LayoutGrid
+  TrendingUp, BookOpen, Users, Landmark, LayoutGrid, Link
 } from 'lucide-react'
 import AIBuilderGenerator from '../components/ai/AIBuilderGenerator'
 import Loading from '../components/common/Loading'
@@ -14,7 +15,8 @@ import {
   getGridViews, getGridView, createGridView, updateGridView, deleteGridView,
   getGridData, getDataSources, getDataSource, executeQuery, deleteDataSource,
   getUnifiedDataSourceFields, previewUnifiedDataSource, getUnifiedDataSource,
-  getUserGridPrefs, saveUserGridPrefs, getSocietes
+  getUserGridPrefs, saveUserGridPrefs, getSocietes,
+  getMenusFlat, createMenu, updateMenu, deleteMenu
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -39,6 +41,7 @@ const ALIGNS = [
 ]
 
 export default function GridViewBuilder() {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { darkMode } = useTheme()
   const toast = useToast()
@@ -59,6 +62,26 @@ export default function GridViewBuilder() {
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [sidebarAppFilter, setSidebarAppFilter] = useState('')
   const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(256)
+
+  // Refonte UI : tiroir des colonnes, filtres, documentation, menu source
+  const [showColumnsDrawer, setShowColumnsDrawer] = useState(false)
+  const [columnSearch, setColumnSearch] = useState('')
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false)
+  const [showFiltersPanel, setShowFiltersPanel] = useState(false)
+  const [showDocsModal, setShowDocsModal] = useState(false)
+  const [showSidebar, setShowSidebar] = useState(true)
+  const [showMenuModal, setShowMenuModal] = useState(false)
+  const [menuFlat, setMenuFlat] = useState([])
+  const [menuLoading, setMenuLoading] = useState(false)
+  const [menuSaving, setMenuSaving] = useState(false)
+  const [newMenuNom, setNewMenuNom] = useState('')
+  const [newMenuCode, setNewMenuCode] = useState('')
+  const [newMenuParentId, setNewMenuParentId] = useState('')
+  const [attachExistingId, setAttachExistingId] = useState('')
+  const [parentPickerOpen, setParentPickerOpen] = useState(false)
+  const [parentSearch, setParentSearch] = useState('')
+  const [existingPickerOpen, setExistingPickerOpen] = useState(false)
+  const [existingSearch, setExistingSearch] = useState('')
 
   // Gestion des paramètres de la source
   const [sourceParams, setSourceParams] = useState([])
@@ -578,6 +601,125 @@ export default function GridViewBuilder() {
     setShowQueryBuilder(true)
   }
 
+  // Attacher/detacher ce GridView au menu dynamique
+  const openMenuModal = async () => {
+    if (!currentGrid) return
+    setShowMenuModal(true)
+    setNewMenuNom(currentGrid.nom || '')
+    setNewMenuCode(
+      (currentGrid.nom || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+    )
+    setNewMenuParentId('')
+    setAttachExistingId('')
+    setParentPickerOpen(false)
+    setParentSearch('')
+    setExistingPickerOpen(false)
+    setExistingSearch('')
+    setMenuLoading(true)
+    try {
+      const res = await getMenusFlat()
+      if (res.data.success === false) {
+        console.error('Erreur backend /menus/flat:', res.data.error)
+        toast.error(res.data.error || 'Erreur lors du chargement des menus', { title: 'Menus' })
+        setMenuFlat([])
+      } else {
+        setMenuFlat(res.data.data || [])
+      }
+    } catch (err) {
+      console.error('Erreur chargement menus:', err)
+      toast.error(err.response?.data?.detail || err.message || 'Erreur lors du chargement des menus')
+      setMenuFlat([])
+    } finally {
+      setMenuLoading(false)
+    }
+  }
+
+  const refreshMenuFlat = async () => {
+    try {
+      const res = await getMenusFlat()
+      if (res.data.success === false) {
+        console.error('Erreur backend /menus/flat:', res.data.error)
+        toast.error(res.data.error || 'Erreur lors du rechargement des menus', { title: 'Menus' })
+        return
+      }
+      setMenuFlat(res.data.data || [])
+    } catch (err) {
+      console.error('Erreur rechargement menus:', err)
+    }
+  }
+
+  const createAndAttachMenu = async () => {
+    if (!currentGrid || !newMenuNom.trim() || !newMenuCode.trim()) return
+    setMenuSaving(true)
+    try {
+      await createMenu({
+        parent_id: newMenuParentId ? parseInt(newMenuParentId, 10) : null,
+        nom: newMenuNom.trim(),
+        code: newMenuCode.trim(),
+        icon: 'FileSpreadsheet',
+        type: 'gridview',
+        target_id: currentGrid.id,
+        url: '',
+        ordre: 0,
+        is_active: true
+      })
+      toast.success('Menu créé et rapport attaché')
+      await refreshMenuFlat()
+      setNewMenuNom('')
+      setNewMenuCode('')
+      setNewMenuParentId('')
+    } catch (err) {
+      console.error('Erreur création menu:', err)
+      toast.error(err.response?.data?.detail || 'Erreur lors de la création du menu')
+    } finally {
+      setMenuSaving(false)
+    }
+  }
+
+  const attachToExistingMenu = async () => {
+    if (!currentGrid || !attachExistingId) return
+    const menu = menuFlat.find(m => m.id === parseInt(attachExistingId, 10))
+    if (!menu) return
+    setMenuSaving(true)
+    try {
+      await updateMenu(menu.id, {
+        parent_id: menu.parent_id,
+        nom: menu.nom,
+        code: menu.code,
+        icon: menu.icon || 'FileSpreadsheet',
+        type: 'gridview',
+        target_id: currentGrid.id,
+        url: menu.url || '',
+        ordre: menu.ordre,
+        is_active: menu.is_active
+      })
+      toast.success(`"${menu.nom}" pointe maintenant vers ce rapport`)
+      await refreshMenuFlat()
+      setAttachExistingId('')
+    } catch (err) {
+      console.error('Erreur attachement menu:', err)
+      toast.error(err.response?.data?.detail || 'Erreur lors de l\'attachement')
+    } finally {
+      setMenuSaving(false)
+    }
+  }
+
+  const detachMenu = async (menu) => {
+    if (!confirm(`Détacher "${menu.nom}" du menu ?`)) return
+    try {
+      await deleteMenu(menu.id)
+      toast.success('Menu détaché')
+      await refreshMenuFlat()
+    } catch (err) {
+      console.error('Erreur détachement menu:', err)
+      toast.error('Erreur lors du détachement')
+    }
+  }
+
   // Charger les options pour les paramètres de type select ou multiselect
   const loadSelectOptions = async () => {
     const selectParams = sourceParams.filter(p =>
@@ -783,6 +925,10 @@ export default function GridViewBuilder() {
     updateColumn(index, { visible: !config.columns[index].visible })
   }
 
+  const setAllColumnsVisible = (visible) => {
+    setConfig(prev => ({ ...prev, columns: prev.columns.map(c => ({ ...c, visible })) }))
+  }
+
   const toggleTotalColumn = (field) => {
     if (config.total_columns.includes(field)) {
       setConfig({ ...config, total_columns: config.total_columns.filter(c => c !== field) })
@@ -904,8 +1050,8 @@ export default function GridViewBuilder() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        <div className="bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0 relative" style={{ width: sidebarWidth }}>
-          <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
+        <div className="bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col flex-shrink-0 relative overflow-hidden transition-[width] duration-200" style={{ width: showSidebar ? sidebarWidth : 0 }}>
+          <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800" style={{ width: sidebarWidth }}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Grilles</h2>
               <div className="flex items-center gap-1">
@@ -916,6 +1062,10 @@ export default function GridViewBuilder() {
                 <button onClick={() => setShowNewModal(true)}
                   className="p-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors" title="Nouvelle grille">
                   <Plus size={13} />
+                </button>
+                <button onClick={() => setShowSidebar(false)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 transition-colors" title="Masquer les grilles">
+                  <ChevronLeft size={13} />
                 </button>
               </div>
             </div>
@@ -938,7 +1088,7 @@ export default function GridViewBuilder() {
               ))}
             </select>
           </div>
-          <div className="flex-1 overflow-y-auto py-2 px-2">
+          <div className="flex-1 overflow-y-auto py-2 px-2" style={{ width: sidebarWidth }}>
             {grids.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-6">Aucune grille créée</p>
             ) : (
@@ -974,88 +1124,104 @@ export default function GridViewBuilder() {
               </>
             )}
           </div>
-          <div onMouseDown={handleSidebarResizeStart}
-            className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary-400/40 active:bg-primary-500/50 transition-colors z-10" />
+          {showSidebar && (
+            <div onMouseDown={handleSidebarResizeStart}
+              className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary-400/40 active:bg-primary-500/50 transition-colors z-10" />
+          )}
         </div>
+
+        {/* Rail de bascule — toujours visible, même quand la barre est masquée */}
+        <button
+          onClick={() => setShowSidebar(v => !v)}
+          title={showSidebar ? 'Masquer les grilles' : 'Afficher les grilles'}
+          className="w-5 flex-shrink-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800 hover:bg-primary-100 dark:hover:bg-primary-900/40 border-r border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary-600 transition-colors"
+        >
+          {showSidebar ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
 
         {/* Zone principale */}
         {currentGrid ? (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Configuration — max 45vh, scrollable intérieurement */}
-            <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 overflow-y-auto" style={{ maxHeight: '45vh', flexShrink: 0 }}>
-              <div className="p-4 pb-2 space-y-4">
-              <div className="grid grid-cols-4 gap-4">
-                {/* Source de données - Nouveau composant */}
-                <div className="col-span-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                      Source de données (Templates + Sources locales)
-                    </label>
-                    <button
-                      onClick={() => {
-                        setEditingSourceId(null) // Nouvelle source = vide
-                        setShowQueryBuilder(true)
-                      }}
-                      className="flex items-center gap-1 px-2 py-0.5 text-xs bg-primary-100 hover:bg-primary-200 dark:bg-primary-900/30 dark:hover:bg-primary-900/50 text-primary-700 dark:text-primary-300 rounded"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Créer Source
-                    </button>
-                  </div>
+          <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
+            {/* Barre de configuration compacte */}
+            <div className="flex items-end gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-wrap flex-shrink-0 relative">
+              <div className="flex items-center gap-1.5 flex-1 min-w-[240px] max-w-[420px]">
+                <div className="flex-1 min-w-0">
                   <DataSourceSelector
                     value={config.data_source_code || config.data_source_id}
                     onChange={handleDataSourceChange}
                     showPreview={true}
+                    showCode={false}
                     onPreview={() => {}}
                     placeholder="Sélectionner un template ou une source..."
                   />
-                  {selectedDataSource && (
-                    <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-                      {selectedDataSource.origin === 'template' ? (
-                        <span className="flex items-center gap-1 text-primary-600">
-                          <Settings2 className="w-3 h-3" />
-                          Template: {selectedDataSource.code}
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1">
-                          <Database className="w-3 h-3" />
-                          Source locale ID: {selectedDataSource.id}
-                        </span>
-                      )}
-                      {selectedDataSource.origin === 'local' && (
-                        <>
+                </div>
+                <div className="relative flex-shrink-0">
+                  <button
+                    onClick={() => setSourceMenuOpen(o => !o)}
+                    title="Actions sur la source"
+                    className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-primary-600 hover:border-primary-400 dark:hover:border-primary-500 transition-colors"
+                  >
+                    <Settings2 className="w-4 h-4" />
+                  </button>
+                  {sourceMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setSourceMenuOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 text-sm">
+                        <button
+                          onClick={() => { setSourceMenuOpen(false); setEditingSourceId(null); setShowQueryBuilder(true) }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                        >
+                          <Plus className="w-4 h-4 text-primary-500" /> Créer une source
+                        </button>
+                        {selectedDataSource && (
                           <button
-                            onClick={() => {
-                              setEditingSourceId(selectedDataSource.id)
-                              setShowQueryBuilder(true)
-                            }}
-                            className="text-blue-600 hover:underline"
+                            onClick={() => { setSourceMenuOpen(false); resyncColumnsFromDataSource() }}
+                            disabled={reloadingColumns}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-left text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50"
+                            title="Resynchroniser les colonnes depuis la requête SQL (ajoute les nouvelles colonnes, supprime les disparues, conserve la config existante)"
                           >
-                            Modifier
+                            <RefreshCw className={`w-4 h-4 ${reloadingColumns ? 'animate-spin' : ''}`} /> Régénérer les colonnes
                           </button>
-                          <button
-                            onClick={() => deleteDataSourceHandler(selectedDataSource.id)}
-                            className="text-red-500 hover:underline"
-                          >
-                            Supprimer
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={resyncColumnsFromDataSource}
-                        disabled={reloadingColumns}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700 disabled:opacity-50"
-                        title="Resynchroniser les colonnes depuis la requête SQL (ajoute les nouvelles colonnes, supprime les disparues, conserve la config existante)"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${reloadingColumns ? 'animate-spin' : ''}`} />
-                        Régénérer les colonnes
-                      </button>
-                    </div>
+                        )}
+                        {selectedDataSource?.origin === 'local' && (
+                          <>
+                            <button
+                              onClick={() => { setSourceMenuOpen(false); setEditingSourceId(selectedDataSource.id); setShowQueryBuilder(true) }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                            >
+                              <Pencil className="w-4 h-4 text-gray-400" /> Modifier la source
+                            </button>
+                            <button
+                              onClick={() => { setSourceMenuOpen(false); deleteDataSourceHandler(selectedDataSource.id) }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            >
+                              <Trash2 className="w-4 h-4" /> Supprimer la source
+                            </button>
+                          </>
+                        )}
+                        {selectedDataSource?.origin === 'template' && (
+                          <>
+                            <button
+                              onClick={() => { setSourceMenuOpen(false); navigate(`/admin/datasources?search=${encodeURIComponent(selectedDataSource.code)}`) }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-100 dark:border-gray-700 mt-1"
+                            >
+                              <Pencil className="w-4 h-4 text-gray-400" /> Modifier le template
+                            </button>
+                            <div className="px-3 py-1.5 text-xs text-gray-400 flex items-center gap-1.5">
+                              <Settings2 className="w-3.5 h-3.5" /> {selectedDataSource.code}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
+              </div>
+
+              <div className="w-px h-8 bg-gray-200 dark:bg-gray-700 flex-shrink-0 hidden md:block" />
 
                 {/* Paramètres de la source de données (inline, style modal) */}
-                {sourceParams.length > 0 && (() => {
+                {sourceParams.length > 0 && showFiltersPanel && (() => {
                   // Presets de période rapide (calculs locaux, sans GlobalFilterContext)
                   const applyPeriod = (type) => {
                     const today = new Date()
@@ -1105,7 +1271,7 @@ export default function GridViewBuilder() {
                   }
 
                   return (
-                    <div className="col-span-4 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
+                    <div className="absolute left-0 top-full mt-2 z-40 w-[600px] max-w-[92vw] border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 shadow-2xl">
                       {/* Header */}
                       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
                         <Settings2 className="w-4 h-4 text-primary-500" />
@@ -1210,7 +1376,7 @@ export default function GridViewBuilder() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => { loadSelectOptions(); loadPreview(1) }}
+                          onClick={() => { loadSelectOptions(); loadPreview(1); setShowFiltersPanel(false) }}
                           disabled={previewLoading}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-white"
                           style={{ backgroundColor: 'var(--color-primary-600)' }}
@@ -1224,14 +1390,12 @@ export default function GridViewBuilder() {
                 })()}
 
                 {/* Application */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Application
-                  </label>
+                <div className="flex flex-col flex-shrink-0">
+                  <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5 pl-0.5">Application</label>
                   <select
                     value={config.application}
                     onChange={(e) => setConfig({ ...config, application: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded focus:ring-1 focus:ring-primary-500 dark:bg-gray-700"
+                    className="h-8 px-2 text-xs font-semibold border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none"
                   >
                     {APPLICATION_OPTIONS.map(a => (
                       <option key={a.value} value={a.value}>{a.label}</option>
@@ -1240,14 +1404,12 @@ export default function GridViewBuilder() {
                 </div>
 
                 {/* Lignes par page */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Lignes par page
-                  </label>
+                <div className="flex flex-col flex-shrink-0">
+                  <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5 pl-0.5">Lignes / page</label>
                   <select
                     value={config.page_size}
                     onChange={(e) => setConfig({ ...config, page_size: parseInt(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded focus:ring-1 focus:ring-primary-500 dark:bg-gray-700"
+                    className="h-8 px-2 text-xs font-semibold border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none"
                   >
                     <option value="10">10</option>
                     <option value="25">25</option>
@@ -1258,179 +1420,234 @@ export default function GridViewBuilder() {
                   </select>
                 </div>
 
-                {/* Afficher les totaux */}
-                <div className="flex items-center gap-2 pt-5">
-                  <input
-                    type="checkbox"
-                    id="showTotals"
-                    checked={config.show_totals}
-                    onChange={(e) => setConfig({ ...config, show_totals: e.target.checked })}
-                    className="rounded border-primary-300 text-primary-600 focus:ring-primary-500"
-                  />
-                  <label htmlFor="showTotals" className="text-sm text-gray-700 dark:text-gray-300">
-                    Afficher les totaux
-                  </label>
-                </div>
+                {/* Bascules d'affichage */}
+                <button
+                  onClick={() => setConfig({ ...config, show_totals: !config.show_totals })}
+                  title="Afficher la ligne des totaux"
+                  className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-semibold border transition-colors flex-shrink-0 ${
+                    config.show_totals
+                      ? 'bg-primary-50 border-primary-200 text-primary-700 dark:bg-primary-900/30 dark:border-primary-700 dark:text-primary-300'
+                      : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+                  }`}
+                >
+                  <span className="text-[13px] font-bold leading-none">Σ</span> Totaux
+                </button>
+                <button
+                  onClick={() => setConfig({ ...config, features: { ...config.features, display_full_height: !config.features.display_full_height } })}
+                  title="Ajuster les colonnes à la largeur du tableau"
+                  className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-semibold border transition-colors flex-shrink-0 ${
+                    config.features.display_full_height
+                      ? 'bg-primary-50 border-primary-200 text-primary-700 dark:bg-primary-900/30 dark:border-primary-700 dark:text-primary-300'
+                      : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" /> 100%
+                </button>
 
-                {/* Colonnes 100% largeur */}
-                <div className="flex items-center gap-2 pt-2">
-                  <input
-                    type="checkbox"
-                    id="displayFullHeight"
-                    checked={config.features.display_full_height || false}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      features: { ...config.features, display_full_height: e.target.checked }
-                    })}
-                    className="rounded border-primary-300 text-primary-600 focus:ring-primary-500"
-                  />
-                  <label htmlFor="displayFullHeight" className="text-sm text-gray-700 dark:text-gray-300">
-                    Colonnes 100% (ajuster les colonnes à la largeur du tableau)
-                  </label>
-                </div>
+                {sourceParams.length > 0 && (
+                  <button
+                    onClick={() => setShowFiltersPanel(o => !o)}
+                    title="Paramètres de la source"
+                    className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-semibold border transition-colors flex-shrink-0 ${
+                      showFiltersPanel
+                        ? 'bg-primary-600 border-primary-600 text-white'
+                        : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+                    }`}
+                  >
+                    <Settings2 className="w-3.5 h-3.5" /> Filtres
+                    <span className={`text-[10px] font-extrabold px-1.5 rounded-full ${showFiltersPanel ? 'bg-white/25' : 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'}`}>
+                      {sourceParams.length}
+                    </span>
+                  </button>
+                )}
+
+                <div className="flex-1 hidden lg:block" />
+
+                {/* Documentation */}
+                <button
+                  onClick={() => setShowDocsModal(true)}
+                  title="Documentation du rapport"
+                  className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:border-primary-400 hover:text-primary-600 flex-shrink-0"
+                >
+                  <BookOpen className="w-3.5 h-3.5" /> Documentation
+                </button>
+
+                {/* Attacher au menu dynamique */}
+                <button
+                  onClick={openMenuModal}
+                  title="Attacher ce rapport à un menu dynamique"
+                  className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:border-primary-400 hover:text-primary-600 flex-shrink-0"
+                >
+                  <Link className="w-3.5 h-3.5" /> Menu
+                </button>
+
+                {/* Bouton tiroir colonnes */}
+                <button
+                  onClick={() => setShowColumnsDrawer(o => !o)}
+                  disabled={config.columns.length === 0}
+                  title="Configurer les colonnes"
+                  className={`flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-bold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 ${
+                    showColumnsDrawer
+                      ? 'bg-primary-600 border-primary-600 text-white'
+                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600'
+                  }`}
+                >
+                  <Columns className="w-3.5 h-3.5" />
+                  Colonnes
+                  <span className={`text-[11px] font-extrabold px-1.5 py-0.5 rounded-full ${showColumnsDrawer ? 'bg-white/25 text-white' : 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'}`}>
+                    {config.columns.length}
+                  </span>
+                </button>
               </div>
 
-              {/* Configuration des colonnes */}
-              {config.columns.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Configuration des colonnes
-                  </label>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10 text-xs">
-                        <tr>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-8">Visible</th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">Champ</th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700">En-tête</th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-32">Format</th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-20">Align.</th>
-                          <th className="px-2 py-1 text-center bg-gray-100 dark:bg-gray-700 w-6" title="Figer la colonne à gauche"><Pin className="w-3 h-3 inline" /></th>
-                          <th className="px-2 py-1 text-center bg-gray-100 dark:bg-gray-700 w-6" title="Grouper par cette colonne"><Layers className="w-3 h-3 inline" /></th>
-                          <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-6">Tri</th>
-                          {config.show_totals && <th className="px-2 py-1 text-left bg-gray-100 dark:bg-gray-700 w-6">Total</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {config.columns.map((col, i) => (
-                          <tr key={col.field} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
-                            <td className="px-2 py-1">
-                              <button
-                                onClick={() => toggleColumnVisibility(i)}
-                                className={col.visible ? 'text-green-500' : 'text-gray-400'}
-                              >
-                                {col.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                              </button>
-                            </td>
-                            <td className="px-2 py-1 text-gray-600 dark:text-gray-400 text-xs max-w-[140px] truncate">{col.field}</td>
-                            <td className="px-2 py-1">
-                              <input
-                                type="text"
-                                value={col.header}
-                                onChange={(e) => updateColumn(i, { header: e.target.value })}
-                                className="w-full px-1 py-0.5 border border-primary-300 dark:border-primary-600 rounded text-xs dark:bg-gray-700"
-                              />
-                            </td>
-                            <td className="px-2 py-1">
-                              <select
-                                value={col.format || ''}
-                                onChange={(e) => updateColumn(i, { format: e.target.value })}
-                                className="w-full px-1 py-0.5 border border-primary-300 dark:border-primary-600 rounded text-xs dark:bg-gray-700"
-                              >
-                                {FORMATS.map(f => (
-                                  <option key={f.value} value={f.value}>{f.label}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-2 py-1">
-                              <div className="flex gap-0.5">
-                                {ALIGNS.map(a => (
-                                  <button
-                                    key={a.value}
-                                    onClick={() => updateColumn(i, { align: a.value })}
-                                    className={`p-0.5 rounded ${col.align === a.value ? 'bg-primary-100 text-primary-600' : 'text-gray-400 hover:text-gray-600'}`}
-                                  >
-                                    <a.icon className="w-3 h-3" />
-                                  </button>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-2 py-1 text-center">
-                              <input
-                                type="checkbox"
-                                checked={col.pinned === 'left'}
-                                onChange={(e) => updateColumn(i, { pinned: e.target.checked ? 'left' : null })}
-                                className="rounded border-primary-300 text-blue-600 focus:ring-blue-500"
-                                title="Figer à gauche"
-                              />
-                            </td>
-                            <td className="px-2 py-1 text-center">
-                              <input
-                                type="checkbox"
-                                checked={!!col.groupBy}
-                                onChange={(e) => updateColumn(i, { groupBy: e.target.checked })}
-                                className="rounded border-primary-300 text-amber-600 focus:ring-amber-500"
-                                title="Grouper par cette colonne"
-                              />
-                            </td>
-                            <td className="px-2 py-1 text-center">
-                              <input
-                                type="checkbox"
-                                checked={col.sortable}
-                                onChange={(e) => updateColumn(i, { sortable: e.target.checked })}
-                                className="rounded border-primary-300"
-                              />
-                            </td>
-                            {config.show_totals && (
-                              <td className="px-2 py-1 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={config.total_columns.includes(col.field)}
-                                  onChange={() => toggleTotalColumn(col.field)}
-                                  className="rounded border-primary-300"
-                                  disabled={col.format !== 'number' && col.format !== 'currency'}
-                                />
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+            {/* Tiroir de configuration des colonnes (divulgation progressive) */}
+            <div
+              className={`absolute inset-0 z-20 bg-gray-900/20 dark:bg-black/40 transition-opacity duration-200 ${showColumnsDrawer ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+              onClick={() => setShowColumnsDrawer(false)}
+            />
+            <div className={`absolute top-0 right-0 h-full w-[420px] max-w-[92%] z-30 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${showColumnsDrawer ? 'translate-x-0' : 'translate-x-full'}`}>
+              {/* En-tête du tiroir */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <Columns className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">Colonnes</h3>
+                  <span className="text-[11px] font-extrabold text-primary-700 dark:text-primary-300 bg-primary-100 dark:bg-primary-900/40 px-2 py-0.5 rounded-full">
+                    {config.columns.length}
+                  </span>
                 </div>
-              )}
-              {/* Documentation */}
-              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Documentation du rapport</label>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Objectif</label>
-                    <textarea value={config.doc_description || ''} onChange={e => setConfig({ ...config, doc_description: e.target.value })} rows={2}
-                      placeholder="Decrivez ce que ce rapport affiche..."
-                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Descriptif des colonnes</label>
-                    <textarea value={config.doc_fields || ''} onChange={e => setConfig({ ...config, doc_fields: e.target.value })} rows={3}
-                      placeholder="Ex: CA HT = chiffre d'affaires hors taxes&#10;Marge = CA HT - Achats..."
-                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Formule / Logique</label>
-                    <textarea value={config.doc_formula || ''} onChange={e => setConfig({ ...config, doc_formula: e.target.value })} rows={2}
-                      placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
-                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Avantage</label>
-                    <textarea value={config.doc_advantage || ''} onChange={e => setConfig({ ...config, doc_advantage: e.target.value })} rows={2}
-                      placeholder="A quoi sert ce rapport..."
-                      className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
-                  </div>
-                </div>
+                <button onClick={() => setShowColumnsDrawer(false)} title="Fermer"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              </div>{/* fin p-4 content */}
-            </div>{/* fin config panel scrollable */}
+
+              {/* Outils : recherche + bascule globale */}
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700/60 flex-shrink-0">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={columnSearch}
+                    onChange={(e) => setColumnSearch(e.target.value)}
+                    placeholder="Filtrer les colonnes..."
+                    className="w-full pl-8 pr-3 h-8 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white outline-none"
+                  />
+                </div>
+                <button
+                  onClick={() => setAllColumnsVisible(!config.columns.every(c => c.visible))}
+                  className="text-[11px] font-semibold text-gray-500 hover:text-primary-600 whitespace-nowrap px-1"
+                >
+                  {config.columns.every(c => c.visible) ? 'Tout masquer' : 'Tout afficher'}
+                </button>
+              </div>
+
+              {/* Liste des colonnes — une carte par colonne */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {config.columns.map((col, i) => {
+                  const q = columnSearch.trim().toLowerCase()
+                  if (q && !col.field.toLowerCase().includes(q) && !(col.header || '').toLowerCase().includes(q)) return null
+                  const canTotal = col.format === 'number' || col.format === 'currency'
+                  return (
+                    <div key={col.field}
+                      className={`border rounded-xl p-2.5 transition-colors ${col.visible
+                        ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+                        : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'}`}>
+                      {/* Ligne 1 : visibilité + en-tête + placement */}
+                      <div className="flex items-center gap-2">
+                        <GripVertical className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
+                        <button
+                          onClick={() => toggleColumnVisibility(i)}
+                          title={col.visible ? 'Masquer la colonne' : 'Afficher la colonne'}
+                          className={`w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0 ${col.visible
+                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}
+                        >
+                          {col.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        </button>
+                        <input
+                          type="text"
+                          value={col.header}
+                          onChange={(e) => updateColumn(i, { header: e.target.value })}
+                          className="flex-1 min-w-0 h-7 px-2 text-xs font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none"
+                        />
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => updateColumn(i, { pinned: col.pinned === 'left' ? null : 'left' })}
+                            title="Figer à gauche"
+                            className={`w-7 h-7 flex items-center justify-center rounded-lg border ${col.pinned === 'left'
+                              ? 'bg-sky-50 border-transparent text-sky-600 dark:bg-sky-900/30 dark:text-sky-400'
+                              : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600'}`}
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => updateColumn(i, { groupBy: !col.groupBy })}
+                            title="Grouper par cette colonne"
+                            className={`w-7 h-7 flex items-center justify-center rounded-lg border ${col.groupBy
+                              ? 'bg-amber-50 border-transparent text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+                              : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600'}`}
+                          >
+                            <Layers className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      {/* Ligne 2 : champ + format + alignement + tri + total */}
+                      <div className="flex items-center gap-2 mt-2 pl-[38px]">
+                        <span className="font-mono text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[88px] flex-shrink-0" title={col.field}>{col.field}</span>
+                        <select
+                          value={col.format || ''}
+                          onChange={(e) => updateColumn(i, { format: e.target.value })}
+                          className="h-7 px-1.5 text-[11px] font-medium border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-gray-200 outline-none focus:ring-2 focus:ring-primary-400"
+                        >
+                          {FORMATS.map(f => (<option key={f.value} value={f.value}>{f.label}</option>))}
+                        </select>
+                        <div className="flex border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden ml-auto">
+                          {ALIGNS.map(a => (
+                            <button
+                              key={a.value}
+                              onClick={() => updateColumn(i, { align: a.value })}
+                              title={`Aligner : ${a.value}`}
+                              className={`w-6 h-7 flex items-center justify-center ${col.align === a.value
+                                ? 'bg-primary-600 text-white'
+                                : 'bg-gray-50 dark:bg-gray-700 text-gray-400 hover:text-gray-600'}`}
+                            >
+                              <a.icon className="w-3 h-3" />
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => updateColumn(i, { sortable: !col.sortable })}
+                          title={col.sortable ? 'Tri activé' : 'Tri désactivé'}
+                          className={`w-7 h-7 flex items-center justify-center rounded-lg border flex-shrink-0 ${col.sortable
+                            ? 'bg-primary-50 border-transparent text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                            : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600'}`}
+                        >
+                          <ArrowUpDown className="w-3.5 h-3.5" />
+                        </button>
+                        {config.show_totals && (
+                          <button
+                            onClick={() => canTotal && toggleTotalColumn(col.field)}
+                            disabled={!canTotal}
+                            title={canTotal ? 'Inclure dans les totaux' : 'Nécessite un format Nombre ou Devise'}
+                            className={`w-7 h-7 flex items-center justify-center rounded-lg border flex-shrink-0 text-[13px] font-bold disabled:opacity-30 disabled:cursor-not-allowed ${config.total_columns.includes(col.field)
+                              ? 'bg-primary-50 border-transparent text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                              : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600'}`}
+                          >
+                            Σ
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                {config.columns.length === 0 && (
+                  <div className="text-center text-gray-400 py-10 text-sm">
+                    <Columns className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    Sélectionnez une source de données<br />pour configurer les colonnes.
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Preview de la grille — AG Grid identique au GridView Display */}
             <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-gray-950 p-2" style={{ minHeight: '200px' }}>
@@ -1499,7 +1716,7 @@ export default function GridViewBuilder() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-slate-50 dark:bg-gray-950">
+          <div className="flex-1 flex items-center justify-center bg-slate-50 dark:bg-gray-950 min-w-0">
             <div className="text-center text-gray-500">
               <Table className="w-16 h-16 mx-auto mb-4 opacity-30" />
               <p className="text-lg font-medium mb-2">Bienvenue dans le GridView Builder</p>
@@ -1563,6 +1780,274 @@ export default function GridViewBuilder() {
         targetType="gridview"
         initialSourceId={editingSourceId}
       />
+
+      {/* Modal Documentation du rapport */}
+      {showDocsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowDocsModal(false)} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center gap-2 mb-4">
+              <BookOpen className="w-5 h-5 text-primary-500" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documentation du rapport</h2>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Objectif</label>
+                <textarea value={config.doc_description || ''} onChange={e => setConfig({ ...config, doc_description: e.target.value })} rows={2}
+                  placeholder="Decrivez ce que ce rapport affiche..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Descriptif des colonnes</label>
+                <textarea value={config.doc_fields || ''} onChange={e => setConfig({ ...config, doc_fields: e.target.value })} rows={3}
+                  placeholder="Ex: CA HT = chiffre d'affaires hors taxes&#10;Marge = CA HT - Achats..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Formule / Logique</label>
+                <textarea value={config.doc_formula || ''} onChange={e => setConfig({ ...config, doc_formula: e.target.value })} rows={2}
+                  placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Avantage</label>
+                <textarea value={config.doc_advantage || ''} onChange={e => setConfig({ ...config, doc_advantage: e.target.value })} rows={2}
+                  placeholder="A quoi sert ce rapport..."
+                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-1 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowDocsModal(false)} className="btn-primary">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Attacher au menu dynamique */}
+      {showMenuModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMenuModal(false)} />
+          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Link className="w-5 h-5 text-primary-500" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Attacher au menu dynamique</h2>
+              </div>
+              <button onClick={() => setShowMenuModal(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {menuLoading ? (
+              <div className="py-10 text-center text-gray-400">
+                <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+                Chargement des menus...
+              </div>
+            ) : (() => {
+              const linkedMenus = menuFlat.filter(m => m.type === 'gridview' && m.target_id === currentGrid?.id)
+              const attachableMenus = menuFlat.filter(m => m.type === 'gridview' && m.target_id !== currentGrid?.id && m.is_custom === true)
+              return (
+                <div className="space-y-5">
+                  {/* Menus actuellement liés */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                      Menus liés à ce rapport
+                    </label>
+                    {linkedMenus.length === 0 ? (
+                      <p className="text-sm text-gray-400">Ce rapport n'est encore attaché à aucun menu.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {linkedMenus.map(m => (
+                          <div key={m.id} className="flex items-center justify-between px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm">
+                            <span className="flex items-center gap-2 text-gray-700 dark:text-gray-200 min-w-0 truncate">
+                              <LayoutGrid className="w-3.5 h-3.5 text-primary-500 flex-shrink-0" />
+                              <span className="truncate">{m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}</span>
+                              {!m.is_active && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">masqué</span>}
+                            </span>
+                            {m.is_custom === true ? (
+                              <button onClick={() => detachMenu(m)} className="text-red-500 hover:text-red-700 text-xs font-medium flex-shrink-0 ml-2">
+                                Détacher
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">standard</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Créer un nouveau menu */}
+                  <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                      Créer un nouveau menu pour ce rapport
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Nom</label>
+                        <input
+                          value={newMenuNom}
+                          onChange={e => setNewMenuNom(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Code</label>
+                        <input
+                          value={newMenuCode}
+                          onChange={e => setNewMenuCode(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+                          className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 relative">
+                      <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Emplacement (parent)</label>
+                      <button
+                        type="button"
+                        onClick={() => setParentPickerOpen(o => !o)}
+                        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
+                      >
+                        <span className="truncate">
+                          {newMenuParentId ? (() => {
+                            const m = menuFlat.find(x => String(x.id) === String(newMenuParentId))
+                            return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Racine --'
+                          })() : '-- Racine --'}
+                        </span>
+                        <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${parentPickerOpen ? 'rotate-90' : ''}`} />
+                      </button>
+                      {parentPickerOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setParentPickerOpen(false)} />
+                          <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
+                            <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                              <div className="relative">
+                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                                <input
+                                  autoFocus
+                                  value={parentSearch}
+                                  onChange={e => setParentSearch(e.target.value)}
+                                  placeholder="Rechercher un dossier..."
+                                  className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto py-1">
+                              <button
+                                type="button"
+                                onClick={() => { setNewMenuParentId(''); setParentPickerOpen(false); setParentSearch('') }}
+                                className={`w-full text-left px-3 py-1.5 text-sm ${!newMenuParentId ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                              >
+                                -- Racine --
+                              </button>
+                              {menuFlat
+                                .filter(m => {
+                                  const q = parentSearch.trim().toLowerCase()
+                                  if (!q) return true
+                                  return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
+                                })
+                                .map(m => (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => { setNewMenuParentId(String(m.id)); setParentPickerOpen(false); setParentSearch('') }}
+                                    className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(newMenuParentId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                  >
+                                    {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
+                                  </button>
+                                ))}
+                              {parentSearch.trim() && menuFlat.filter(m => m.nom.toLowerCase().includes(parentSearch.trim().toLowerCase())).length === 0 && (
+                                <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={createAndAttachMenu}
+                      disabled={menuSaving || !newMenuNom.trim() || !newMenuCode.trim()}
+                      className="btn-primary mt-3 flex items-center gap-2"
+                    >
+                      {menuSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                      Créer et attacher
+                    </button>
+                  </div>
+
+                  {/* Attacher à un menu existant */}
+                  {attachableMenus.length > 0 && (
+                    <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+                      <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                        Ou réattacher un menu existant
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => setExistingPickerOpen(o => !o)}
+                            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
+                          >
+                            <span className="truncate">
+                              {attachExistingId ? (() => {
+                                const m = attachableMenus.find(x => String(x.id) === String(attachExistingId))
+                                return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Sélectionner un menu GridView --'
+                              })() : '-- Sélectionner un menu GridView --'}
+                            </span>
+                            <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${existingPickerOpen ? 'rotate-90' : ''}`} />
+                          </button>
+                          {existingPickerOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setExistingPickerOpen(false)} />
+                              <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
+                                <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                                  <div className="relative">
+                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                                    <input
+                                      autoFocus
+                                      value={existingSearch}
+                                      onChange={e => setExistingSearch(e.target.value)}
+                                      placeholder="Rechercher un menu..."
+                                      className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto py-1">
+                                  {attachableMenus
+                                    .filter(m => {
+                                      const q = existingSearch.trim().toLowerCase()
+                                      if (!q) return true
+                                      return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
+                                    })
+                                    .map(m => (
+                                      <button
+                                        key={m.id}
+                                        type="button"
+                                        onClick={() => { setAttachExistingId(String(m.id)); setExistingPickerOpen(false); setExistingSearch('') }}
+                                        className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(attachExistingId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                      >
+                                        {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
+                                      </button>
+                                    ))}
+                                  {existingSearch.trim() && attachableMenus.filter(m => m.nom.toLowerCase().includes(existingSearch.trim().toLowerCase())).length === 0 && (
+                                    <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <button onClick={attachToExistingMenu} disabled={menuSaving || !attachExistingId} className="btn-primary whitespace-nowrap flex-shrink-0">
+                          Attacher
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1.5">Le menu sélectionné pointera désormais vers ce rapport à la place du sien.</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Modal Paramètres — même style que GridViewDisplay */}
       {showParamsModal && (

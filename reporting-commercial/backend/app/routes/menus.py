@@ -117,7 +117,7 @@ def get_menus_flat():
                         WHEN m.type = 'gridview' THEN (SELECT nom FROM APP_GridViews WHERE id = m.target_id)
                         WHEN m.type = 'dashboard' THEN (SELECT nom FROM APP_Dashboards WHERE id = m.target_id)
                         ELSE NULL
-                      END as target_name,
+                      END as target_name
                FROM APP_Menus m
                LEFT JOIN APP_Menus p ON m.parent_id = p.id
                ORDER BY m.ordre, m.nom""",

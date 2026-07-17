@@ -78,6 +78,18 @@ export default function DataSourceTemplates() {
     }
   }, [searchParams])
 
+  // Ouvrir directement le template visé par ?search=<code> (lien "Modifier le template")
+  useEffect(() => {
+    const q = searchParams.get('search')
+    if (q && templates.length > 0 && !selectedTemplate) {
+      const match = templates.find(t => t.code?.toLowerCase() === q.toLowerCase())
+      if (match) {
+        handleSelectTemplate(match)
+        setExpandedCategories(prev => ({ ...prev, [match.category || 'custom']: true }))
+      }
+    }
+  }, [templates, searchParams])
+
   const loadData = async () => {
     setLoading(true)
     setError(null)

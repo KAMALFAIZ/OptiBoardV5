@@ -186,6 +186,8 @@ app.include_router(pivot_v2.router)
 app.include_router(license.router)
 from app.routes.console_stats import router as console_stats_router
 app.include_router(console_stats_router)    # Monitoring console KASOFT (X-Console-Token)
+from app.routes.console_provision import router as console_provision_router
+app.include_router(console_provision_router)  # Provisioning instances client depuis la console (X-Console-Token)
 app.include_router(ai_assistant.router)
 app.include_router(ai_learning.router)
 app.include_router(ai_prompts.router)
