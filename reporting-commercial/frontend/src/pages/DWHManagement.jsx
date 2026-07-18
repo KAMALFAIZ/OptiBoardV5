@@ -309,16 +309,18 @@ export default function DWHManagement() {
       return
     }
     // Ouvre le modal de confirmation personnalisé
-    setDeleteConfirm({ dwh, dropDatabases: false })
+    setDeleteConfirm({ dwh, dropDatabases: false, force: false })
     setDeleteResult(null)
   }
 
   const confirmDeleteDWH = async () => {
     if (!deleteConfirm) return
-    const { dwh, dropDatabases } = deleteConfirm
+    const { dwh, force } = deleteConfirm
     setDeleting(true)
     try {
-      const params = `force=true&drop_databases=true`
+      // Sauvegarde .bak automatique AVANT le DROP. Sans force=true, un échec de
+      // sauvegarde annule la suppression (les données restent intactes).
+      const params = `drop_databases=true&backup=true${force ? '&force=true' : ''}`
       const res = await api.delete(`/dwh-admin/${dwh.code}?${params}`)
       setDeleteResult(res.data)
       // Fermer le panneau si le DWH supprimé était sélectionné
@@ -714,15 +716,39 @@ export default function DWHManagement() {
                     <strong className="text-red-600"> Cette action est irréversible.</strong>
                   </p>
 
+                  {/* Sauvegarde automatique AVANT suppression */}
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20
+                                  border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300">
+                    <span className="mt-0.5">💾</span>
+                    <div>
+                      <p className="font-medium">Une sauvegarde SQL Server (.bak) sera créée automatiquement avant la suppression.</p>
+                      <p className="mt-1 text-xs">Déposée dans le dossier de sauvegarde du serveur (…\OptiBoard\deleted).</p>
+                    </div>
+                  </div>
+
                   {/* Avertissement DROP automatique des bases */}
                   <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20
                                   border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
                     <span className="mt-0.5">⚠️</span>
                     <div>
-                      <p className="font-medium">Les bases SQL Server seront supprimées :</p>
-                      <p className="font-mono mt-1">DWH_{deleteConfirm.dwh.code} &nbsp;&amp;&amp;&nbsp; OptiBoard_clt{deleteConfirm.dwh.code}</p>
+                      <p className="font-medium">Les bases SQL Server seront ensuite supprimées :</p>
+                      <p className="font-mono mt-1">DWH_{deleteConfirm.dwh.code} &nbsp;&amp;&amp;&nbsp; OptiBoard_{deleteConfirm.dwh.code}</p>
                     </div>
                   </div>
+
+                  {/* Option : forcer la suppression même si la sauvegarde échoue */}
+                  <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={deleteConfirm.force || false}
+                      onChange={(e) => setDeleteConfirm({ ...deleteConfirm, force: e.target.checked })}
+                    />
+                    <span>
+                      Supprimer même si la sauvegarde échoue
+                      <span className="text-red-600 dark:text-red-400"> (perte définitive des données)</span>
+                    </span>
+                  </label>
                 </>
               ) : (
                 /* Résultat après suppression */
@@ -731,6 +757,20 @@ export default function DWHManagement() {
                     <span className="inline-block w-5 h-5 rounded-full bg-green-100 text-green-600 text-center leading-5">✓</span>
                     DWH supprimé avec succès
                   </p>
+                  {/* Sauvegardes créées avant suppression */}
+                  {(deleteResult.backup_results || [])
+                    .filter(b => b.backed_up || b.error)
+                    .map((b, i) => (
+                    <div key={`bak-${i}`} className={`text-xs px-3 py-2 rounded-lg font-mono break-all ${
+                      b.backed_up
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
+                        : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
+                    }`}>
+                      {b.backed_up ? '💾' : '⚠️'} &nbsp;{b.db}
+                      {b.backed_up && b.path && <span className="block mt-0.5 opacity-80">{b.path}</span>}
+                      {!b.backed_up && b.error && ` — ${b.error}`}
+                    </div>
+                  ))}
                   {(deleteResult.drop_results || []).map((r, i) => (
                     <div key={i} className={`text-xs px-3 py-2 rounded-lg font-mono ${
                       r.dropped

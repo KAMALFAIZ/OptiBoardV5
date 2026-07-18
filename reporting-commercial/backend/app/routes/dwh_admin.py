@@ -18,6 +18,7 @@ Règles d'architecture implémentées :
 """
 
 import asyncio
+import datetime
 import logging
 import threading
 from pathlib import Path
@@ -1775,52 +1776,164 @@ def _drop_db(serveur: str, db_name: str, user: str, password: str) -> dict:
         return {"dropped": False, "db": db_name, "error": str(e)}
 
 
+def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str = None) -> dict:
+    """
+    Sauvegarde .bak d'une base SQL Server AVANT suppression (filet de sécurité).
+
+    Comme BACKUP DATABASE écrit sur le disque DU SERVEUR SQL, le .bak est déposé
+    dans le dossier de sauvegarde par défaut de l'instance (InstanceDefaultBackupPath),
+    sous-dossier OptiBoard\\deleted, avec repli sur C:\\OptiBoard\\backups\\deleted.
+    L'intégrité est vérifiée par RESTORE VERIFYONLY.
+
+    Retourne {backed_up, db, path?, reason?/error?}.
+    """
+    if not db_name or not serveur:
+        return {"backed_up": False, "db": db_name, "reason": "infos manquantes"}
+    stamp = stamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    try:
+        conn_str = _build_conn_str(serveur, "master", user, password)
+        conn = pyodbc.connect(conn_str, timeout=15)
+        conn.autocommit = True   # BACKUP ne peut pas s'exécuter dans une transaction utilisateur
+        cur = conn.cursor()
+
+        # La base existe-t-elle ?
+        cur.execute("SELECT COUNT(*) FROM sys.databases WHERE name = ?", (db_name,))
+        if cur.fetchone()[0] == 0:
+            conn.close()
+            return {"backed_up": False, "db": db_name, "reason": "n'existe pas"}
+
+        # Dossier de sauvegarde côté serveur : dossier par défaut de l'instance + \OptiBoard\deleted
+        backup_dir = None
+        try:
+            cur.execute("SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS NVARCHAR(500))")
+            r = cur.fetchone()
+            if r and r[0]:
+                backup_dir = str(r[0]).rstrip("\\") + "\\OptiBoard\\deleted"
+        except Exception:
+            pass
+        if not backup_dir:
+            backup_dir = "C:\\OptiBoard\\backups\\deleted"
+
+        # Créer le dossier côté serveur (best effort, s'exécute sous le compte de service SQL)
+        try:
+            cur.execute("EXEC master.dbo.xp_create_subdir ?", (backup_dir,))
+        except Exception:
+            pass
+
+        bak_path = f"{backup_dir}\\{db_name}_predelete_{stamp}.bak"
+        base_opts = "WITH INIT, CHECKSUM, STATS = 25"
+        try:
+            # COMPRESSION non supportée sur SQL Express : repli automatique
+            cur.execute(f"BACKUP DATABASE [{db_name}] TO DISK = N'{bak_path}' {base_opts}, COMPRESSION")
+        except Exception as e:
+            if "compression" in str(e).lower():
+                cur.execute(f"BACKUP DATABASE [{db_name}] TO DISK = N'{bak_path}' {base_opts}")
+            else:
+                raise
+
+        # Vérification de l'intégrité du .bak — un backup non vérifiable est un backup inutile
+        try:
+            cur.execute(f"RESTORE VERIFYONLY FROM DISK = N'{bak_path}' WITH CHECKSUM")
+        except Exception as e:
+            conn.close()
+            return {"backed_up": False, "db": db_name, "path": bak_path, "error": f"vérification échouée: {e}"}
+
+        conn.close()
+        logger.info(f"[BACKUP-PREDELETE] '{db_name}' sauvegardée -> {bak_path}")
+        return {"backed_up": True, "db": db_name, "path": bak_path}
+    except Exception as e:
+        logger.warning(f"[BACKUP-PREDELETE] Échec sauvegarde '{db_name}': {e}")
+        return {"backed_up": False, "db": db_name, "error": str(e)}
+
+
 @router.delete("/dwh-admin/{code}")
-def dwh_admin_delete(code: str):
-    """Supprime un DWH du registre central + DROP automatique des bases SQL Server."""
+def dwh_admin_delete(code: str, drop_databases: bool = True, backup: bool = True, force: bool = False):
+    """
+    Supprime un DWH client.
+
+    Ordre des opérations (par défaut) :
+      1. Sauvegarde .bak automatique de chaque base SQL Server (DWH_ + OptiBoard_) — filet de sécurité.
+      2. DROP des bases SQL Server.
+      3. Suppression du registre central (APP_DWH) + tables liées.
+
+    Paramètres :
+      - drop_databases=True : DROP des bases après sauvegarde (False = suppression du registre uniquement).
+      - backup=True         : crée un .bak vérifié AVANT tout DROP.
+      - force=True          : autorise le DROP même si la sauvegarde échoue (DANGEREUX — perte définitive).
+
+    Sécurité : si la sauvegarde d'une base existante échoue sans force → suppression ANNULÉE,
+    aucune donnée n'est supprimée (bases + registre préservés).
+    """
     if code.upper() in PROTECTED_DWH_CODES:
         raise HTTPException(status_code=403, detail=f"La base '{code}' est protégée et ne peut pas être supprimée")
     try:
+        backup_results = []
         drop_results = []
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        # Lire les infos de connexion AVANT toute suppression
+        rows = execute_query("""
+            SELECT serveur_dwh, base_dwh, user_dwh, password_dwh,
+                   serveur_optiboard, base_optiboard, user_optiboard, password_optiboard
+            FROM APP_DWH WHERE code = ?
+        """, (code,), use_cache=False)
+
+        targets = []
+        if rows:
+            r = rows[0]
+            dwh_srv  = r.get("serveur_dwh") or ''
+            dwh_base = r.get("base_dwh") or f"DWH_{code}"
+            dwh_user = r.get("user_dwh") or ''
+            dwh_pwd  = r.get("password_dwh") or ''
+            ob_srv   = r.get("serveur_optiboard") or dwh_srv
+            ob_base  = r.get("base_optiboard") or f"OptiBoard_{code}"
+            ob_user  = r.get("user_optiboard") or dwh_user
+            ob_pwd   = r.get("password_optiboard") or dwh_pwd
+            targets = [
+                (dwh_srv, dwh_base, dwh_user, dwh_pwd),
+                (ob_srv,  ob_base,  ob_user,  ob_pwd),
+            ]
+
+        if drop_databases and targets:
+            # 1 — Sauvegarde .bak de chaque base AVANT le DROP (filet de sécurité)
+            if backup:
+                for (srv, base, usr, pwd) in targets:
+                    backup_results.append(_backup_db(srv, base, usr, pwd, stamp))
+                # Une base EXISTANTE dont la sauvegarde échoue bloque la suppression (sauf force)
+                failed = [
+                    b for b in backup_results
+                    if not b.get("backed_up") and b.get("reason") not in ("n'existe pas", "infos manquantes")
+                ]
+                if failed and not force:
+                    details = "; ".join(f"{b['db']}: {b.get('error', 'échec')}" for b in failed)
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(f"Sauvegarde SQL échouée — suppression annulée, aucune donnée supprimée. {details}. "
+                                f"Corrigez l'accès au dossier de sauvegarde du serveur SQL puis réessayez "
+                                f"(ou force=true pour supprimer sans sauvegarde)."),
+                    )
+            # 2 — DROP des bases (après sauvegarde réussie)
+            for (srv, base, usr, pwd) in targets:
+                drop_results.append(_drop_db(srv, base, usr, pwd))
+
+        # 3 — Suppression du registre central + cascade (transaction courte)
         with get_db_cursor() as cursor:
-            # Lire les infos de connexion AVANT suppression
-            cursor.execute("""
-                SELECT serveur_dwh, base_dwh, user_dwh, password_dwh,
-                       serveur_optiboard, base_optiboard, user_optiboard, password_optiboard
-                FROM APP_DWH WHERE code = ?
-            """, (code,))
-            row = cursor.fetchone()
-            if row:
-                dwh_srv  = row[0] or ''
-                dwh_base = row[1] or f"DWH_{code}"
-                dwh_user = row[2] or ''
-                dwh_pwd  = row[3] or ''
-                ob_srv   = row[4] or dwh_srv
-                ob_base  = row[5] or f"OptiBoard_{code}"
-                ob_user  = row[6] or dwh_user
-                ob_pwd   = row[7] or dwh_pwd
-
-                # DROP automatique des deux bases
-                drop_results.append(_drop_db(dwh_srv, dwh_base, dwh_user, dwh_pwd))
-                drop_results.append(_drop_db(ob_srv,  ob_base,  ob_user,  ob_pwd))
-
-            # Cascade sur les tables liées
             for tbl in ["APP_ETL_Agents_Monitoring", "APP_DWH_Sources", "APP_ETL_Agent_Tables", "APP_ClientDB"]:
                 try:
                     cursor.execute(f"DELETE FROM {tbl} WHERE dwh_code = ?", (code,))
                 except Exception:
                     pass
-
             cursor.execute("DELETE FROM APP_DWH WHERE code=?", (code,))
 
-        dropped = [r["db"] for r in drop_results if r.get("dropped")]
-        skipped = [r["db"] for r in drop_results if not r.get("dropped")]
+        saved   = [b["db"] for b in backup_results if b.get("backed_up")]
+        dropped = [d["db"] for d in drop_results if d.get("dropped")]
+        skipped = [d["db"] for d in drop_results if not d.get("dropped")]
         msg = f"DWH '{code}' supprimé"
+        if saved:   msg += f" | Sauvegardes créées: {', '.join(saved)}"
         if dropped: msg += f" | Bases supprimées: {', '.join(dropped)}"
         if skipped: msg += f" | Non supprimées: {', '.join(skipped)}"
 
-        return {"success": True, "message": msg, "drop_results": drop_results}
+        return {"success": True, "message": msg, "backup_results": backup_results, "drop_results": drop_results}
     except HTTPException:
         raise
     except Exception as e:

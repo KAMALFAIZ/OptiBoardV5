@@ -83,6 +83,13 @@ class ProvisionRequest(BaseModel):
     overwrite: bool = False
 
 
+class DeprovisionRequest(BaseModel):
+    """Payload de déprovision d'une instance client, émis par la console."""
+    code: str
+    backup: bool = True     # sauvegarde .bak SQL Server AVANT le DROP (filet de sécurité)
+    force: bool = False     # DROP même si la sauvegarde échoue (DANGEREUX — perte définitive)
+
+
 def _normalize_code(raw: str) -> str:
     """Normalise puis valide le code DWH (fail-closed sur tout caractère non sûr)."""
     code = (raw or "").strip().upper().replace(" ", "_")
@@ -242,6 +249,70 @@ async def provision_instance(
             if sage_on else None
         ),
         "warnings": result["warnings"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/deprovision-instance")
+async def deprovision_instance(
+    req: DeprovisionRequest,
+    x_console_token: Optional[str] = Header(None, alias="X-Console-Token"),
+):
+    """
+    Déprovisionne une instance client OptiBoard depuis la console KASOFT.
+
+    Symétrique de /provision-instance. Enchaîne (via la logique canonique de
+    dwh_admin.dwh_admin_delete) :
+      1. sauvegarde .bak vérifiée de chaque base SQL Server (sauf backup=false) ;
+      2. DROP des bases (DWH_ + OptiBoard_) ;
+      3. retrait de l'instance du registre APP_DWH + tables liées.
+
+    Idempotent : si le code est déjà absent, renvoie success/already_absent=true
+    (la console peut re-tenter sans erreur).
+
+    Sécurité : la sauvegarde est créée AVANT tout DROP. Si elle échoue et force=false,
+    la suppression est ANNULÉE côté OptiBoard (aucune donnée perdue) et l'appel renvoie
+    500 — la console doit alors bloquer le retrait de sa fiche. Le code 'KA'
+    (Kasoft-Démo) reste protégé (403).
+    """
+    _check_token(x_console_token)
+    code = _normalize_code(req.code)
+
+    if not _dwh_exists(code):
+        return {
+            "success": True,
+            "code": code,
+            "already_absent": True,
+            "message": f"Instance '{code}' déjà absente d'OptiBoard — rien à supprimer.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    # Réutilise la logique canonique de suppression (sauvegarde → DROP → registre).
+    from .dwh_admin import dwh_admin_delete
+
+    try:
+        result = await asyncio.to_thread(
+            dwh_admin_delete, code, True, req.backup, req.force
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"deprovision_instance({code}): {e}")
+        raise HTTPException(status_code=500, detail=f"Échec de la déprovision: {e}")
+
+    backup_results = result.get("backup_results") or []
+    drop_results = result.get("drop_results") or []
+    logger.info(
+        f"[CONSOLE-DEPROVISION] Instance '{code}' déprovisionnée "
+        f"(sauvegardes={sum(1 for b in backup_results if b.get('backed_up'))}, "
+        f"bases droppées={sum(1 for d in drop_results if d.get('dropped'))})"
+    )
+    return {
+        "success": True,
+        "code": code,
+        "message": result.get("message"),
+        "backup_results": backup_results,
+        "drop_results": drop_results,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
