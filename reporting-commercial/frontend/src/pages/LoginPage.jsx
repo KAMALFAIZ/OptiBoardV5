@@ -342,6 +342,9 @@ export default function LoginPage({ onLogin, appName }) {
     try {
       const credentials = { username, password }
       if (clientCode) credentials.dwh_code = clientCode
+      // Signaler au backend que la connexion vient d'un viewport mobile
+      // → gate mobile_access (403 si le compte n'a pas l'accès mobile).
+      if (typeof window !== 'undefined' && window.innerWidth < 768) credentials.client_type = 'mobile'
 
       const response = await login(credentials)
       if (response.data.success) {

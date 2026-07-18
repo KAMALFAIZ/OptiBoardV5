@@ -12,6 +12,7 @@ import { ToastProvider } from './components/common/Toast'
 import ApiErrorBridge from './components/common/ApiErrorBridge'
 import Layout from './components/common/Layout'
 import MobileLayout from './components/mobile/MobileLayout'
+import MobileAccessDenied from './components/mobile/MobileAccessDenied'
 import { useIsMobile } from './hooks/useIsMobile'
 import LicenseBanner from './components/common/LicenseBanner'
 import api from './services/api'
@@ -195,8 +196,14 @@ function AppContent() {
     return <LoginPage onLogin={login} appName={setupStatus.appName} />
   }
 
-  // Version mobile : layout simplifié avec seulement les pages autorisées
+  // Version mobile : layout simplifié avec seulement les pages autorisées.
+  // Gate mobile_access : un compte explicitement privé d'accès mobile (=== false)
+  // voit un écran de refus au lieu du layout mobile. Les sessions antérieures à
+  // l'ajout du flag (mobile_access undefined) restent autorisées (fail-open).
   if (isMobile) {
+    if (user && user.mobile_access === false) {
+      return <MobileAccessDenied />
+    }
     return <MobileLayout appName={setupStatus.appName} />
   }
 
