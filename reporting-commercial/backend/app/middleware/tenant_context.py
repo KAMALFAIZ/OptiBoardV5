@@ -48,10 +48,11 @@ EXEMPT_PREFIXES = (
 SESSION_OPTIONAL_PREFIXES = (
     # Étapes du login antérieures à l'obtention de la session
     "/api/auth/client-info",
-    "/api/auth/dwh-list",
-    "/api/auth/societes-list",
     "/api/auth/set-first-password",
     "/api/auth/2fa",
+    # NOTE : /api/auth/dwh-list et /api/auth/societes-list ne sont PLUS ici — ils
+    # exigent désormais une session VALIDE (l'autorisation est dérivée de la session,
+    # plus du header X-User-Id falsifiable). Isolation multi-tenant.
     # Agent ETL C# (auth par X-Api-Key, verify_agent)
     "/api/agents/",
     # Puller de catalogue (tire depuis le maître configuré par l'admin)

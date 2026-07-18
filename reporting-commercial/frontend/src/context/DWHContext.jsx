@@ -36,7 +36,7 @@ export const DWHProvider = ({ children }) => {
   const loadDWHList = useCallback(async (userId) => {
     try {
       const response = await axios.get('/api/auth/dwh-list', {
-        headers: { 'X-User-Id': userId }
+        headers: { 'X-User-Id': userId, ...sessionHeaders() }
       });
       setDwhList(response.data || []);
       return response.data || [];
@@ -58,7 +58,8 @@ export const DWHProvider = ({ children }) => {
       const response = await axios.get('/api/auth/societes-list', {
         headers: {
           'X-User-Id': userId,
-          'X-DWH-Code': dwhCode
+          'X-DWH-Code': dwhCode,
+          ...sessionHeaders()
         }
       });
       const societes = response.data || [];

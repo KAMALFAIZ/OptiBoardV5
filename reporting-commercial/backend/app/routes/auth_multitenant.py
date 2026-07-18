@@ -95,6 +95,7 @@ class LoginRequest(BaseModel):
     password: str
     dwh_code: Optional[str] = None
     hostname: Optional[str] = None   # Nom du poste client (optionnel, envoyé par l'app desktop/mobile)
+    client_type: Optional[str] = None  # 'mobile' | 'desktop' | None — signalé par le client (gate mobile_access)
 
 
 class LoginResponse(BaseModel):
@@ -140,12 +141,14 @@ _APP_USERS_MIGRATION_SQL = [
     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='onboarding_done') ALTER TABLE APP_Users ADD onboarding_done BIT NOT NULL DEFAULT 0",
     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_secret') ALTER TABLE APP_Users ADD totp_secret VARCHAR(200) NULL",
     "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='totp_enabled') ALTER TABLE APP_Users ADD totp_enabled BIT NOT NULL DEFAULT 0",
+    "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID('APP_Users') AND name='mobile_access') ALTER TABLE APP_Users ADD mobile_access BIT NOT NULL DEFAULT 1",
 ]
 
 _APP_USERS_SELECT = (
     "SELECT id, username, password_hash, nom, prenom, email, role_dwh, actif, "
     "ISNULL(must_change_password,0) AS must_change_password, "
     "ISNULL(onboarding_done,0) AS onboarding_done, "
+    "ISNULL(mobile_access,1) AS mobile_access, "
     "totp_secret, ISNULL(totp_enabled,0) AS totp_enabled "
     "FROM APP_Users WHERE username = ?"
 )
@@ -322,6 +325,14 @@ def login(request: LoginRequest, http_request: Request):
             )
             restrictions = _get_user_restrictions(request.dwh_code, client_user["id"])
             _check_access_restrictions(restrictions, request.hostname, client_ip)
+            # ── Accès mobile : bloquer si le compte n'y est pas autorisé ──────────
+            # Le client web/mobile signale son type via client_type='mobile'. La colonne
+            # mobile_access (défaut 1) est administrée dans ClientUserManagement.
+            if (request.client_type or "").lower() == "mobile" and not client_user.get("mobile_access", 1):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Accès mobile désactivé pour ce compte. Contactez votre administrateur.",
+                )
             user = client_user
             from_client_db = True
             _update_last_login_client(request.dwh_code, user["id"])
@@ -432,6 +443,7 @@ def login(request: LoginRequest, http_request: Request):
                 "role_global": user.get("role_global") or user.get("role_dwh", "user"),
                 "from_client_db": from_client_db,
                 "onboarding_done": bool(user.get("onboarding_done", True) if not from_client_db else user.get("onboarding_done", False)),
+                "mobile_access": bool(user.get("mobile_access", 1)),
             },
             "context": {
                 "current_dwh": effective_dwh if from_client_db and request.dwh_code else ({"code": context.current_dwh_code, "nom": context.current_dwh_nom} if context.current_dwh_code else None),
@@ -473,6 +485,7 @@ def login(request: LoginRequest, http_request: Request):
             "role_global": user.get("role_global") or user.get("role_dwh", "user"),
             "from_client_db": from_client_db,
             "onboarding_done": bool(user.get("onboarding_done", True) if not from_client_db else user.get("onboarding_done", False)),
+            "mobile_access": bool(user.get("mobile_access", 1)),
         },
         context={
             "current_dwh": effective_dwh,
@@ -622,40 +635,51 @@ def get_client_info(code: str):
 @router.post("/switch-dwh")
 def switch_dwh(
     request: SwitchDWHRequest,
-    user_id: int = Header(..., alias="X-User-Id"),
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
-    """Change le DWH actif. Vérifie les droits d'accès."""
-    # Vérifier l'accès (base centrale ou rôle admin)
+    """Change le DWH actif. L'autorité vient de la SESSION validée (jamais du
+    header X-User-Id, falsifiable et dont l'id d'une base CLIENT entrerait en
+    collision avec un id de la base CENTRALE). Une session liée à un tenant est
+    verrouillée sur son propre DWH ; seule une session centrale bascule."""
+    session = validate_session(x_session_token) if x_session_token else None
+    if not session:
+        raise HTTPException(status_code=401, detail="Session requise — reconnectez-vous")
+    session_user_id = session.get("user_id")
+    session_dwh_code = session.get("dwh_code")
+
+    # ── Session liée à un tenant : id de base CLIENT, verrouillé sur son DWH ──
+    if session_dwh_code:
+        if request.dwh_code != session_dwh_code:
+            raise HTTPException(status_code=403, detail="Accès à ce client non autorisé")
+        client_user = execute_client(
+            "SELECT role_dwh FROM APP_Users WHERE id = ?",
+            (session_user_id,), dwh_code=session_dwh_code, use_cache=False,
+        )
+        dwh_row = execute_central("SELECT nom FROM APP_DWH WHERE code = ?", (session_dwh_code,), use_cache=False)
+        return {
+            "success": True,
+            "current_dwh": {"code": session_dwh_code, "nom": dwh_row[0]["nom"] if dwh_row else session_dwh_code},
+            "role_dwh": (client_user[0].get("role_dwh") if client_user else "user"),
+            "societes_accessibles": [],
+        }
+
+    # ── Session centrale : id CENTRAL fiable → checks APP_UserDWH / superadmin ──
     access = execute_central(
         """SELECT ud.dwh_code, ud.role_dwh, d.nom
            FROM APP_UserDWH ud
            INNER JOIN APP_DWH d ON ud.dwh_code = d.code
            WHERE ud.user_id = ? AND ud.dwh_code = ? AND d.actif = 1""",
-        (user_id, request.dwh_code),
+        (session_user_id, request.dwh_code),
         use_cache=False,
     )
     if not access:
-        user = execute_central("SELECT role_global FROM APP_Users WHERE id = ?", (user_id,), use_cache=False)
+        user = execute_central("SELECT role_global FROM APP_Users WHERE id = ?", (session_user_id,), use_cache=False)
         if not user or user[0].get("role_global") != "superadmin":
-            # Vérifier dans la base client (Règle 2 : admin_client)
-            try:
-                from ..database_unified import execute_client
-                client_user = execute_client(
-                    "SELECT role_dwh FROM APP_Users WHERE id = ?",
-                    (user_id,),
-                    dwh_code=request.dwh_code,
-                    use_cache=False,
-                )
-                if not client_user or client_user[0].get("role_dwh") not in ("admin_client",):
-                    raise HTTPException(status_code=403, detail="Accès non autorisé à ce DWH")
-            except HTTPException:
-                raise
-            except Exception:
-                raise HTTPException(status_code=403, detail="Accès non autorisé à ce DWH")
+            raise HTTPException(status_code=403, detail="Accès non autorisé à ce DWH")
 
     user_data = execute_central(
         "SELECT id, username, nom, prenom, email, role_global FROM APP_Users WHERE id = ?",
-        (user_id,), use_cache=False,
+        (session_user_id,), use_cache=False,
     )
     if not user_data:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -704,13 +728,55 @@ def switch_societe(
 
 @router.get("/context")
 def get_user_context(
-    user_id: int = Header(..., alias="X-User-Id"),
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
     dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
 ):
-    """Récupère le contexte complet de l'utilisateur."""
+    """Contexte complet — dérivé de la SESSION validée (jamais du header X-User-Id,
+    falsifiable et sujet à la collision d'id base CLIENT/CENTRALE qui promouvait à tort
+    un admin tenant en superadmin). Une session liée à un tenant est résolue dans SA
+    base client et ne voit que son propre DWH."""
+    session = validate_session(x_session_token) if x_session_token else None
+    if not session:
+        raise HTTPException(status_code=401, detail="Session requise — reconnectez-vous")
+    session_user_id = session.get("user_id")
+    session_dwh_code = session.get("dwh_code")
+
+    # ── Session tenant : identité + droits lus dans la base CLIENT ──
+    if session_dwh_code:
+        rows = execute_client(
+            "SELECT id, username, nom, prenom, email, role_dwh FROM APP_Users WHERE id = ?",
+            (session_user_id,), dwh_code=session_dwh_code, use_cache=False,
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        u = rows[0]
+        role_dwh = u.get("role_dwh") or "user"
+        try:
+            pages = execute_client(
+                "SELECT page_code FROM APP_UserPages WHERE user_id = ?",
+                (session_user_id,), dwh_code=session_dwh_code, use_cache=False,
+            )
+            pages_list = [p["page_code"] for p in pages]
+        except Exception:
+            pages_list = []
+        dwh_row = execute_central("SELECT nom FROM APP_DWH WHERE code = ?", (session_dwh_code,), use_cache=False)
+        nom_dwh = dwh_row[0]["nom"] if dwh_row else session_dwh_code
+        return {
+            "user": {"id": u["id"], "username": u["username"], "nom": u.get("nom") or "",
+                     "prenom": u.get("prenom") or "", "email": u.get("email") or "",
+                     "role_global": role_dwh},
+            "current_dwh": {"code": session_dwh_code, "nom": nom_dwh},
+            "role_dwh": role_dwh,
+            "dwh_accessibles": [{"code": session_dwh_code, "nom": nom_dwh, "is_default": 1}],
+            "societes_accessibles": [],
+            "pages_accessibles": pages_list,
+            "is_admin": role_dwh in ("admin_client", "admin"),
+        }
+
+    # ── Session centrale : id CENTRAL fiable ──
     user_data = execute_central(
         "SELECT id, username, nom, prenom, email, role_global FROM APP_Users WHERE id = ?",
-        (user_id,), use_cache=False,
+        (session_user_id,), use_cache=False,
     )
     if not user_data:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -728,32 +794,71 @@ def get_user_context(
 
 
 @router.get("/dwh-list")
-def get_dwh_list(user_id: int = Header(..., alias="X-User-Id")):
-    """Liste les DWH accessibles par l'utilisateur."""
-    user = execute_central("SELECT role_global FROM APP_Users WHERE id = ?", (user_id,), use_cache=False)
+def get_dwh_list(x_session_token: Optional[str] = Header(None, alias="X-Session-Token")):
+    """Liste les DWH accessibles — dérivée de la SESSION validée, jamais du header
+    X-User-Id (falsifiable ; de plus l'id d'une base CLIENT entre en collision avec
+    un id de la base CENTRALE, ce qui promouvait à tort un admin tenant en superadmin
+    et exposait TOUS les tenants). Une session liée à un tenant ne voit QUE son propre
+    DWH ; seule une session centrale (superadmin / user multi-DWH) peut en énumérer."""
+    session = validate_session(x_session_token) if x_session_token else None
+    if not session:
+        raise HTTPException(status_code=401, detail="Session requise — reconnectez-vous")
+    session_user_id = session.get("user_id")
+    session_dwh_code = session.get("dwh_code")
+
+    # Session tenant : l'id n'a de sens que dans SA base client → un seul DWH.
+    if session_dwh_code:
+        return execute_central(
+            "SELECT code, nom, raison_sociale, logo_url, 1 AS is_default "
+            "FROM APP_DWH WHERE code = ? AND actif = 1",
+            (session_dwh_code,), use_cache=False,
+        )
+
+    # Session centrale : id central fiable.
+    user = execute_central("SELECT role_global FROM APP_Users WHERE id = ?", (session_user_id,), use_cache=False)
     if user and user[0].get("role_global") == "superadmin":
         return execute_central("SELECT code, nom, raison_sociale, logo_url, 0 AS is_default FROM APP_DWH WHERE actif=1 ORDER BY nom", use_cache=False)
-    return get_user_dwh_list(user_id)
+    return get_user_dwh_list(session_user_id)
 
 
 @router.get("/societes-list")
 def get_societes_list(
-    user_id: int = Header(..., alias="X-User-Id"),
     dwh_code: str = Header(..., alias="X-DWH-Code"),
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
-    """Liste les sociétés accessibles dans le DWH actif."""
+    """Liste les sociétés du DWH actif — autorité = SESSION validée. Une session
+    tenant est figée sur son DWH (un X-DWH-Code divergent est refusé)."""
+    session = validate_session(x_session_token) if x_session_token else None
+    if not session:
+        raise HTTPException(status_code=401, detail="Session requise — reconnectez-vous")
+    session_user_id = session.get("user_id")
+    session_dwh_code = session.get("dwh_code")
+
+    # ── Session tenant : verrouillée sur son DWH, rôle lu en base CLIENT ──
+    if session_dwh_code:
+        if dwh_code != session_dwh_code:
+            raise HTTPException(status_code=403, detail="Accès à ce client non autorisé")
+        client_user = execute_client(
+            "SELECT role_dwh FROM APP_Users WHERE id = ?",
+            (session_user_id,), dwh_code=session_dwh_code, use_cache=False,
+        )
+        role_dwh = client_user[0].get("role_dwh") if client_user else "user"
+        if role_dwh == "admin_client":
+            return get_all_dwh_societes(dwh_code)
+        return get_user_societes(session_user_id, dwh_code)
+
+    # ── Session centrale : id central fiable ──
     user = execute_central(
         "SELECT u.role_global, ud.role_dwh FROM APP_Users u LEFT JOIN APP_UserDWH ud ON u.id=ud.user_id AND ud.dwh_code=? WHERE u.id=?",
-        (dwh_code, user_id), use_cache=False,
+        (dwh_code, session_user_id), use_cache=False,
     )
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-
     is_admin = (
         user[0].get("role_global") == "superadmin"
         or user[0].get("role_dwh") == "admin_client"
     )
-    return get_all_dwh_societes(dwh_code) if is_admin else get_user_societes(user_id, dwh_code)
+    return get_all_dwh_societes(dwh_code) if is_admin else get_user_societes(session_user_id, dwh_code)
 
 
 # =============================================================================
