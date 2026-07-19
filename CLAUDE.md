@@ -278,6 +278,22 @@ Routeurs protégés dans `run.py` via `dependencies=[Depends(...)]` :
   dernier contact serveur réussi. Plus de reconduction infinie : `first_grace_timestamp`
   persisté dans `.license_cache`, au-delà du plafond → `expired`.
 
+### Agent ETL — découverte via clé agent (plancher d'auth)
+Le plancher d'auth (session obligatoire sur `/api/*` hors exemptions) bloquait l'appel
+de découverte de l'agent `GET /api/admin/etl/agents` (envoyé sans session) → **401**,
+donc l'agent ne pouvait pas charger son profil et ne synchronisait rien (GUI mode).
+**Correctif sécurisé** (sans affaiblir l'isolation) :
+- Backend : nouvel endpoint `GET /api/agents/for-dwh` (sous le préfixe exempt
+  `/api/agents/`, `SESSION_OPTIONAL`), authentifié par `verify_agent`
+  (`X-Agent-ID`+`X-API-Key`+`X-DWH-Code`) ; délègue à `list_agents` en mode client.
+  N'ouvre aucun accès non authentifié, ne remplace pas l'endpoint console
+  `/api/admin/etl/agents` (session superadmin).
+- Agent : `ServiceConfig.AgentId`/`ApiKey` (section `SageEtl` d'`appsettings.json`) ;
+  `ApiClient.GetAgentsAsync` utilise l'endpoint sécurisé si les identifiants sont
+  présents (repli legacy sinon), puis injecte la clé dans le profil (le serveur ne
+  renvoie jamais la clé en clair). Déploiement : rebuild agent + renseigner
+  `AgentId`/`ApiKey` dans l'`appsettings.json` de la machine agent + redéployer le backend.
+
 ### Secrets
 Aucun secret en dur dans le code/scripts versionnés. Clé AES agent ETL :
 `OPTIBOARD_ETL_AES_KEY` (repli legacy pour compat agents déjà déployés).
@@ -587,6 +603,38 @@ cursor.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_N
 ```
 
 ---
+
+## Informations libres Sage (champs paramétrables) — exploitation en rapports
+
+Sage laisse chaque client définir ses propres champs additionnels (« informations
+libres ») sur articles, tiers et documents. Schéma **variable par instance** → modèle
+**EAV**. Doc complète : `docs/INFORMATIONS_LIBRES_SAGE.md`.
+
+**Synchronisation (agent ETL, code déjà présent)** — 3 lignes dans la config centrale
+`OptiBoard_SaaS.dbo.ETL_Tables_Config` (partagée par tous les tenants) :
+- `Info_Libres` — catalogue (`SELECT [CB_File],[CB_Name] FROM [cbSysLibre]`).
+- `Info_Libres_Valeurs` — valeurs EAV via l'extracteur spécial `__INFO_LIBRES_VALUES__`
+  (`SageExtractor.ExtractInfoLibresValuesAsync`, UNPIVOT dynamique, `entity_key = cbMarq`).
+- `Info_Libres_Cle_Tiers` — **additif** : correspondance `CT_Num ↔ cbMarq` de `F_COMPTET`,
+  pour rattacher les infos libres tiers aux tables `Clients`/`Fournisseurs`.
+
+**Clés de jointure** (entity_key = cbMarq de la table parente) : `Articles.[Code interne]`
+et `Entête_des_ventes.[N° interne]` portent la clé ; tiers via `Info_Libres_Cle_Tiers` ;
+achats/lignes **non couverts** (pas de cbMarq exposé) → visibles seulement en EAV brut.
+
+**Exploitation (datasources centraux, catégorie « Informations libres »)** — format long
+(1 ligne/champ), consommable par Pivot/GridView : `DS_INFO_LIBRES_CATALOGUE`, `_BRUT`,
+`_ARTICLES`, `_VENTES`, `_CLIENTS`, `_FOURNISSEURS`.
+
+**Activation / migration (2 scripts idempotents, à lancer par base centrale)** :
+```bash
+python scripts/seed_info_libres_etl_config.py   # active la synchro (ETL_Tables_Config)
+python scripts/create_info_libres_ds.py         # publie les 6 datasources
+```
+La table `Info_Libres_Cle_Tiers` (comme `Info_Libres_Valeurs`) est **auto-créée par l'agent**
+au 1er sync (colonnes source + `DB_Id` + `societe`). Tant que l'agent n'a pas tourné, seul
+`DS_INFO_LIBRES_CATALOGUE` renvoie des données. Seeds nouvelles installs : `insert_sync_query_data.sql`,
+`sql_jobs/03_insert_etl_config_data.sql`, `etl/config/sync_tables.yaml` (+ copies `installer/payload/`).
 
 ## Fichiers clés
 

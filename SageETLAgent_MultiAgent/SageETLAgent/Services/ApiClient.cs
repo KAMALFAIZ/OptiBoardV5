@@ -60,8 +60,36 @@ namespace SageETLAgent.Services
         /// <summary>
         /// Charge la liste des agents depuis le serveur
         /// </summary>
-        public async Task<List<AgentProfile>> GetAgentsAsync()
+        public async Task<List<AgentProfile>> GetAgentsAsync(string? agentId = null, string? apiKey = null)
         {
+            // ── Voie securisee : si l'agent dispose de ses identifiants (AgentId + ApiKey),
+            // utiliser /api/agents/for-dwh (auth par cle agent, sous le prefixe exempt
+            // /api/agents/). Contourne le plancher d'auth par session sans l'affaiblir.
+            if (!string.IsNullOrWhiteSpace(agentId) && !string.IsNullOrWhiteSpace(apiKey))
+            {
+                var secureReq = CreateAuthenticatedRequest(HttpMethod.Get, "/api/agents/for-dwh", agentId!, apiKey!);
+                var secureResp = await _httpClient.SendAsync(secureReq);
+
+                // Repli sur l'ancien endpoint si le backend ne connait pas encore la route.
+                if (secureResp.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    secureResp.EnsureSuccessStatusCode();
+                    var secureContent = await secureResp.Content.ReadAsStringAsync();
+                    var secureResult = JsonConvert.DeserializeObject<ApiResponse<List<AgentProfile>>>(secureContent);
+                    var agents = secureResult?.Data ?? new List<AgentProfile>();
+                    // Le serveur ne renvoie jamais la cle en clair : l'injecter dans le
+                    // profil de cet agent pour authentifier les appels suivants (/tables...).
+                    foreach (var a in agents)
+                    {
+                        if (string.IsNullOrWhiteSpace(a.ApiKey) &&
+                            (string.IsNullOrWhiteSpace(a.AgentId) || a.AgentId == agentId))
+                            a.ApiKey = apiKey!;
+                    }
+                    return agents;
+                }
+            }
+
+            // ── Voie historique (backend sans plancher, ou identifiants non fournis) ──
             var request = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/api/admin/etl/agents");
             if (!string.IsNullOrWhiteSpace(_dwhCode))
                 request.Headers.Add("X-DWH-Code", _dwhCode);

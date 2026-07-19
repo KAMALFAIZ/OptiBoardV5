@@ -185,7 +185,7 @@ namespace SageETLAgent.Services
 
                 _logger.Info(LogCategory.COMMUNICATION, "Connexion serveur OK");
 
-                var allAgents = await apiClient.GetAgentsAsync();
+                var allAgents = await apiClient.GetAgentsAsync(config.AgentId, config.ApiKey);
                 _logger.Info(LogCategory.COMMUNICATION,
                     $"API retourne {allAgents.Count} agent(s)");
 
@@ -250,6 +250,22 @@ namespace SageETLAgent.Services
         /// </summary>
         [JsonProperty("DwhCode")]
         public string? DwhCode { get; set; }
+
+        /// <summary>
+        /// Identifiant de l'agent (X-Agent-ID). Provisionne cote serveur, place ici
+        /// pour authentifier l'appel de decouverte /api/agents/for-dwh (auth par cle
+        /// agent, contourne le plancher de session sans l'affaiblir).
+        /// </summary>
+        [JsonProperty("AgentId")]
+        public string? AgentId { get; set; }
+
+        /// <summary>
+        /// Cle API de l'agent (X-API-Key). Provisionnee cote serveur. Utilisee pour
+        /// l'appel de decouverte securise et injectee dans le profil de cet agent
+        /// (le serveur ne renvoie jamais la cle en clair).
+        /// </summary>
+        [JsonProperty("ApiKey")]
+        public string? ApiKey { get; set; }
 
         /// <summary>
         /// Filtre agents (CSV: AgentId, DwhCode ou Name).
