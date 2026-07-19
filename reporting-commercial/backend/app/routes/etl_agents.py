@@ -799,6 +799,31 @@ def list_agents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/agents/for-dwh")
+def agent_list_for_dwh(
+    x_dwh_code: str = Header(..., alias="X-DWH-Code"),
+    x_agent_id: str = Header(..., alias="X-Agent-ID"),
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    status: Optional[str] = Query(None, description="Filtrer par statut"),
+):
+    """
+    Liste des agents d'un DWH, destinee a l'agent ETL lui-meme.
+
+    Route sous le prefixe /api/agents/ (SESSION_OPTIONAL) : contourne le plancher
+    d'auth par session MAIS exige une cle agent valide (verify_agent par
+    X-Agent-ID + X-API-Key + X-DWH-Code). Consequence securite :
+    - NE remplace PAS l'endpoint console /api/admin/etl/agents (session superadmin) ;
+    - NE reouvre PAS d'acces non authentifie : un appelant sans cle agent valide
+      pour ce DWH recoit 401. L'isolation multi-tenant est preservee (la cle prouve
+      l'appartenance au DWH demande).
+    Retourne exactement la meme charge utile que list_agents en mode client.
+    """
+    if not (x_agent_id and x_api_key and verify_agent(x_agent_id, x_api_key, x_dwh_code)):
+        raise HTTPException(status_code=401, detail="Agent non autorise")
+    # Reutilise la logique mode-client existante (x_dwh_code present => branche client)
+    return list_agents(x_dwh_code=x_dwh_code, status=status)
+
+
 def _map_statut(statut: Optional[str], is_active) -> str:
     """Convertit le statut SQL vers le format frontend."""
     if is_active == 0:

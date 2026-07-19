@@ -335,3 +335,17 @@ tables:
   enabled: true
   sort_order: 3
   batch_size: 50000
+# Correspondance cle tiers infos libres : CT_Num <-> cbMarq de F_COMPTET (ADDITIF)
+# Rattache les infos libres des tiers (F_COMPTET) aux tables Clients/Fournisseurs.
+- name: Correspondance clé tiers
+  source:
+    query: "SELECT CT_Num AS [Code tiers], CAST(cbMarq AS NVARCHAR(50)) AS [Clé Sage], CASE CT_Type WHEN 0 THEN 'Client' WHEN 1 THEN 'Fournisseur' ELSE 'Autre' END AS [Type tiers] FROM F_COMPTET"
+  target:
+    table: Info_Libres_Cle_Tiers
+    primary_key:
+    - Code tiers
+  sync_type: full
+  priority: normal
+  enabled: true
+  sort_order: 4
+  batch_size: 50000

@@ -91,3 +91,6 @@ npm-debug.log*
 # SQL Server data (never commit DB data)
 sqlserver/data/
 sqlserver/*.bak
+
+# Configs agent contenant des secrets (clé API en clair) — ne jamais committer
+agent_config_*.json

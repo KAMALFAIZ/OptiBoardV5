@@ -1535,7 +1535,7 @@ namespace SageETLAgent.Forms
                 lblStatus.Text = "Chargement...";
 
                 using var client = new ApiClient(_serverUrl, _dwhCode);
-                _agents = await client.GetAgentsAsync();
+                _agents = await client.GetAgentsAsync(_perfConfig?.AgentId, _perfConfig?.ApiKey);
 
                 dgvAgents.DataSource = null;
                 dgvAgents.DataSource = _agents;
