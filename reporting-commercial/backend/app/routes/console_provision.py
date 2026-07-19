@@ -317,6 +317,65 @@ async def deprovision_instance(
     }
 
 
+class BackupRequest(BaseModel):
+    """Payload de sauvegarde à la demande d'une instance client, émis par la console."""
+    code: str
+
+
+@router.post("/backup-instance")
+async def backup_instance(
+    req: BackupRequest,
+    x_console_token: Optional[str] = Header(None, alias="X-Console-Token"),
+):
+    """
+    Sauvegarde .bak des bases SQL Server d'une instance client (DWH_ + OptiBoard_),
+    SANS aucune suppression. Appelé par le bouton « Sauvegarder » de la console
+    (et « Tout sauvegarder ») pour les clients produit=optiboard.
+
+    Réutilise la logique canonique dwh_admin.dwh_admin_backup (BACKUP DATABASE vérifié
+    par RESTORE VERIFYONLY, dossier serveur OptiBoard\\manual).
+    """
+    _check_token(x_console_token)
+    code = _normalize_code(req.code)
+
+    if not _dwh_exists(code):
+        return {
+            "success": True,
+            "code": code,
+            "already_absent": True,
+            "message": f"Instance '{code}' absente d'OptiBoard — rien à sauvegarder.",
+            "backup_results": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    from .dwh_admin import dwh_admin_backup
+
+    try:
+        result = await asyncio.to_thread(dwh_admin_backup, code)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"backup_instance({code}): {e}")
+        raise HTTPException(status_code=500, detail=f"Échec de la sauvegarde: {e}")
+
+    backup_results = result.get("backup_results") or []
+    logger.info(
+        f"[CONSOLE-BACKUP] Instance '{code}' sauvegardée "
+        f"(bases={sum(1 for b in backup_results if b.get('backed_up'))})"
+    )
+    if not result.get("success"):
+        # Sauvegarde d'une base existante échouée → 500 pour que la console signale l'échec.
+        raise HTTPException(status_code=500, detail=result.get("message") or "Sauvegarde SQL échouée.")
+
+    return {
+        "success": True,
+        "code": code,
+        "message": result.get("message"),
+        "backup_results": backup_results,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/instances")
 def list_instances(x_console_token: Optional[str] = Header(None, alias="X-Console-Token")):
     """Liste les instances client provisionnées (réconciliation côté console)."""

@@ -1776,20 +1776,25 @@ def _drop_db(serveur: str, db_name: str, user: str, password: str) -> dict:
         return {"dropped": False, "db": db_name, "error": str(e)}
 
 
-def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str = None) -> dict:
+def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str = None,
+               label: str = "predelete") -> dict:
     """
-    Sauvegarde .bak d'une base SQL Server AVANT suppression (filet de sécurité).
+    Sauvegarde .bak d'une base SQL Server (filet de sécurité).
 
     Comme BACKUP DATABASE écrit sur le disque DU SERVEUR SQL, le .bak est déposé
     dans le dossier de sauvegarde par défaut de l'instance (InstanceDefaultBackupPath),
-    sous-dossier OptiBoard\\deleted, avec repli sur C:\\OptiBoard\\backups\\deleted.
+    sous-dossier OptiBoard\\{sous-dossier}, avec repli sur C:\\OptiBoard\\backups\\{sous-dossier}.
     L'intégrité est vérifiée par RESTORE VERIFYONLY.
+
+    label : "predelete" (avant suppression, sous-dossier « deleted ») ou "manual"
+            (sauvegarde à la demande, sous-dossier « manual »).
 
     Retourne {backed_up, db, path?, reason?/error?}.
     """
     if not db_name or not serveur:
         return {"backed_up": False, "db": db_name, "reason": "infos manquantes"}
     stamp = stamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    subdir = "deleted" if label == "predelete" else "manual"
     try:
         conn_str = _build_conn_str(serveur, "master", user, password)
         conn = pyodbc.connect(conn_str, timeout=15)
@@ -1802,17 +1807,17 @@ def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str 
             conn.close()
             return {"backed_up": False, "db": db_name, "reason": "n'existe pas"}
 
-        # Dossier de sauvegarde côté serveur : dossier par défaut de l'instance + \OptiBoard\deleted
+        # Dossier de sauvegarde côté serveur : dossier par défaut de l'instance + \OptiBoard\{subdir}
         backup_dir = None
         try:
             cur.execute("SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS NVARCHAR(500))")
             r = cur.fetchone()
             if r and r[0]:
-                backup_dir = str(r[0]).rstrip("\\") + "\\OptiBoard\\deleted"
+                backup_dir = str(r[0]).rstrip("\\") + "\\OptiBoard\\" + subdir
         except Exception:
             pass
         if not backup_dir:
-            backup_dir = "C:\\OptiBoard\\backups\\deleted"
+            backup_dir = "C:\\OptiBoard\\backups\\" + subdir
 
         # Créer le dossier côté serveur (best effort, s'exécute sous le compte de service SQL)
         try:
@@ -1820,8 +1825,12 @@ def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str 
         except Exception:
             pass
 
-        bak_path = f"{backup_dir}\\{db_name}_predelete_{stamp}.bak"
-        base_opts = "WITH INIT, CHECKSUM, STATS = 25"
+        bak_path = f"{backup_dir}\\{db_name}_{label}_{stamp}.bak"
+        # PAS de STATS : les messages de progression de BACKUP DATABASE reviennent
+        # comme jeux de résultats supplémentaires et font retourner cur.execute()
+        # AVANT la fin réelle de l'écriture du .bak → le RESTORE VERIFYONLY qui suit
+        # échouait en « Cannot open backup device … error 2 (file not found) ».
+        base_opts = "WITH INIT, CHECKSUM"
         try:
             # COMPRESSION non supportée sur SQL Express : repli automatique
             cur.execute(f"BACKUP DATABASE [{db_name}] TO DISK = N'{bak_path}' {base_opts}, COMPRESSION")
@@ -1830,6 +1839,14 @@ def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str 
                 cur.execute(f"BACKUP DATABASE [{db_name}] TO DISK = N'{bak_path}' {base_opts}")
             else:
                 raise
+
+        # Drainer les éventuels jeux de résultats restants : garantit que BACKUP est
+        # totalement terminé (fichier écrit et fermé) avant la vérification.
+        try:
+            while cur.nextset():
+                pass
+        except Exception:
+            pass
 
         # Vérification de l'intégrité du .bak — un backup non vérifiable est un backup inutile
         try:
@@ -1844,6 +1861,54 @@ def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str 
     except Exception as e:
         logger.warning(f"[BACKUP-PREDELETE] Échec sauvegarde '{db_name}': {e}")
         return {"backed_up": False, "db": db_name, "error": str(e)}
+
+
+def dwh_admin_backup(code: str) -> dict:
+    """
+    Sauvegarde .bak À LA DEMANDE des bases SQL Server d'un client (DWH_ + OptiBoard_),
+    SANS aucune suppression. Réutilise _backup_db (BACKUP DATABASE + RESTORE VERIFYONLY)
+    avec label="manual". Symétrique de la sauvegarde pré-suppression de dwh_admin_delete.
+
+    Retourne {success, message, backup_results}. success=False si au moins une base
+    EXISTANTE n'a pas pu être sauvegardée (une base absente n'est pas un échec).
+    """
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    rows = execute_query("""
+        SELECT serveur_dwh, base_dwh, user_dwh, password_dwh,
+               serveur_optiboard, base_optiboard, user_optiboard, password_optiboard
+        FROM APP_DWH WHERE code = ?
+    """, (code,), use_cache=False)
+    if not rows:
+        return {"success": False, "message": f"DWH '{code}' introuvable", "backup_results": []}
+
+    r = rows[0]
+    dwh_srv  = r.get("serveur_dwh") or ''
+    dwh_base = r.get("base_dwh") or f"DWH_{code}"
+    dwh_user = r.get("user_dwh") or ''
+    dwh_pwd  = r.get("password_dwh") or ''
+    ob_srv   = r.get("serveur_optiboard") or dwh_srv
+    ob_base  = r.get("base_optiboard") or f"OptiBoard_{code}"
+    ob_user  = r.get("user_optiboard") or dwh_user
+    ob_pwd   = r.get("password_optiboard") or dwh_pwd
+    targets = [
+        (dwh_srv, dwh_base, dwh_user, dwh_pwd),
+        (ob_srv,  ob_base,  ob_user,  ob_pwd),
+    ]
+
+    backup_results = [_backup_db(srv, base, usr, pwd, stamp, label="manual") for (srv, base, usr, pwd) in targets]
+    # Une base EXISTANTE dont la sauvegarde échoue = échec ; base absente/infos manquantes = toléré.
+    failed = [
+        b for b in backup_results
+        if not b.get("backed_up") and b.get("reason") not in ("n'existe pas", "infos manquantes")
+    ]
+    saved = [b["db"] for b in backup_results if b.get("backed_up")]
+    if failed:
+        details = "; ".join(f"{b['db']}: {b.get('error', 'échec')}" for b in failed)
+        return {"success": False,
+                "message": f"Sauvegarde SQL échouée pour '{code}' : {details}",
+                "backup_results": backup_results}
+    msg = f"Sauvegardes créées: {', '.join(saved)}" if saved else f"Aucune base à sauvegarder pour '{code}'"
+    return {"success": True, "message": msg, "backup_results": backup_results}
 
 
 @router.delete("/dwh-admin/{code}")
