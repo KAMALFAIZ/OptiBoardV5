@@ -15,7 +15,11 @@ const api = axios.create({
   }
 })
 
-// Intercepteur : ajouter X-DWH-Code + Authorization
+// Intercepteur : ajouter X-DWH-Code + X-User-Id + X-Session-Token
+// IMPORTANT : aligné sur services/api.js. Le middleware tenant (fail-closed) rejette
+// toute route /api/* sans X-Session-Token valide → 401 « Authentification requise ».
+// Sans ces headers, tous les appels ETL (etlApi) échouaient alors que le reste de
+// l'app (api.js) fonctionnait.
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token') || sessionStorage.getItem('token')
   if (token && !config.headers['Authorization']) {
@@ -29,6 +33,21 @@ api.interceptors.request.use((config) => {
         if (parsed?.code) config.headers['X-DWH-Code'] = parsed.code
       }
     } catch (e) { /* ignore */ }
+  }
+  // User ID — pour la vérification des permissions côté backend
+  if (!config.headers['X-User-Id']) {
+    try {
+      const savedUser = localStorage.getItem('user') || sessionStorage.getItem('user')
+      if (savedUser) {
+        const parsedUser = JSON.parse(savedUser)
+        if (parsedUser?.id) config.headers['X-User-Id'] = String(parsedUser.id)
+      }
+    } catch (e) { /* ignore */ }
+  }
+  // Session token serveur — requis par le middleware tenant (fail-closed sur /api/*)
+  if (!config.headers['X-Session-Token']) {
+    const st = localStorage.getItem('session_token') || sessionStorage.getItem('session_token')
+    if (st) config.headers['X-Session-Token'] = st
   }
   return config
 })
@@ -297,6 +316,13 @@ export const getDWHList = () => {
  */
 export const downloadAgentPackage = () => {
   return api.get('/admin/etl/agents/download/package', { responseType: 'blob' })
+}
+
+/**
+ * Telecharge l'agent Sage ETL .NET (SageETLAgent_MultiAgent) pret a installer
+ */
+export const downloadSageAgent = () => {
+  return api.get('/admin/etl/agents/download/sage-agent', { responseType: 'blob', timeout: 300000 })
 }
 
 /**
