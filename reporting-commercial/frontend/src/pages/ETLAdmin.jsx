@@ -22,7 +22,8 @@ import {
   pauseAgent,
   resumeAgent,
   deleteAgent,
-  syncPublishedTables
+  syncPublishedTables,
+  downloadSageAgent
 } from '../services/etlApi'
 
 // Onglets de l'administration ETL
@@ -62,6 +63,7 @@ export default function ETLAdmin() {
   const [error, setError] = useState(null)
   const [successMsg, setSuccessMsg] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [downloadingAgent, setDownloadingAgent] = useState(false)
 
   // Onglet actif
   const [activeTab, setActiveTab] = useState('agents')
@@ -143,6 +145,27 @@ export default function ETLAdmin() {
   const handleRefresh = () => {
     setRefreshing(true)
     loadData()
+  }
+
+  // Telecharge l'agent Sage ETL (.NET) a installer sur le serveur Sage du client
+  const handleDownloadAgent = async () => {
+    setDownloadingAgent(true)
+    try {
+      const res = await downloadSageAgent()
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'SageETLAgent.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Erreur telechargement agent Sage:', err)
+      setError("Erreur lors du telechargement de l'agent Sage")
+    } finally {
+      setDownloadingAgent(false)
+    }
   }
 
   const handleAgentClick = (agent) => {
@@ -246,6 +269,15 @@ export default function ETLAdmin() {
           >
             <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             Actualiser
+          </button>
+          <button
+            className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-2 transition-colors disabled:opacity-50"
+            onClick={handleDownloadAgent}
+            disabled={downloadingAgent}
+            title="Télécharger l'agent Sage ETL à installer sur le serveur Sage"
+          >
+            <Download size={16} className={downloadingAgent ? 'animate-pulse' : ''} />
+            {downloadingAgent ? 'Préparation…' : 'Agent Sage'}
           </button>
           {activeTab === 'agents' && (
             <button
