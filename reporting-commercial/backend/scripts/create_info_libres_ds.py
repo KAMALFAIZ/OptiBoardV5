@@ -45,6 +45,16 @@ PARAM_SOCIETE = json.dumps(
 )
 PARAM_NONE = json.dumps([], ensure_ascii=False)
 
+# Paramètres pour la requête CA (période + société)
+PARAM_CA = json.dumps(
+    [
+        {"name": "dateDebut", "type": "date", "label": "Date début", "required": True, "default": None},
+        {"name": "dateFin", "type": "date", "label": "Date fin", "required": True, "default": None},
+        {"name": "societe", "type": "select", "label": "Société", "required": False, "default": None},
+    ],
+    ensure_ascii=False,
+)
+
 # ---------------------------------------------------------------------------
 # Définition des datasources (code, nom, description, query_template, parameters)
 # ---------------------------------------------------------------------------
@@ -105,6 +115,28 @@ INNER JOIN [Info_Libres_Valeurs] v
        AND v.[entity_key] = CAST(en.[N° interne] AS NVARCHAR(50))
 WHERE (@societe IS NULL OR en.[societe] = @societe)
 ORDER BY en.[Date] DESC, en.[N° pièce], v.[CB_Name]"""
+
+# CA (ventes) ventilé par information libre d'entête de document (format long).
+# Règles CA : [Valorise CA]='Oui', période sur [Date BL]. Jointure infos libres
+# via F_DOCENTETE / entity_key = Entête_des_ventes.[N° interne] (= cbMarq).
+Q_CA_INFOS_LIBRES = """SELECT
+    il.[CB_Name]              AS [Information libre],
+    il.[CB_Value]            AS [Valeur],
+    SUM(l.[Montant HT Net])  AS [CA HT],
+    COUNT(DISTINCT l.[N° Pièce]) AS [Nb Documents]
+FROM [Lignes_des_ventes] l
+INNER JOIN [Entête_des_ventes] e
+        ON l.[N° Pièce] = e.[N° pièce]
+       AND l.[societe]  = e.[societe]
+INNER JOIN [Info_Libres_Valeurs] il
+        ON il.[CB_File]    = 'F_DOCENTETE'
+       AND il.[entity_key] = CAST(e.[N° interne] AS NVARCHAR(50))
+       AND il.[societe]    = e.[societe]
+WHERE l.[Valorise CA] = 'Oui'
+  AND l.[Date BL] BETWEEN @dateDebut AND @dateFin
+  AND (@societe IS NULL OR l.[societe] = @societe)
+GROUP BY il.[CB_Name], il.[CB_Value]
+ORDER BY il.[CB_Name], [CA HT] DESC"""
 
 # Tiers : jointure en deux sauts via la table de correspondance Info_Libres_Cle_Tiers
 # (Code tiers = CT_Num ; Clé Sage = cbMarq de F_COMPTET). Nécessite le sync additif
@@ -186,6 +218,13 @@ DATASOURCES = [
         "Fournisseurs enrichis de leurs informations libres (via correspondance clé tiers). Requiert le sync « Correspondance clé tiers ».",
         Q_FOURNISSEURS,
         PARAM_SOCIETE,
+    ),
+    (
+        "DS_CA_INFOS_LIBRES",
+        "CA par information libre",
+        "Chiffre d'affaires (ventes) ventilé par information libre d'entête de document (format long, F_DOCENTETE). Règles CA appliquées ([Valorise CA]='Oui', période sur [Date BL]).",
+        Q_CA_INFOS_LIBRES,
+        PARAM_CA,
     ),
 ]
 
