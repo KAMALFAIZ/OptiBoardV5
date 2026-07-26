@@ -50,6 +50,8 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
   const [sqlFullscreen, setSqlFullscreen] = useState(false)
   // Non-null quand une requete chargee est trop complexe pour l'edition visuelle
   const [sqlOnlyNotice, setSqlOnlyNotice] = useState(null)
+  // Colonnes calculees du SELECT non reprises visuellement (affichage informatif)
+  const [skippedColumns, setSkippedColumns] = useState([])
 
   // Reset l'état quand le modal se ferme
   useEffect(() => {
@@ -72,6 +74,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
       setInitializing(false)
       setSqlFullscreen(false)
       setSqlOnlyNotice(null)
+      setSkippedColumns([])
     } else {
       loadTables()
       // Charger la requete existante (edition d'un template) : on tente une
@@ -689,6 +692,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
         let partialCols = []
         let partialJoins = []
         let partialWhere = []
+        const partialSkipped = []
         const isFlat =
           /^\s*SELECT\b/i.test(sql) &&
           !/^\s*WITH\b/i.test(sql) &&
@@ -706,24 +710,32 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
           const aliasMap = tj ? tj.aliasMap : {}
           if (tj) partialJoins = tj.joins
 
-          // Colonnes : garder celles qui sont representables (colonne simple ou agregat)
+          // Colonnes : garder celles qui sont representables (colonne simple ou agregat).
+          // Les colonnes calculees (fonctions, expressions) sont listees a part (skipped).
           const selM = sql.match(/^\s*SELECT\s+([\s\S]*?)\sFROM\s/i)
           if (selM) {
             const items = splitTopLevel(
               selM[1].replace(/^DISTINCT\s+/i, '').replace(/^TOP\s+\d+\s+/i, ''),
               ','
             )
+            const labelOf = (raw) => {
+              const am = raw.match(/\s+AS\s+(?:\[([^\]]+)\]|([A-Za-z0-9_]+))\s*$/i)
+              return am ? (am[1] || am[2]) : raw.trim().replace(/\s+/g, ' ').slice(0, 40)
+            }
             for (const it of items) {
               const p = parseSelectItem(it)
-              if (!p) continue // colonne calculee -> ignoree
-              let table = p.tableAlias ? aliasMap[p.tableAlias] : null
-              if (!table) {
+              let table = p ? (p.tableAlias ? aliasMap[p.tableAlias] : null) : null
+              if (p && !table) {
                 const owners = tableObjs.filter((t) => t.columns.some((c) => c.name === p.name))
                 if (owners.length === 1) table = owners[0].name
               }
-              if (!table) continue
-              const meta = tableObjs.find((t) => t.name === table)?.columns.find((c) => c.name === p.name)
-              if (!meta) continue
+              const meta = p && table
+                ? tableObjs.find((t) => t.name === table)?.columns.find((c) => c.name === p.name)
+                : null
+              if (!p || !table || !meta) {
+                partialSkipped.push(labelOf(it)) // colonne calculee / non resolue -> informatif
+                continue
+              }
               let alias = p.alias
               if (alias && alias === p.name && !p.aggregate) alias = ''
               partialCols.push({
@@ -754,6 +766,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
           if (partialJoins.length) setJoins(partialJoins)
           if (partialCols.length) setSelectedColumns(partialCols)
           if (partialWhere.length) setWhereConditions(partialWhere)
+          setSkippedColumns(partialSkipped)
           setActiveTab(partialCols.length ? 'columns' : 'tables')
           if (isFlat) {
             setSqlOnlyNotice(
@@ -1437,6 +1450,20 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                     Colonnes de sortie ({selectedColumns.length})
                   </h3>
+                  {skippedColumns.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <span className="font-medium">
+                          {skippedColumns.length} colonne{skippedColumns.length > 1 ? 's' : ''} calculée{skippedColumns.length > 1 ? 's' : ''} non reprise{skippedColumns.length > 1 ? 's' : ''} (fonction ou expression) :
+                        </span>{' '}
+                        {skippedColumns.map((c, i) => (
+                          <span key={i} className="inline-block font-mono bg-amber-100 dark:bg-amber-900/40 rounded px-1 mr-1">{c}</span>
+                        ))}
+                        <span className="block mt-0.5">Éditez-les dans l'éditeur SQL — elles ne sont pas modélisables visuellement.</span>
+                      </div>
+                    </div>
+                  )}
                   {selectedColumns.length === 0 ? (
                     <p className="text-sm text-gray-500">Sélectionnez des colonnes dans l'onglet Tables</p>
                   ) : (
