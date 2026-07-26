@@ -4,10 +4,13 @@ import {
   Database, Plus, Save, Trash2, Play, RefreshCw, X, Search,
   Code, FileText, Tag, CheckCircle, XCircle, AlertCircle,
   Eye, EyeOff, Copy, Settings2, Loader2, Filter, ChevronDown, ChevronRight,
-  Shield
+  Shield, Wand2
 } from 'lucide-react'
 import api, { extractErrorMessage } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import SqlEditor from '../components/SqlEditor'
+import JsonEditor from '../components/JsonEditor'
+import QueryBuilder from '../components/QueryBuilder'
 
 // Categories de DataSources
 const CATEGORIES = [
@@ -31,7 +34,8 @@ const TYPES = [
 
 export default function DataSourceTemplates() {
   const { user } = useAuth()
-  const isSuperAdmin = user?.role === 'superadmin'
+  // Le role peut etre porte par role_global / role_dwh (nouveau format) ou role (ancien)
+  const isSuperAdmin = (user?.role_global || user?.role_dwh || user?.role) === 'superadmin'
   const [searchParams] = useSearchParams()
 
   const [loading, setLoading] = useState(true)
@@ -44,6 +48,7 @@ export default function DataSourceTemplates() {
   const [testResult, setTestResult] = useState(null)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
+  const [showQueryBuilder, setShowQueryBuilder] = useState(false)
 
   // Filtres — pré-remplis depuis l'URL (?category=recouvrement)
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '')
@@ -671,19 +676,30 @@ export default function DataSourceTemplates() {
 
                   {/* Requete SQL */}
                   <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                      <Code className="w-5 h-5" />
-                      Requete SQL
-                    </h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Code className="w-5 h-5" />
+                        Requete SQL
+                      </h3>
+                      {(editMode || isSuperAdmin) && (
+                        <button
+                          type="button"
+                          onClick={() => setShowQueryBuilder(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-primary-300 dark:border-primary-600 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                          title="Construire la requête visuellement (tables, colonnes, jointures, filtres)"
+                        >
+                          <Wand2 className="w-4 h-4" />
+                          Assistant visuel
+                        </button>
+                      )}
+                    </div>
 
-                    <textarea
+                    <SqlEditor
                       value={formData.query_template}
-                      onChange={(e) => setFormData({ ...formData, query_template: e.target.value })}
+                      onChange={(val) => setFormData({ ...formData, query_template: val })}
                       disabled={!editMode}
-                      rows={12}
+                      minHeight="300px"
                       placeholder="SELECT * FROM ma_table WHERE @dateDebut <= date AND date <= @dateFin"
-                      className="w-full px-3 py-2 font-mono text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-900 disabled:opacity-50"
-                      style={{ tabSize: 2 }}
                     />
 
                     <p className="text-xs text-gray-500 mt-2">
@@ -698,13 +714,12 @@ export default function DataSourceTemplates() {
                       Parametres (JSON)
                     </h3>
 
-                    <textarea
+                    <JsonEditor
                       value={formData.parameters}
-                      onChange={(e) => setFormData({ ...formData, parameters: e.target.value })}
+                      onChange={(val) => setFormData({ ...formData, parameters: val })}
                       disabled={!editMode}
-                      rows={8}
+                      minHeight="200px"
                       placeholder='[{"name": "@dateDebut", "type": "date", "label": "Date Debut", "required": true}]'
-                      className="w-full px-3 py-2 font-mono text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-900 disabled:opacity-50"
                     />
 
                     <div className="text-xs text-gray-500 mt-2 space-y-1">
@@ -796,6 +811,36 @@ export default function DataSourceTemplates() {
           )}
         </div>
       </div>
+
+      {/* Assistant visuel de requête */}
+      <QueryBuilder
+        isOpen={showQueryBuilder}
+        onClose={() => setShowQueryBuilder(false)}
+        targetType="template"
+        initialSql={formData.query_template}
+        onUseQuery={(sql, params) => {
+          setFormData((fd) => {
+            const next = { ...fd, query_template: sql }
+            // Renseigner aussi le bloc Parametres (JSON) a partir des @param detectes
+            if (params && params.length > 0) {
+              next.parameters = JSON.stringify(
+                params.map((p) => ({
+                  name: p.name,
+                  type: p.type,
+                  label: p.label,
+                  required: p.required !== false,
+                  ...(p.defaultValue ? { default: p.defaultValue } : {}),
+                  ...(p.source && p.source !== 'manual' ? { source: p.source } : {}),
+                })),
+                null,
+                2
+              )
+            }
+            return next
+          })
+          setEditMode(true)
+        }}
+      />
     </div>
   )
 }

@@ -227,6 +227,31 @@ export default function JoinDesigner({
     onJoinsChange(newJoins)
   }
 
+  // Jointures multi-conditions (extraConditions)
+  const addJoinCondition = (index) => {
+    onJoinsChange(joins.map((j, i) =>
+      i === index
+        ? { ...j, extraConditions: [...(j.extraConditions || []), { column1: '', column2: '', operator: '=' }] }
+        : j
+    ))
+  }
+
+  const updateJoinCondition = (index, condIndex, field, value) => {
+    onJoinsChange(joins.map((j, i) => {
+      if (i !== index) return j
+      const conds = (j.extraConditions || []).map((c, ci) => ci === condIndex ? { ...c, [field]: value } : c)
+      return { ...j, extraConditions: conds }
+    }))
+  }
+
+  const removeJoinCondition = (index, condIndex) => {
+    onJoinsChange(joins.map((j, i) =>
+      i === index
+        ? { ...j, extraConditions: (j.extraConditions || []).filter((_, ci) => ci !== condIndex) }
+        : j
+    ))
+  }
+
   const removeJoin = (index) => {
     onJoinsChange(joins.filter((_, i) => i !== index))
     setSelectedJoin(null)
@@ -589,6 +614,57 @@ export default function JoinDesigner({
                   <option key={c.name} value={c.name}>{c.name}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Conditions supplementaires (jointure multi-conditions) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Conditions supplémentaires (ET)
+              </label>
+              <div className="space-y-2">
+                {(joins[selectedJoin].extraConditions || []).map((cond, ci) => (
+                  <div key={ci} className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono text-gray-400">AND</span>
+                      <button
+                        onClick={() => removeJoinCondition(selectedJoin, ci)}
+                        className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-red-500"
+                        title="Supprimer la condition"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <select
+                      value={cond.column1}
+                      onChange={(e) => updateJoinCondition(selectedJoin, ci, 'column1', e.target.value)}
+                      className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                    >
+                      <option value="">-- {joins[selectedJoin].table1} --</option>
+                      {tables.find(t => t.name === joins[selectedJoin].table1)?.columns.map(c => (
+                        <option key={c.name} value={c.name}>{c.name}</option>
+                      ))}
+                    </select>
+                    <div className="text-center text-xs font-mono text-gray-500">=</div>
+                    <select
+                      value={cond.column2}
+                      onChange={(e) => updateJoinCondition(selectedJoin, ci, 'column2', e.target.value)}
+                      className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                    >
+                      <option value="">-- {joins[selectedJoin].table2} --</option>
+                      {tables.find(t => t.name === joins[selectedJoin].table2)?.columns.map(c => (
+                        <option key={c.name} value={c.name}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+                <button
+                  onClick={() => addJoinCondition(selectedJoin)}
+                  className="text-xs text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  Ajouter une condition
+                </button>
+              </div>
             </div>
           </div>
 
