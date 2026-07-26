@@ -1383,10 +1383,14 @@ def delete_agent(
 
 
 @router.post("/admin/etl/agents/{agent_id}/clear-error")
-def clear_agent_error(agent_id: str):
-    """Efface la derniere erreur d'un agent"""
+def clear_agent_error(
+    agent_id: str,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Efface la derniere erreur d'un agent (base CLIENT, coherent avec le reste)."""
     try:
-        with get_db_cursor() as cursor:
+        dwh_code = _get_dwh_for_agent(agent_id, x_dwh_code)
+        with client_cursor(dwh_code) as cursor:
             cursor.execute(
                 "UPDATE APP_ETL_Agents SET last_error = NULL, updated_at = GETDATE() WHERE agent_id = ?",
                 (agent_id,)
@@ -1405,19 +1409,33 @@ def clear_agent_error(agent_id: str):
 
 
 @router.post("/admin/etl/agents/{agent_id}/regenerate-key")
-def regenerate_api_key(agent_id: str):
-    """Regenere la cle API d'un agent"""
+def regenerate_api_key(
+    agent_id: str,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """
+    Regenere la cle API d'un agent.
+
+    CRITIQUE : le hash doit etre ecrit dans la base CLIENT (OptiBoard_<CODE>),
+    car c'est la que verify_agent le relit. Ecrire dans la base centrale
+    (ancien get_db_cursor) ne mettait jamais a jour la table verifiee => l'agent
+    restait en 401 apres chaque regeneration. On resout le vrai DWH client meme
+    si le header vaut 'CENTRAL' (superadmin) via _get_dwh_for_agent.
+    """
     try:
+        dwh_code = _get_dwh_for_agent(agent_id, x_dwh_code)
         api_key = generate_api_key()
         api_key_hash = hash_api_key(api_key)
+        api_key_prefix = api_key[:7] + "..."
 
-        with get_db_cursor() as cursor:
+        with client_cursor(dwh_code) as cursor:
             cursor.execute(
-                "UPDATE APP_ETL_Agents SET api_key_hash = ?, updated_at = GETDATE() WHERE agent_id = ?",
-                (api_key_hash, agent_id)
+                "UPDATE APP_ETL_Agents SET api_key_hash = ?, api_key_prefix = ?, "
+                "is_active = 1, updated_at = GETDATE() WHERE agent_id = ?",
+                (api_key_hash, api_key_prefix, agent_id)
             )
             if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Agent non trouve")
+                raise HTTPException(status_code=404, detail="Agent non trouve dans la base client")
             cursor.commit()
 
         return {
