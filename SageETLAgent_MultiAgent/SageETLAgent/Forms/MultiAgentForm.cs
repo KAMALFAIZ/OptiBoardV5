@@ -76,6 +76,8 @@ namespace SageETLAgent.Forms
 
         // Mode continu controls
         private TextBox txtDwhCode = null!;
+        private TextBox txtAgentId = null!;
+        private TextBox txtApiKey = null!;
         private Button btnImportConfig = null!;
         private Button btnStartContinuous = null!;
         private Button btnStopContinuous = null!;
@@ -131,11 +133,16 @@ namespace SageETLAgent.Forms
                     catch { }
                 }
 
-                // Mettre à jour uniquement ServerUrl et DwhCode
+                // Mettre à jour ServerUrl, DwhCode et les identifiants agent (AgentId/ApiKey)
                 if (root["SageEtl"] == null)
                     root["SageEtl"] = new Newtonsoft.Json.Linq.JObject();
                 root["SageEtl"]["ServerUrl"] = _serverUrl;
                 root["SageEtl"]["DwhCode"]   = _dwhCode;
+                if (_perfConfig != null)
+                {
+                    root["SageEtl"]["AgentId"] = _perfConfig.AgentId ?? "";
+                    root["SageEtl"]["ApiKey"]  = _perfConfig.ApiKey ?? "";
+                }
 
                 File.WriteAllText(configPath, Newtonsoft.Json.JsonConvert.SerializeObject(root, Newtonsoft.Json.Formatting.Indented));
                 AppendLog("Parametres sauvegardes dans appsettings.json");
@@ -489,6 +496,16 @@ namespace SageETLAgent.Forms
             serverPanel.Controls.Add(new Label { Text = "DWH", AutoSize = true, Margin = new Padding(12, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
             txtDwhCode = new TextBox { Text = _dwhCode, Width = 80, Font = new Font("Segoe UI", 8F), BorderStyle = BorderStyle.FixedSingle, ReadOnly = true, BackColor = Color.FromArgb(240, 240, 240), ForeColor = ThemeTextMuted };
             serverPanel.Controls.Add(txtDwhCode);
+            // Identifiants agent (requis face au plancher d'auth du backend : l'agent
+            // charge sa liste via /api/agents/for-dwh). Persistes dans appsettings.json.
+            serverPanel.Controls.Add(new Label { Text = "Agent", AutoSize = true, Margin = new Padding(12, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
+            txtAgentId = new TextBox { Text = _perfConfig?.AgentId ?? "", Width = 110, Font = new Font("Segoe UI", 8F), BorderStyle = BorderStyle.FixedSingle };
+            _toolTip.SetToolTip(txtAgentId, "AgentId (fourni par la console lors de la creation de l'agent)");
+            serverPanel.Controls.Add(txtAgentId);
+            serverPanel.Controls.Add(new Label { Text = "Cle", AutoSize = true, Margin = new Padding(8, 4, 4, 0), Font = new Font("Segoe UI", 8F), ForeColor = ThemeTextMuted });
+            txtApiKey = new TextBox { Text = _perfConfig?.ApiKey ?? "", Width = 130, Font = new Font("Segoe UI", 8F), BorderStyle = BorderStyle.FixedSingle, UseSystemPasswordChar = true };
+            _toolTip.SetToolTip(txtApiKey, "Cle API de l'agent (secret, generee par la console)");
+            serverPanel.Controls.Add(txtApiKey);
             btnImportConfig = CreateIconButton("\U0001F4C2", "Importer config", 24, ThemeTextMuted, Color.White, true);
             btnImportConfig.Margin = new Padding(4, 0, 0, 0);
             serverPanel.Controls.Add(btnImportConfig);
@@ -1532,10 +1549,34 @@ namespace SageETLAgent.Forms
                     return;
                 }
 
+                // Identifiants agent saisis dans la GUI : indispensables face au plancher
+                // d'auth (sinon repli sur /api/admin/etl/agents => 401). On les propage a
+                // la config runtime et on les persiste pour les prochains demarrages.
+                var agentId = txtAgentId.Text.Trim();
+                var apiKey  = txtApiKey.Text.Trim();
+                _perfConfig ??= new SageETLAgent.Services.ServiceConfig();
+                _perfConfig.AgentId = agentId;
+                _perfConfig.ApiKey  = apiKey;
+
+                if (string.IsNullOrWhiteSpace(agentId) || string.IsNullOrWhiteSpace(apiKey))
+                {
+                    MessageBox.Show(
+                        "Les identifiants de l'agent (Agent + Cle) sont requis.\n\n" +
+                        "Creez l'agent dans la console OptiBoard pour ce DWH, puis collez\n" +
+                        "l'AgentId et la Cle API generes ici. Ils sont necessaires pour\n" +
+                        "s'authentifier aupres du serveur (endpoint securise /api/agents/for-dwh).",
+                        "Identifiants agent requis", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    txtAgentId.Focus();
+                    return;
+                }
+
                 lblStatus.Text = "Chargement...";
 
                 using var client = new ApiClient(_serverUrl, _dwhCode);
-                _agents = await client.GetAgentsAsync(_perfConfig?.AgentId, _perfConfig?.ApiKey);
+                _agents = await client.GetAgentsAsync(agentId, apiKey);
+
+                // Sauvegarde apres un chargement reussi (identifiants valides).
+                SaveAppSettings();
 
                 dgvAgents.DataSource = null;
                 dgvAgents.DataSource = _agents;
