@@ -42,12 +42,24 @@ Q_TIERS = (
     "FROM F_COMPTET"
 )
 
+# Correspondance ligne de document : [N° interne]=DL_No (porte par Lignes_des_*) <-> cbMarq
+# (cle des infos libres F_DOCLIGNE). SQL normal -> tout agent la synchronise (pas de rebuild).
+# Permet de joindre Lignes_des_* a la table large IL_Lignes_Documents sans toucher aux
+# extractions financieres des lignes.
+Q_LIGNES = (
+    "SELECT CAST(DL_No AS NVARCHAR(50)) AS [N° interne], "
+    "CAST(cbMarq AS NVARCHAR(50)) AS [Clé Sage] "
+    "FROM F_DOCLIGNE"
+)
+
 # code, table_name, target_table, clear_source_query, primary_key_columns(JSON)
 TABLES = [
     ("Info_Libres_Valeurs", "Valeurs informations libres", "Info_Libres_Valeurs",
      "__INFO_LIBRES_VALUES__", '["CB_File","entity_key","CB_Name"]'),
     ("Info_Libres_Cle_Tiers", "Correspondance clé tiers", "Info_Libres_Cle_Tiers",
      Q_TIERS, "[]"),
+    ("Info_Libres_Cle_Lignes", "Correspondance clé lignes", "Info_Libres_Cle_Lignes",
+     Q_LIGNES, '["N° interne"]'),
 ]
 
 # Bases clientes des agents actuellement vivants (défaut)

@@ -532,6 +532,8 @@ namespace SageETLAgent.Services
                 bool forceFullReload = table.ForceFullReload;
 
                 bool isInfoLibres = table.CustomQuery == "__INFO_LIBRES_VALUES__";
+                bool isInfoLibresWide = table.CustomQuery != null
+                    && table.CustomQuery.StartsWith("__INFO_LIBRES_WIDE__:");
                 bool useIncrementalEngine = _incrementalEngine != null &&
                     table.SyncType == "incremental" &&
                     !string.IsNullOrEmpty(table.TimestampColumn) &&
@@ -539,15 +541,16 @@ namespace SageETLAgent.Services
                     !table.ForceFullReload;
 
                 // Guard diagnostic identique a l'origine (precedence: && avant ||).
-                bool runDiagnostic = (!table.ForceFullReload && table.SyncType != "incremental")
-                    || (lastSync == null && !table.ForceFullReload);
+                bool runDiagnostic = !isInfoLibresWide && (
+                    (!table.ForceFullReload && table.SyncType != "incremental")
+                    || (lastSync == null && !table.ForceFullReload));
 
                 // Eligible au streaming (extraction complete -> ecriture par lots ; pic memoire = 1 lot)
                 // UNIQUEMENT quand la strategie sera OBLIGATOIREMENT truncate_insert quel que soit le
                 // nombre de lignes : forceFull OU non-incremental OU sans PK. Les autres cas (incremental
                 // etabli, 1er chargement d'une table incrementale) restent materialises pour preserver
                 // A L'IDENTIQUE la selection de strategie basee sur data.Count.
-                bool streamingEligible = !isInfoLibres && !useIncrementalEngine
+                bool streamingEligible = !isInfoLibres && !isInfoLibresWide && !useIncrementalEngine
                     && (forceFullReload || !isIncremental || !pks.Any());
 
                 int rowsWritten;
@@ -657,6 +660,11 @@ namespace SageETLAgent.Services
             if (isInfoLibres)
             {
                 data = await sageExtractor.ExtractInfoLibresValuesAsync(extractProgress, ct);
+            }
+            else if (table.CustomQuery != null && table.CustomQuery.StartsWith("__INFO_LIBRES_WIDE__:"))
+            {
+                var cbFile = table.CustomQuery.Substring("__INFO_LIBRES_WIDE__:".Length).Trim();
+                data = await sageExtractor.ExtractInfoLibresWideAsync(cbFile, extractProgress, ct);
             }
             else if (useIncrementalEngine)
             {

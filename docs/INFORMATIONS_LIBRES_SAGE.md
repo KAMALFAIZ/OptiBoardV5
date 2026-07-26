@@ -295,6 +295,49 @@ WHERE v.CB_File = 'F_ARTICLE';
 
 ---
 
+## 10. Approche #2 — Colonnes larges (au lieu de l'EAV)
+
+L'EAV (`Info_Libres_Valeurs`) explose en volume (UNPIVOT = 1 ligne/champ ;
+ALEAFOOD = 1,66 M lignes, dont F_DOCLIGNE 1,54 M). Approche #2 = **tables larges**
+(1 ligne/entité, 1 colonne/champ), l'EAV étant **conservé en parallèle**.
+
+**Extracteur agent** — nouveau sentinel `__INFO_LIBRES_WIDE__:<CB_File>`
+(`SageExtractor.ExtractInfoLibresWideAsync`) : `SELECT cbMarq AS entity_key + colonnes
+libres` (types Sage conservés, PAS d'UNPIVOT). Dispatch dans `ContinuousSyncService`
+(hors streaming/diagnostic). **Nécessite l'agent rebuild.**
+
+**Tables larges** (`APP_ETL_Tables_Config` master + published, script
+`publish_info_libres_wide.py`) : `IL_Articles` (F_ARTICLE), `IL_Tiers` (F_COMPTET),
+`IL_Entetes_Documents` (F_DOCENTETE), `IL_Lignes_Documents` (F_DOCLIGNE),
+`IL_Ecritures`, `IL_Comptes_Generaux`, `IL_Comptes_Analytiques`. Auto-créées par l'agent.
+
+**Clés de jointure** (validées sur données) :
+| Entité | Jointure base ↔ IL_* |
+|---|---|
+| Articles | `[Code interne]` = `entity_key` (direct) |
+| Entête_des_ventes | `[N° interne]` = `entity_key` (direct, cbMarq confirmé) |
+| Clients / Fournisseurs | via `Info_Libres_Cle_Tiers` (CT_Num↔cbMarq) |
+| Lignes_des_ventes | via `Info_Libres_Cle_Lignes` (**DL_No↔cbMarq**, additif — car `[N° interne]`=DL_No ≠ cbMarq) |
+
+> `Info_Libres_Cle_Lignes` est du **SQL normal** → tout agent la synchronise (pas besoin
+> du rebuild). Elle évite de modifier les extractions financières des lignes.
+
+**DataSources colonnes** (`create_info_libres_wide_ds.py`, catégorie « Informations
+libres (colonnes) ») : `DS_IL_ARTICLES`, `DS_IL_VENTES`, `DS_IL_CLIENTS`,
+`DS_IL_FOURNISSEURS`, `DS_IL_LIGNES_VENTES` — joignent base ↔ IL_* avec `il.*`
+(les champs libres apparaissent comme de **vraies colonnes**, dynamiques par client).
+
+**Déploiement approche #2** :
+1. Déployer l'**agent rebuild** (extracteur wide) sur la machine du client.
+2. `python scripts/publish_info_libres_wide.py OptiBoard_<CODE>` (publier vers ce client —
+   **seulement après** l'agent à jour ; un agent ancien planterait sur le sentinel).
+3. `python scripts/create_info_libres_wide_ds.py` (datasources, une fois).
+4. Attendre un cycle agent → tables `IL_*` matérialisées → colonnes exploitables.
+
+**Gotcha** : ne PAS publier les tables `IL_*` (sentinel) vers un client dont l'agent
+n'est pas à jour → erreur par table à chaque cycle. La publication cliente est **opt-in**
+(base en argument du script), master-only par défaut.
+
 ## 9. Implémentation réalisée (2026-07-19)
 
 > Tout ce qui suit est **purement additif** : aucune requête d'extraction financière

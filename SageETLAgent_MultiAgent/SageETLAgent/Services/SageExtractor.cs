@@ -1213,6 +1213,107 @@ WHERE il.field_value IS NOT NULL AND LTRIM(RTRIM(CAST(il.field_value AS NVARCHAR
             return results;
         }
 
+        /// <summary>
+        /// Extrait les informations libres d'UNE table Sage au format LARGE (pivote) :
+        /// une ligne par entite (cbMarq -> entity_key), une colonne par champ libre.
+        /// Alternative a ExtractInfoLibresValuesAsync (EAV) : evite l'explosion du volume
+        /// (1 ligne/entite au lieu de 1 ligne/champ). Les colonnes gardent leur type Sage.
+        /// La table cible est auto-creee par DwhWriter d'apres les colonnes retournees.
+        /// </summary>
+        public async Task<List<Dictionary<string, object?>>> ExtractInfoLibresWideAsync(
+            string cbFile,
+            IProgress<int>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            var results = new List<Dictionary<string, object?>>();
+            if (string.IsNullOrWhiteSpace(cbFile)) return results;
+            cbFile = cbFile.Trim();
+
+            var conn = await GetConnectionAsync(cancellationToken);
+
+            // 1. Champs libres definis pour cette table (cbSysLibre)
+            var fields = new List<string>();
+            using (var cmd = new SqlCommand(
+                "SELECT [CB_Name] FROM [cbSysLibre] WHERE [CB_File] = @f AND [CB_Name] IS NOT NULL AND [CB_Name] <> ''", conn))
+            {
+                cmd.Parameters.AddWithValue("@f", cbFile);
+                cmd.CommandTimeout = 60;
+                using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var n = reader["CB_Name"]?.ToString()?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(n) && !fields.Contains(n)) fields.Add(n);
+                }
+            }
+            if (!fields.Any())
+            {
+                _logger.Info(LogCategory.EXTRACTION, $"Info libres WIDE [{cbFile}]: aucun champ dans cbSysLibre", _agentName);
+                return results;
+            }
+
+            // 2. Ne garder que les champs reellement presents comme colonnes
+            var existingColumns = new List<string>();
+            try
+            {
+                using var schemaCmd = new SqlCommand(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @table", conn);
+                schemaCmd.Parameters.AddWithValue("@table", cbFile);
+                schemaCmd.CommandTimeout = 30;
+                using var schemaReader = await schemaCmd.ExecuteReaderAsync(cancellationToken);
+                var allColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                while (await schemaReader.ReadAsync(cancellationToken))
+                    allColumns.Add(schemaReader["COLUMN_NAME"]?.ToString() ?? "");
+                existingColumns = fields.Where(f => allColumns.Contains(f)).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(LogCategory.EXTRACTION, $"Info libres WIDE [{cbFile}]: schema illisible: {ex.Message}", _agentName);
+                return results;
+            }
+            if (!existingColumns.Any())
+            {
+                _logger.Debug(LogCategory.EXTRACTION, $"Info libres WIDE [{cbFile}]: aucune colonne correspondante", _agentName);
+                return results;
+            }
+
+            // 3. SELECT large : cbMarq + une colonne par champ (types Sage conserves, pas d'UNPIVOT)
+            var selectCols = string.Join(",\n    ",
+                existingColumns.Select(col => $"[{col.Replace("]", "]]")}]"));
+            var query = $@"SELECT
+    CAST(cbMarq AS VARCHAR(50)) AS [entity_key],
+    {selectCols}
+FROM [{cbFile.Replace("]", "]]")}]";
+
+            try
+            {
+                using var dataCmd = new SqlCommand(query, conn);
+                dataCmd.CommandTimeout = 600;
+                using var dataReader = await dataCmd.ExecuteReaderAsync(cancellationToken);
+                int totalRows = 0;
+                while (await dataReader.ReadAsync(cancellationToken))
+                {
+                    var row = new Dictionary<string, object?>();
+                    for (int i = 0; i < dataReader.FieldCount; i++)
+                    {
+                        var v = dataReader.GetValue(i);
+                        row[dataReader.GetName(i)] = v == DBNull.Value ? null : v;
+                    }
+                    results.Add(row);
+                    totalRows++;
+                    if (totalRows % 5000 == 0) progress?.Report(totalRows);
+                }
+                progress?.Report(totalRows);
+                _logger.Info(LogCategory.EXTRACTION,
+                    $"Info libres WIDE [{cbFile}]: {existingColumns.Count} champs, {totalRows} lignes", _agentName);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(LogCategory.EXTRACTION, $"Info libres WIDE [{cbFile}]: extraction echouee: {ex.Message}", _agentName);
+            }
+
+            return results;
+        }
+
         public void Dispose()
         {
             _persistentConnection?.Dispose();
