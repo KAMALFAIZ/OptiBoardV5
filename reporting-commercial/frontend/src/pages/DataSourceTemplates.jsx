@@ -7,7 +7,7 @@ import {
   Shield, Wand2, AlignLeft
 } from 'lucide-react'
 import { format as formatSql } from 'sql-formatter'
-import api, { extractErrorMessage, getQueryBuilderTables } from '../services/api'
+import api, { extractErrorMessage, getQueryBuilderTables, getDwhSchema } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import SqlEditor from '../components/SqlEditor'
 import JsonEditor from '../components/JsonEditor'
@@ -80,18 +80,32 @@ export default function DataSourceTemplates() {
     loadData()
   }, [])
 
-  // Charger la liste des tables du DWH pour l'auto-completion SQL (noms de tables)
+  // Charger le schema du DWH pour l'auto-completion SQL (tables + colonnes).
+  // Utilise l'endpoint bulk /schema ; repli sur la liste des tables seules si absent.
   useEffect(() => {
-    getQueryBuilderTables()
+    getDwhSchema()
       .then((res) => {
-        const list = res.data?.tables || []
-        if (list.length) {
-          const schema = {}
-          list.forEach((t) => { schema[t.name] = [] })
-          setSqlSchema(schema)
+        if (res.data?.success && res.data.schema && Object.keys(res.data.schema).length) {
+          setSqlSchema(res.data.schema)
+          return true
         }
+        return false
       })
-      .catch(() => {})
+      .catch(() => false)
+      .then((ok) => {
+        if (ok) return
+        // Repli : noms de tables seuls (endpoint /schema pas encore deploye)
+        getQueryBuilderTables()
+          .then((res) => {
+            const list = res.data?.tables || []
+            if (list.length) {
+              const schema = {}
+              list.forEach((t) => { schema[t.name] = [] })
+              setSqlSchema(schema)
+            }
+          })
+          .catch(() => {})
+      })
   }, [])
 
   // Si une catégorie est passée en URL, s'assurer qu'elle est dépliée

@@ -763,6 +763,38 @@ def get_table_columns(
         return {"success": False, "error": str(e), "columns": []}
 
 
+@router.get("/query-builder/schema")
+def get_dwh_schema(
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Schema complet du DWH en un seul appel : { table: [colonnes] }.
+
+    Sert a l'auto-completion SQL (tables + colonnes) sans multiplier les requetes
+    (une seule lecture d'INFORMATION_SCHEMA.COLUMNS). Memes filtres que la liste
+    des tables (exclut APP_%, Temp_%, sys%).
+    """
+    try:
+        rows = execute_dwh(
+            """SELECT c.TABLE_NAME AS table_name, c.COLUMN_NAME AS column_name
+               FROM INFORMATION_SCHEMA.COLUMNS c
+               INNER JOIN INFORMATION_SCHEMA.TABLES t
+                 ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+               WHERE (t.TABLE_TYPE = 'BASE TABLE' OR t.TABLE_TYPE = 'VIEW')
+                 AND c.TABLE_NAME NOT LIKE 'APP_%'
+                 AND c.TABLE_NAME NOT LIKE 'Temp_%'
+                 AND c.TABLE_NAME NOT LIKE 'sys%'
+               ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION""",
+            dwh_code=dwh_code,
+            use_cache=False
+        )
+        schema = {}
+        for r in rows:
+            schema.setdefault(r["table_name"], []).append(r["column_name"])
+        return {"success": True, "schema": schema, "table_count": len(schema)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "schema": {}}
+
+
 @router.get("/query-builder/tables/{table_name}/relations")
 def get_table_relations(
     table_name: str,

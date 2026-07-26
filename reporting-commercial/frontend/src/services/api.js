@@ -392,6 +392,8 @@ export const getUserEffectivePermissions = (userId) => api.get(`/users/${userId}
 
 // Query Builder APIs
 export const getQueryBuilderTables = () => api.get('/builder/query-builder/tables')
+// Schema complet du DWH { table: [colonnes] } en un seul appel (auto-completion SQL)
+export const getDwhSchema = () => api.get('/builder/query-builder/schema')
 export const getTableColumns = (tableName) => api.get(`/builder/query-builder/tables/${tableName}/columns`)
 export const getTableRelations = (tableName) => api.get(`/builder/query-builder/tables/${tableName}/relations`)
 export const buildQuery = (config) => api.post('/builder/query-builder/build', config)
