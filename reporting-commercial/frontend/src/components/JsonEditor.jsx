@@ -1,13 +1,16 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
-import { json } from '@codemirror/lang-json'
+import { json, jsonParseLinter } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
+import { linter, lintGutter } from '@codemirror/lint'
 import { useTheme } from '../context/ThemeContext'
 
 /**
  * Editeur JSON riche (CodeMirror 6) : coloration syntaxique, numeros de ligne,
- * repli, auto-fermeture des parentheses/crochets et appariement.
+ * repli, auto-fermeture des parentheses/crochets, appariement et VALIDATION
+ * en direct (erreurs soulignees + marge de lint). onValidityChange(bool) notifie
+ * le parent de la validite du JSON.
  */
 export default function JsonEditor({
   value,
@@ -17,10 +20,22 @@ export default function JsonEditor({
   maxHeight = '400px',
   placeholder = '',
   className = '',
+  onValidityChange = null,
 }) {
   const { darkMode } = useTheme()
 
-  const extensions = useMemo(() => [json(), EditorView.lineWrapping], [])
+  const extensions = useMemo(
+    () => [json(), linter(jsonParseLinter()), lintGutter(), EditorView.lineWrapping],
+    []
+  )
+
+  // Notifier la validite du JSON au parent (vide = valide)
+  useEffect(() => {
+    if (!onValidityChange) return
+    const v = (value || '').trim()
+    if (!v) { onValidityChange(true); return }
+    try { JSON.parse(v); onValidityChange(true) } catch { onValidityChange(false) }
+  }, [value, onValidityChange])
 
   return (
     <div

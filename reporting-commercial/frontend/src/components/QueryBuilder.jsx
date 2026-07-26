@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   X, Database, Table2, Columns, Plus, Trash2, Play, Save, Search,
   Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout, Maximize2, Minimize2, AlertTriangle, Shield
@@ -1152,6 +1152,13 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
     t.columns.map(c => ({ ...c, table: t.name, fullName: `${t.name}.${c.name}` }))
   )
 
+  // Schema pour l'auto-completion de l'editeur SQL : { table: [colonnes] }
+  const sqlSchema = useMemo(() => {
+    const s = {}
+    selectedTables.forEach(t => { s[t.name] = (t.columns || []).map(c => c.name) })
+    return s
+  }, [selectedTables])
+
   if (!isOpen) return null
 
   return (
@@ -1909,6 +1916,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                       placeholder="-- Sélectionnez des tables et colonnes pour générer la requête, ou écrivez directement votre SQL ici"
                       fill
                       forceDark
+                      schema={sqlSchema}
                       className="absolute inset-0"
                     />
                   </div>
@@ -1950,6 +1958,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                     placeholder="-- Écrivez votre SQL ici"
                     fill
                     forceDark
+                    schema={sqlSchema}
                     className="absolute inset-0"
                   />
                 </div>

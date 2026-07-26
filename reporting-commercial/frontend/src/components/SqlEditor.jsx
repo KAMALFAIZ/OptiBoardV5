@@ -67,17 +67,30 @@ export default function SqlEditor({
   // forceDark=true : force le theme sombre quel que soit le mode global
   forceDark = false,
   className = '',
+  // schema : { nomTable: ['col1','col2', ...] } pour l'auto-completion tables/colonnes
+  schema = null,
 }) {
   const { darkMode } = useTheme()
 
+  // Reconstruit les extensions quand le schema change (auto-completion sensible au DWH)
+  const schemaKey = useMemo(
+    () => (schema ? Object.keys(schema).sort().join(',') + ':' + Object.values(schema).flat().length : ''),
+    [schema]
+  )
+
   const extensions = useMemo(
     () => [
-      sql({ dialect: MSSQL, upperCaseKeywords: true }),
+      sql(
+        schema && Object.keys(schema).length > 0
+          ? { dialect: MSSQL, upperCaseKeywords: true, schema }
+          : { dialect: MSSQL, upperCaseKeywords: true }
+      ),
       paramHighlighter,
       baseTheme,
       EditorView.lineWrapping,
     ],
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [schemaKey]
   )
 
   const wrapperClass = fill

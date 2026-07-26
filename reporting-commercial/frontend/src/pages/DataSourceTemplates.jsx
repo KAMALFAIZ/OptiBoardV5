@@ -4,9 +4,10 @@ import {
   Database, Plus, Save, Trash2, Play, RefreshCw, X, Search,
   Code, FileText, Tag, CheckCircle, XCircle, AlertCircle,
   Eye, EyeOff, Copy, Settings2, Loader2, Filter, ChevronDown, ChevronRight,
-  Shield, Wand2
+  Shield, Wand2, AlignLeft
 } from 'lucide-react'
-import api, { extractErrorMessage } from '../services/api'
+import { format as formatSql } from 'sql-formatter'
+import api, { extractErrorMessage, getQueryBuilderTables } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import SqlEditor from '../components/SqlEditor'
 import JsonEditor from '../components/JsonEditor'
@@ -49,6 +50,10 @@ export default function DataSourceTemplates() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [showQueryBuilder, setShowQueryBuilder] = useState(false)
+  // Auto-completion SQL : schema { nomTable: [] } (noms de tables du DWH)
+  const [sqlSchema, setSqlSchema] = useState(null)
+  // Validite du JSON des parametres (bloque l'enregistrement si invalide)
+  const [paramsValid, setParamsValid] = useState(true)
 
   // Filtres — pré-remplis depuis l'URL (?category=recouvrement)
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '')
@@ -73,6 +78,20 @@ export default function DataSourceTemplates() {
 
   useEffect(() => {
     loadData()
+  }, [])
+
+  // Charger la liste des tables du DWH pour l'auto-completion SQL (noms de tables)
+  useEffect(() => {
+    getQueryBuilderTables()
+      .then((res) => {
+        const list = res.data?.tables || []
+        if (list.length) {
+          const schema = {}
+          list.forEach((t) => { schema[t.name] = [] })
+          setSqlSchema(schema)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Si une catégorie est passée en URL, s'assurer qu'elle est dépliée
@@ -153,6 +172,20 @@ export default function DataSourceTemplates() {
     })
     setEditMode(true)
     setTestResult(null)
+  }
+
+  const handleFormatSql = () => {
+    if (!formData.query_template) return
+    try {
+      const pretty = formatSql(formData.query_template, {
+        language: 'transactsql',
+        keywordCase: 'upper',
+        tabWidth: 2,
+      })
+      setFormData((fd) => ({ ...fd, query_template: pretty }))
+    } catch (e) {
+      setError('Impossible de formater : ' + (e?.message || 'requête invalide'))
+    }
   }
 
   const handleSave = async () => {
@@ -552,7 +585,8 @@ export default function DataSourceTemplates() {
                       </button>
                       <button
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={saving || !paramsValid}
+                        title={!paramsValid ? "Corrigez le JSON des paramètres avant d'enregistrer" : ''}
                         className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 rounded-xl transition-colors shadow-sm disabled:opacity-50"
                       >
                         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -681,17 +715,31 @@ export default function DataSourceTemplates() {
                         <Code className="w-5 h-5" />
                         Requete SQL
                       </h3>
-                      {(editMode || isSuperAdmin) && (
-                        <button
-                          type="button"
-                          onClick={() => setShowQueryBuilder(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-primary-300 dark:border-primary-600 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
-                          title="Construire la requête visuellement (tables, colonnes, jointures, filtres)"
-                        >
-                          <Wand2 className="w-4 h-4" />
-                          Assistant visuel
-                        </button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {editMode && (
+                          <button
+                            type="button"
+                            onClick={handleFormatSql}
+                            disabled={!formData.query_template}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                            title="Formater / indenter la requête SQL"
+                          >
+                            <AlignLeft className="w-4 h-4" />
+                            Formater
+                          </button>
+                        )}
+                        {(editMode || isSuperAdmin) && (
+                          <button
+                            type="button"
+                            onClick={() => setShowQueryBuilder(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-primary-300 dark:border-primary-600 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                            title="Construire la requête visuellement (tables, colonnes, jointures, filtres)"
+                          >
+                            <Wand2 className="w-4 h-4" />
+                            Assistant visuel
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <SqlEditor
@@ -699,6 +747,7 @@ export default function DataSourceTemplates() {
                       onChange={(val) => setFormData({ ...formData, query_template: val })}
                       disabled={!editMode}
                       minHeight="300px"
+                      schema={sqlSchema}
                       placeholder="SELECT * FROM ma_table WHERE @dateDebut <= date AND date <= @dateFin"
                     />
 
@@ -712,6 +761,11 @@ export default function DataSourceTemplates() {
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                       <Tag className="w-5 h-5" />
                       Parametres (JSON)
+                      {!paramsValid && (
+                        <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
+                          <XCircle className="w-4 h-4" /> JSON invalide
+                        </span>
+                      )}
                     </h3>
 
                     <JsonEditor
@@ -719,6 +773,7 @@ export default function DataSourceTemplates() {
                       onChange={(val) => setFormData({ ...formData, parameters: val })}
                       disabled={!editMode}
                       minHeight="200px"
+                      onValidityChange={setParamsValid}
                       placeholder='[{"name": "@dateDebut", "type": "date", "label": "Date Debut", "required": true}]'
                     />
 
