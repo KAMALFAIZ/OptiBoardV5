@@ -5796,6 +5796,70 @@ def download_agent_package():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/etl/agents/download/sage-agent")
+def download_sage_agent():
+    """
+    Telecharge l'agent .NET SageETLAgent_MultiAgent (self-contained win-x64).
+
+    Sert le zip pre-construit
+    `SageETLAgent_MultiAgent/SageETLAgent/SageETLAgent.zip` et le regenere
+    a partir de `binpublish_new/` (prefixe d'entree `SageETLAgent/`) lorsque
+    l'exe publie est plus recent que le zip (ou que le zip n'existe pas).
+    """
+    import zipfile
+    import os
+    import tempfile
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
+    # .../reporting-commercial/backend/app/routes/etl_agents.py -> OptiBoardV5/SageETLAgent_MultiAgent/SageETLAgent
+    agent_dir = (
+        Path(__file__).parent.parent.parent.parent.parent
+        / "SageETLAgent_MultiAgent" / "SageETLAgent"
+    )
+    publish_dir = agent_dir / "binpublish_new"
+    exe_path = publish_dir / "SageETLAgent.exe"
+    zip_path = agent_dir / "SageETLAgent.zip"
+
+    if not exe_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Agent non construit (binpublish_new/SageETLAgent.exe introuvable)",
+        )
+
+    # Regenerer le zip si absent ou perime (exe plus recent que le zip)
+    needs_build = (
+        not zip_path.exists()
+        or exe_path.stat().st_mtime > zip_path.stat().st_mtime
+    )
+    if needs_build:
+        logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir.name}/ ...")
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=".zip", dir=str(agent_dir))
+        os.close(tmp_fd)
+        try:
+            with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, _dirs, files in os.walk(publish_dir):
+                    for name in files:
+                        fp = Path(root) / name
+                        rel = fp.relative_to(publish_dir).as_posix()
+                        zf.write(fp, f"SageETLAgent/{rel}")
+            os.replace(tmp_name, zip_path)  # remplacement atomique
+        except Exception as e:
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+            logger.error(f"Erreur generation zip agent Sage: {e}")
+            raise HTTPException(status_code=500, detail=f"Erreur generation agent: {e}")
+        logger.info(f"{zip_path.name} genere ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        filename="SageETLAgent.zip",
+    )
+
+
 # ============================================================
 # Routes Detection des Suppressions
 # ============================================================
