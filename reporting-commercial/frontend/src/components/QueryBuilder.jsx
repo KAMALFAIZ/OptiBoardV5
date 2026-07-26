@@ -587,7 +587,9 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
   // colonnes prefixees), accepte les ON multi-conditions (prend la 1ere egalite),
   // et n'abandonne pas toute la clause si un seul JOIN n'est pas representable.
   const parseTablesAndJoins = (fromPart) => {
-    if (!fromPart || fromPart.includes('(')) return null // sous-requete dans FROM
+    // Abandonner seulement sur une vraie sous-requete (SELECT ...) dans le FROM ;
+    // les appels de fonction dans le ON (CAST, ISNULL...) ne doivent pas bloquer.
+    if (!fromPart || /\(\s*SELECT\b/i.test(fromPart)) return null
     const firstJoin = fromPart.search(/\b(?:INNER|LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?JOIN\b/i)
     const baseStr = (firstJoin >= 0 ? fromPart.slice(0, firstJoin) : fromPart).trim()
     const baseTable = parseTableRef(baseStr)
