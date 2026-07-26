@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   X, Database, Table2, Columns, Plus, Trash2, Play, Save, Search,
-  Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout, Maximize2, Minimize2, AlertTriangle
+  Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout, Maximize2, Minimize2, AlertTriangle, Shield
 } from 'lucide-react'
 import {
   getQueryBuilderTables, getTableColumns, previewBuilderQuery, createDataSource, getDataSource,
@@ -722,6 +722,11 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               const am = raw.match(/\s+AS\s+(?:\[([^\]]+)\]|([A-Za-z0-9_]+))\s*$/i)
               return am ? (am[1] || am[2]) : raw.trim().replace(/\s+/g, ' ').slice(0, 40)
             }
+            const exprOf = (raw) => {
+              // expression sans le "AS [alias]" final, sur une ligne
+              const oneline = raw.trim().replace(/\s+/g, ' ')
+              return oneline.replace(/\s+AS\s+(?:\[[^\]]+\]|[A-Za-z0-9_]+)\s*$/i, '')
+            }
             for (const it of items) {
               const p = parseSelectItem(it)
               let table = p ? (p.tableAlias ? aliasMap[p.tableAlias] : null) : null
@@ -733,7 +738,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                 ? tableObjs.find((t) => t.name === table)?.columns.find((c) => c.name === p.name)
                 : null
               if (!p || !table || !meta) {
-                partialSkipped.push(labelOf(it)) // colonne calculee / non resolue -> informatif
+                partialSkipped.push({ label: labelOf(it), expr: exprOf(it) }) // colonne calculee
                 continue
               }
               let alias = p.alias
@@ -1448,23 +1453,20 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               {activeTab === 'columns' && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                    Colonnes de sortie ({selectedColumns.length})
+                    Colonnes de sortie ({selectedColumns.length}{skippedColumns.length > 0 ? ` + ${skippedColumns.length} calculée${skippedColumns.length > 1 ? 's' : ''}` : ''})
                   </h3>
                   {skippedColumns.length > 0 && (
                     <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
                       <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                       <div>
                         <span className="font-medium">
-                          {skippedColumns.length} colonne{skippedColumns.length > 1 ? 's' : ''} calculée{skippedColumns.length > 1 ? 's' : ''} non reprise{skippedColumns.length > 1 ? 's' : ''} (fonction ou expression) :
+                          {skippedColumns.length} colonne{skippedColumns.length > 1 ? 's' : ''} calculée{skippedColumns.length > 1 ? 's' : ''} (fonction/expression) affichée{skippedColumns.length > 1 ? 's' : ''} en lecture seule ci-dessous.
                         </span>{' '}
-                        {skippedColumns.map((c, i) => (
-                          <span key={i} className="inline-block font-mono bg-amber-100 dark:bg-amber-900/40 rounded px-1 mr-1">{c}</span>
-                        ))}
-                        <span className="block mt-0.5">Éditez-les dans l'éditeur SQL — elles ne sont pas modélisables visuellement.</span>
+                        <span>Non modélisables visuellement — éditez-les dans l'éditeur SQL.</span>
                       </div>
                     </div>
                   )}
-                  {selectedColumns.length === 0 ? (
+                  {selectedColumns.length === 0 && skippedColumns.length === 0 ? (
                     <p className="text-sm text-gray-500">Sélectionnez des colonnes dans l'onglet Tables</p>
                   ) : (
                     <table className="w-full text-sm">
@@ -1528,6 +1530,27 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {/* Colonnes calculees (lecture seule) */}
+                        {skippedColumns.map((c, i) => (
+                          <tr key={`skip-${i}`} className="border-b border-gray-100 dark:border-gray-700 bg-amber-50/40 dark:bg-amber-900/10">
+                            <td className="px-3 py-2">
+                              <span className="font-mono text-xs text-gray-500 dark:text-gray-400 italic" title={c.expr}>
+                                {c.expr.length > 48 ? c.expr.slice(0, 48) + '…' : c.expr}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="text-xs text-gray-600 dark:text-gray-300">{c.label}</span>
+                            </td>
+                            <td className="px-3 py-2" colSpan={2}>
+                              <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                                <AlertTriangle className="w-3 h-3" /> calculée — éditer en SQL
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-gray-300 dark:text-gray-600">
+                              <Shield className="w-4 h-4" title="Lecture seule" />
                             </td>
                           </tr>
                         ))}
