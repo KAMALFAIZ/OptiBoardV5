@@ -1608,6 +1608,27 @@ def update_pivot(
 ):
     """Met a jour un pivot existant (central + client DWH si present)"""
     try:
+        # Garde-fou anti-effacement : refuser une mise a jour qui viderait a la fois
+        # les lignes ET les valeurs d'un pivot deja configure (perte de la definition).
+        if data.rows_config is not None and data.values_config is not None \
+                and not data.rows_config and not data.values_config:
+            existing = execute_query(
+                "SELECT rows_config, values_config FROM APP_Pivots_V2 WHERE id = ?",
+                (pivot_id,), use_cache=False
+            )
+            if existing and (
+                _parse_json(existing[0].get("rows_config"), [])
+                or _parse_json(existing[0].get("values_config"), [])
+            ):
+                logger.warning(
+                    f"Pivot {pivot_id}: mise a jour refusee (effacement rows_config + values_config)"
+                )
+                return {
+                    "success": False,
+                    "error": "Mise a jour refusee : elle effacerait les champs du pivot. "
+                             "Utilisez le concepteur pour modifier la configuration.",
+                }
+
         # Construire la requete UPDATE dynamiquement
         updates = []
         params_list = []
@@ -1738,8 +1759,18 @@ async def execute_pivot(
 
         config = results[0]
 
-        # Appliquer la config live utilisateur si fournie (surcharge la config DB)
-        if request.custom_config:
+        # Appliquer la config live utilisateur si fournie (surcharge la config DB).
+        # Garde-fou : une config live degeneree (aucune ligne ET aucune valeur) ne doit
+        # JAMAIS masquer la config du builder — sinon le pivot s'affiche vide alors que
+        # sa definition en base est correcte.
+        cc_degenerate = bool(request.custom_config) and not (
+            (request.custom_config.get("rows") or []) or (request.custom_config.get("values") or [])
+        )
+        if cc_degenerate:
+            logger.warning(
+                f"Pivot {pivot_id}: custom_config vide ignoree (fallback config builder)"
+            )
+        if request.custom_config and not cc_degenerate:
             cc = request.custom_config
             if cc.get("rows") is not None:
                 config["rows_config"] = _to_json(cc["rows"])

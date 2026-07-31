@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../context/AuthContext'
@@ -175,7 +175,11 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
     })
   }
 
+  const isEmptyConfig = config.rows.length === 0 && config.values.length === 0
+
   const handleApply = () => {
+    // Refuser une config qui n'affiche rien — elle serait aussi persistee en base
+    if (isEmptyConfig) return
     onApply(config)
     onClose()
   }
@@ -320,6 +324,11 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+          {isEmptyConfig && (
+            <span className="mr-auto text-[11px] text-amber-600 dark:text-amber-400">
+              Ajoutez au moins un champ en Zone Ligne et en Zone Donnees.
+            </span>
+          )}
           <button
             onClick={onClose}
             className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-primary-300 dark:border-primary-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -328,7 +337,9 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
           </button>
           <button
             onClick={handleApply}
-            className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5"
+            disabled={isEmptyConfig}
+            title={isEmptyConfig ? 'Ajoutez au moins un champ en Zone Ligne et en Zone Donnees' : undefined}
+            className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
           >
             <Check size={14} />
             Appliquer
@@ -484,12 +495,15 @@ export default function PivotViewerV2() {
               const prefsUpdatedAt = new Date(prefsRes.data.data.updated_at || 0)
               const configUpdatedAt = new Date(data.updated_at || 0)
               // Ignorer les prefs si le builder a sauvegardé plus récemment
-              if (prefsUpdatedAt >= configUpdatedAt) {
-                const cc = prefsRes.data.data.custom_config
+              const cc = prefsRes.data.data.custom_config
+              // Ignorer des prefs degenerees (ni ligne ni valeur) : elles videraient
+              // le pivot alors que la config du builder est correcte
+              const prefsUsable = (cc?.rows?.length > 0) || (cc?.values?.length > 0)
+              if (prefsUpdatedAt >= configUpdatedAt && prefsUsable) {
                 setLiveConfig(prev => ({
-                  rows: cc.rows || prev.rows,
+                  rows: cc.rows?.length ? cc.rows : prev.rows,
                   columns: cc.columns || prev.columns,
-                  values: cc.values || prev.values,
+                  values: cc.values?.length ? cc.values : prev.values,
                   filters: cc.filters || prev.filters,
                 }))
               }
@@ -539,7 +553,12 @@ export default function PivotViewerV2() {
       }
       // Utiliser customLiveConfig si fourni (evite le probleme d'async setState),
       // sinon utiliser liveConfig courant
-      const effectiveLiveConfig = customLiveConfig || liveConfig
+      let effectiveLiveConfig = customLiveConfig || liveConfig
+      // Ne jamais surcharger avec une config vide (config pas encore chargee, prefs
+      // corrompues...) : le backend utiliserait alors une definition sans champ
+      if (!(effectiveLiveConfig?.rows?.length) && !(effectiveLiveConfig?.values?.length)) {
+        effectiveLiveConfig = null
+      }
       const res = await executePivotV2(id, ctx, false, selectedDwhCode, effectiveLiveConfig)
       if (res.data?.success) {
         setPivotResult(res.data)
@@ -700,22 +719,44 @@ export default function PivotViewerV2() {
 
   // Appliquer la config du field chooser et sauvegarder en base
   const handleApplyFieldChooser = async (newConfig) => {
+    // Une config sans ligne ni valeur n'affiche rien : ne jamais l'appliquer,
+    // et surtout ne jamais l'ecrire en base (elle effacerait le pivot pour tous)
+    const isEmpty = !(newConfig.rows?.length) && !(newConfig.values?.length)
+    if (isEmpty) {
+      setError('Configuration vide : ajoutez au moins un champ en Zone Ligne et en Zone Donnees.')
+      return
+    }
     setLiveConfig(newConfig)
     saveUserPrefs(newConfig)
     // Sauvegarder en base (APP_Pivots_V2) — même logique que le builder
     try {
-      await updatePivotV2(id, {
+      const upd = await updatePivotV2(id, {
         rows_config: newConfig.rows || [],
         columns_config: newConfig.columns || [],
         values_config: newConfig.values || [],
         filters_config: newConfig.filters || [],
       })
+      if (upd?.data && upd.data.success === false) {
+        console.error('Sauvegarde config pivot refusee:', upd.data.error)
+      }
     } catch (e) {
       console.error('Erreur sauvegarde config pivot:', e)
     }
     // Passer newConfig directement — setLiveConfig est async, handleRefresh lirait l'ancienne valeur
     executePivot(pivotConfig, newConfig)
   }
+
+  // Config presentee dans le field chooser : la config live, ou a defaut celle
+  // enregistree par le concepteur (evite un dialogue avec toutes les zones vides)
+  const chooserConfig = useMemo(() => {
+    if (liveConfig.rows?.length || liveConfig.values?.length) return liveConfig
+    return {
+      rows: pivotConfig?.rows_config || [],
+      columns: pivotConfig?.columns_config || [],
+      values: pivotConfig?.values_config || [],
+      filters: pivotConfig?.filters_config || [],
+    }
+  }, [liveConfig, pivotConfig])
 
   // Loading screen
   if (loading) {
@@ -1043,7 +1084,7 @@ export default function PivotViewerV2() {
         open={fieldChooserOpen}
         onClose={() => setFieldChooserOpen(false)}
         availableFields={availableFields}
-        liveConfig={liveConfig}
+        liveConfig={chooserConfig}
         onApply={handleApplyFieldChooser}
       />
 
