@@ -87,14 +87,22 @@ def init_builder_tables():
         )
         """,
         """
+        -- Schema aligne sur setup.py (reference) : colonne `config`, pas `default_config`.
+        -- Les bases anterieures ont le schema historique (default_config + icon) ;
+        -- init_default_data() s'adapte aux colonnes reellement presentes.
         IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='APP_WidgetTemplates' AND xtype='U')
         CREATE TABLE APP_WidgetTemplates (
             id INT IDENTITY(1,1) PRIMARY KEY,
-            type VARCHAR(50) NOT NULL,
             nom NVARCHAR(200) NOT NULL,
+            code VARCHAR(100),
+            type VARCHAR(50) NOT NULL,
+            config NVARCHAR(MAX),
+            preview_image NVARCHAR(500),
             description NVARCHAR(500),
-            default_config NVARCHAR(MAX),
-            icon VARCHAR(50)
+            category VARCHAR(50),
+            is_system BIT DEFAULT 1,
+            actif BIT DEFAULT 1,
+            date_creation DATETIME DEFAULT GETDATE()
         )
         """,
         """
@@ -141,6 +149,26 @@ def init_builder_tables():
         return False
 
 
+def _widget_templates_columns() -> set:
+    """Colonnes reellement presentes dans APP_WidgetTemplates.
+
+    Deux schemas coexistent en base : celui de setup.py (canonique : `config`,
+    `category`, `is_system`, `actif`) et un schema historique (`default_config`,
+    `icon`). Le CREATE TABLE de ce module ne s'applique qu'aux bases ou la table
+    n'existe pas encore ; ailleurs il faut s'adapter aux colonnes en place, sinon
+    l'INSERT echoue avec "Invalid column name 'default_config'".
+    """
+    try:
+        rows = execute_query(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'APP_WidgetTemplates'",
+            use_cache=False
+        )
+        return {r['COLUMN_NAME'] for r in (rows or [])}
+    except Exception as e:
+        logger.warning(f"Lecture du schema APP_WidgetTemplates impossible: {e}")
+        return set()
+
+
 def init_default_data():
     """Initialise les donnees par defaut (templates uniquement) - Sources gerees par reset_datasources.py"""
     try:
@@ -149,6 +177,7 @@ def init_default_data():
         need_templates = not existing or existing[0]['cnt'] == 0
 
         if need_templates:
+            # (type, nom, description, config JSON, icone)
             templates = [
                 ("kpi", "KPI Simple", "Affiche une valeur avec tendance", '{"value_field": "", "format": "number", "color": "blue", "icon": "TrendingUp"}', "Activity"),
                 ("kpi_compare", "KPI Comparatif", "KPI avec comparaison periode precedente", '{"value_field": "", "compare_field": "", "format": "currency"}', "TrendingUp"),
@@ -159,13 +188,44 @@ def init_default_data():
                 ("table", "Tableau", "Tableau de donnees avec tri et pagination", '{"columns": [], "pageSize": 10}', "Table"),
                 ("text", "Texte", "Zone de texte libre", '{"content": "", "fontSize": "base"}', "Type"),
             ]
+
+            cols = _widget_templates_columns()
+            config_col = "config" if "config" in cols else ("default_config" if "default_config" in cols else None)
+            if not config_col:
+                logger.warning(
+                    "APP_WidgetTemplates: ni 'config' ni 'default_config' — seed des templates ignore"
+                )
+                return True
+
+            insert_cols = ["type", "nom", "description", config_col]
+            has_icon = "icon" in cols
+            if has_icon:
+                insert_cols.append("icon")
+            # Colonnes du schema canonique, absentes du schema historique
+            extra = [c for c in ("category", "is_system", "actif") if c in cols]
+
+            placeholders = ", ".join("?" for _ in insert_cols) + ("" if not extra else ", " + ", ".join("?" for _ in extra))
+            query = (f"INSERT INTO APP_WidgetTemplates ({', '.join(insert_cols + extra)}) "
+                     f"VALUES ({placeholders})")
+            extra_values = {"category": "builder", "is_system": 1, "actif": 1}
+
             with get_db_cursor() as cursor:
-                for t in templates:
-                    cursor.execute(
-                        """INSERT INTO APP_WidgetTemplates (type, nom, description, default_config, icon)
-                           VALUES (?, ?, ?, ?, ?)""",
-                        t
-                    )
+                for t_type, nom, desc, config, icon in templates:
+                    if not has_icon:
+                        # Pas de colonne icon (schema canonique) : conserver l'icone
+                        # dans le JSON de config plutot que de la perdre.
+                        try:
+                            cfg = json.loads(config)
+                            cfg.setdefault("icon", icon)
+                            config = json.dumps(cfg)
+                        except Exception:
+                            pass
+                    values = [t_type, nom, desc, config]
+                    if has_icon:
+                        values.append(icon)
+                    values.extend(extra_values[c] for c in extra)
+                    cursor.execute(query, values)
+            logger.info(f"APP_WidgetTemplates: {len(templates)} templates par defaut inseres ({config_col})")
         return True
     except Exception as e:
         logger.error(f"Erreur init default data: {e}")
@@ -333,10 +393,14 @@ def get_widget_templates():
             use_cache=False
         )
 
-        # Parser les configs JSON
+        # Parser les configs JSON (nom de colonne selon le schema : voir _widget_templates_columns)
         for r in results:
-            if r.get('default_config'):
-                r['default_config'] = json.loads(r['default_config'])
+            for col in ('config', 'default_config'):
+                if isinstance(r.get(col), str) and r[col].strip():
+                    try:
+                        r[col] = json.loads(r[col])
+                    except (ValueError, TypeError):
+                        pass  # config non-JSON : la laisser telle quelle plutot que planter la route
 
         return {"success": True, "data": results}
     except Exception as e:
