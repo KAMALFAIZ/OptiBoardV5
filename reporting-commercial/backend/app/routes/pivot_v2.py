@@ -1986,6 +1986,29 @@ def preview_pivot(
             raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
 
         config = results[0]
+
+        # Appliquer la config envoyee par le concepteur (surcharge la config DB) : l'apercu
+        # doit refleter ce qui est a l'ecran, y compris les modifications non sauvegardees,
+        # et rester correct meme si la config en base a ete videe par ailleurs.
+        # Meme garde-fou qu'a l'execution : une config degeneree est ignoree.
+        cc_degenerate = bool(request.custom_config) and not (
+            (request.custom_config.get("rows") or []) or (request.custom_config.get("values") or [])
+        )
+        if cc_degenerate:
+            logger.warning(
+                f"Pivot {pivot_id}: custom_config vide ignoree en apercu (fallback config builder)"
+            )
+        if request.custom_config and not cc_degenerate:
+            cc = request.custom_config
+            if cc.get("rows") is not None:
+                config["rows_config"] = _to_json(cc["rows"])
+            if cc.get("columns") is not None:
+                config["columns_config"] = _to_json(cc["columns"])
+            if cc.get("values") is not None:
+                config["values_config"] = _to_json(cc["values"])
+            if cc.get("filters") is not None:
+                config["filters_config"] = _to_json(cc["filters"])
+
         context = request.context or {}
 
         # Executer avec limite

@@ -522,8 +522,10 @@ export const executePivotV2 = (id, context = {}, raw = false, dwhCode = null, cu
     api.post(`/v2/pivots/${id}/execute`, body, { headers, signal })
   )
 }
-export const previewPivotV2 = (id, context = {}) => {
-  return api.post(`/v2/pivots/${id}/preview`, { context }, { headers: getDWHHeaders() })
+export const previewPivotV2 = (id, context = {}, customConfig = null) => {
+  const body = { context }
+  if (customConfig) body.custom_config = customConfig
+  return api.post(`/v2/pivots/${id}/preview`, body, { headers: getDWHHeaders() })
 }
 export const drilldownPivotV2 = (id, request) => {
   return api.post(`/v2/pivots/${id}/drilldown`, request, { headers: getDWHHeaders() })

@@ -714,7 +714,15 @@ export default function PivotBuilderV2() {
         dateFin: globalFilters?.dateFin,
         societe: globalFilters?.societe,
       }
-      const res = await previewPivotV2(selectedPivotId, ctx)
+      // Envoyer la config a l'ecran : l'apercu reflete les modifications en cours
+      // (meme non sauvegardees) et ne depend plus de l'etat de la config en base.
+      const liveConfig = {
+        rows: stripUids(config.rows_config),
+        columns: stripUids(config.columns_config),
+        values: stripUids(config.values_config),
+        filters: stripUids(config.filters_config),
+      }
+      const res = await previewPivotV2(selectedPivotId, ctx, liveConfig)
       if (res.data?.success) {
         setPreviewData(res.data)
       } else {
