@@ -37,22 +37,51 @@ _FIELDS_CACHE: Dict[str, Any] = {}
 _FIELDS_CACHE_TTL = 600
 
 
+def _client_match(central_row: dict) -> Optional[tuple]:
+    """Cle permettant de retrouver, en base client, la ligne equivalente a une ligne centrale.
+
+    Les ID different entre centrale et bases clientes : on apparie par `code`. Mais la
+    quasi-totalite des pivots existants ont `code = NULL` (crees avant l'ajout de la
+    colonne ou par un seed master) ; sans repli, la centrale et la base client divergent
+    silencieusement. On retombe alors sur le `nom`, seul identifiant stable partage.
+    Retourne (clause_sql, valeur), ou None si rien d'exploitable.
+    """
+    if not central_row:
+        return None
+    if central_row.get("code"):
+        return ("code = ?", central_row["code"])
+    if central_row.get("nom"):
+        return ("nom = ?", central_row["nom"])
+    return None
+
+
 def _pv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
     """Lit depuis la DB client (APP_Pivots_V2 client) si dwh_code présent, sinon centrale.
-    Resout par code quand la requete cherche par ID, car les IDs different entre centrale et client."""
+    Resout par code (ou a defaut par nom) quand la requete cherche par ID, car les IDs
+    different entre centrale et client."""
     if dwh_code:
         try:
             if client_manager.has_client_db(dwh_code):
-                # Si la requete cherche par ID, resoudre via le code pour eviter le decalage d'IDs
+                # Si la requete cherche par ID, resoudre via code/nom pour eviter le decalage d'IDs
                 if "WHERE id = ?" in query and len(params) == 1:
-                    central = execute_query("SELECT code FROM APP_Pivots_V2 WHERE id = ?", params, use_cache=False)
-                    if central and central[0].get("code"):
-                        code = central[0]["code"]
-                        code_query = query.replace("WHERE id = ?", "WHERE code = ?")
+                    central = execute_query(
+                        "SELECT code, nom FROM APP_Pivots_V2 WHERE id = ?", params, use_cache=False
+                    )
+                    match = _client_match(central[0] if central else None)
+                    if match:
+                        clause, value = match
+                        match_query = query.replace("WHERE id = ?", f"WHERE {clause}")
                         try:
-                            result = execute_client(code_query, (code,), dwh_code=dwh_code, use_cache=False)
-                            if result:
+                            result = execute_client(match_query, (value,), dwh_code=dwh_code, use_cache=False)
+                            if len(result or []) == 1:
                                 return result
+                            if len(result or []) > 1:
+                                # Nom ambigu : ne pas deviner, la centrale fait foi
+                                logger.warning(
+                                    f"_pv_read {dwh_code}: {len(result)} pivots client pour "
+                                    f"{clause[:4]}={value!r} — lecture centrale"
+                                )
+                                return execute_query(query, params, use_cache=False)
                         except Exception:
                             pass
                 # Fallback: requete originale sur client
@@ -1696,18 +1725,40 @@ def update_pivot(
             try:
                 if client_manager.has_client_db(dwh_code):
                     central_row = execute_query(
-                        "SELECT code FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False
+                        "SELECT code, nom FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False
                     )
-                    if central_row and central_row[0].get("code"):
-                        code = central_row[0]["code"]
-                        # Reconstruire sans le dernier element (pivot_id) et remplacer par code
-                        client_updates = list(updates[:-1])
-                        client_params = list(params_list[:-1])
-                        client_updates.append("updated_at = GETDATE()")
-                        client_params.append(code)
-                        client_query = f"UPDATE APP_Pivots_V2 SET {', '.join(client_updates)} WHERE code = ?"
-                        with dwh_cursor(dwh_code) as c:
-                            c.execute(client_query, tuple(client_params))
+                    match = _client_match(central_row[0] if central_row else None)
+                    if not match:
+                        # Ni code ni nom : impossible d'apparier. Le signaler plutot que
+                        # de laisser la base client diverger en silence (le viewer lit
+                        # la base client : il afficherait un pivot vide).
+                        logger.warning(
+                            f"Update client DWH {dwh_code} pivot {pivot_id}: aucune cle "
+                            f"d'appariement (code et nom vides) — base client non mise a jour"
+                        )
+                    else:
+                        clause, value = match
+                        # Cle ambigue (pivots clients homonymes) : ne rien ecrire plutot
+                        # que d'ecraser le mauvais pivot.
+                        n_rows = execute_client(
+                            f"SELECT COUNT(*) AS n FROM APP_Pivots_V2 WHERE {clause}",
+                            (value,), dwh_code=dwh_code, use_cache=False
+                        )
+                        n = (n_rows[0].get("n") if n_rows else 0) or 0
+                        if n != 1:
+                            logger.warning(
+                                f"Update client DWH {dwh_code} pivot {pivot_id}: {n} ligne(s) "
+                                f"client pour {clause[:4]}={value!r} — base client NON mise a jour"
+                            )
+                        else:
+                            # Reconstruire sans le dernier element (pivot_id) et remplacer par la cle
+                            client_updates = list(updates[:-1])
+                            client_params = list(params_list[:-1])
+                            client_updates.append("updated_at = GETDATE()")
+                            client_params.append(value)
+                            client_query = f"UPDATE APP_Pivots_V2 SET {', '.join(client_updates)} WHERE {clause}"
+                            with dwh_cursor(dwh_code) as c:
+                                c.execute(client_query, tuple(client_params))
             except Exception as e:
                 logger.warning(f"Update client DWH {dwh_code} pivot {pivot_id}: {e}")
 
