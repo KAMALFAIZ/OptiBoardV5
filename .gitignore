@@ -94,3 +94,23 @@ sqlserver/*.bak
 
 # Configs agent contenant des secrets (clé API en clair) — ne jamais committer
 agent_config_*.json
+
+# Cles SSH du tunnel Sage (cle privee ed25519) — ne JAMAIS committer
+sage_tunnel_keys/
+sage_tunnel_deploy/
+
+# Artefacts de build agent ETL (paquets de deploiement, ~70 Mo chacun)
+SageETLAgent_MultiAgent/**/*.zip
+
+# Sauvegardes de travail en cours (stash manuel)
+SageETLAgent_MultiAgent/_stash_wip_backup/
+*.stashed
+
+# Sorties temporaires de lancement backend
+reporting-commercial/backend/backend_run.*
+
+# Sauvegardes de build frontend
+reporting-commercial/frontend/dist_bak_*/
+
+# Scripts one-shot de diagnostic
+_tmp_*
