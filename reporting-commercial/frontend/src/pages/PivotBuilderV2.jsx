@@ -44,13 +44,9 @@ const APPLICATION_OPTIONS = [
   { value: 'tresorerie', label: 'Gestion Trésorerie' },
 ]
 
-// Generateur d'ID unique pour les champs dans les zones
-let _uidCounter = 0
-const genUid = () => `_f${++_uidCounter}_${Date.now()}`
-const ensureUids = (items) => (items || []).map(f => f._uid ? f : { ...f, _uid: genUid() })
-const stripUids = (items) => (items || []).map(({ _uid, ...rest }) => rest)
-
-// Parse JSON string ou retourne le tableau directement
+// Parse JSON string ou retourne le tableau directement.
+// Les colonnes de configuration sont stockees en NVARCHAR(MAX) : selon le chemin de lecture,
+// elles remontent tantot en tableau deja parse, tantot en chaine JSON brute.
 const safeArray = (val) => {
   if (Array.isArray(val)) return val
   if (typeof val === 'string') {
@@ -59,6 +55,14 @@ const safeArray = (val) => {
   }
   return []
 }
+
+// Generateur d'ID unique pour les champs dans les zones
+let _uidCounter = 0
+const genUid = () => `_f${++_uidCounter}_${Date.now()}`
+// Normalisation via safeArray avant tout .map : recevoir une chaine JSON faisait echouer
+// le chargement (une chaine n'a pas de .map), et les zones du concepteur restaient vides.
+const ensureUids = (items) => safeArray(items).map(f => f._uid ? f : { ...f, _uid: genUid() })
+const stripUids = (items) => safeArray(items).map(({ _uid, ...rest }) => rest)
 
 export default function PivotBuilderV2() {
   const navigate = useNavigate()
@@ -588,10 +592,10 @@ export default function PivotBuilderV2() {
         data_source_code: src.data_source_code,
         drilldown_data_source_code: src.drilldown_data_source_code || null,
         drilldown_field_mapping: src.drilldown_field_mapping || {},
-        rows_config: src.rows_config || [],
-        columns_config: src.columns_config || [],
-        filters_config: src.filters_config || [],
-        values_config: src.values_config || [],
+        rows_config: safeArray(src.rows_config),
+        columns_config: safeArray(src.columns_config),
+        filters_config: safeArray(src.filters_config),
+        values_config: safeArray(src.values_config),
         show_grand_totals: !!src.show_grand_totals,
         show_subtotals: !!src.show_subtotals,
         show_row_percent: !!src.show_row_percent,

@@ -52,6 +52,20 @@ const AGGREGATIONS = [
   { value: 'MEDIAN', label: 'Mediane' },
 ]
 
+// Parse JSON string ou retourne le tableau directement. Les colonnes de configuration sont
+// stockees en NVARCHAR(MAX) : selon le chemin de lecture, elles remontent tantot en tableau
+// deja parse, tantot en chaine JSON brute. Sans normalisation, une chaine traverse le `|| []`
+// (elle est truthy) et casse au premier .map, ou pire fait paraitre les zones remplies alors
+// qu'aucun champ n'est exploitable. Meme helper que le concepteur.
+const safeArray = (val) => {
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string') {
+    try { const parsed = JSON.parse(val); return Array.isArray(parsed) ? parsed : [] }
+    catch { return [] }
+  }
+  return []
+}
+
 // ─── Field Chooser Dialog ────────────────────────────────────────────
 function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onApply }) {
   const [config, setConfig] = useState({ rows: [], columns: [], values: [], filters: [] })
@@ -481,10 +495,10 @@ export default function PivotViewerV2() {
 
         // Init live config depuis la config admin
         setLiveConfig({
-          rows: data.rows_config || [],
-          columns: data.columns_config || [],
-          values: data.values_config || [],
-          filters: data.filters_config || [],
+          rows: safeArray(data.rows_config),
+          columns: safeArray(data.columns_config),
+          values: safeArray(data.values_config),
+          filters: safeArray(data.filters_config),
         })
 
         // Charger les preferences utilisateur — uniquement si plus récentes que la config builder
@@ -703,10 +717,10 @@ export default function PivotViewerV2() {
   const handleResetConfig = async () => {
     if (!pivotConfig) return
     setLiveConfig({
-      rows: pivotConfig.rows_config || [],
-      columns: pivotConfig.columns_config || [],
-      values: pivotConfig.values_config || [],
-      filters: pivotConfig.filters_config || [],
+      rows: safeArray(pivotConfig.rows_config),
+      columns: safeArray(pivotConfig.columns_config),
+      values: safeArray(pivotConfig.values_config),
+      filters: safeArray(pivotConfig.filters_config),
     })
     if (user?.id) {
       try {
@@ -751,10 +765,10 @@ export default function PivotViewerV2() {
   const chooserConfig = useMemo(() => {
     if (liveConfig.rows?.length || liveConfig.values?.length) return liveConfig
     return {
-      rows: pivotConfig?.rows_config || [],
-      columns: pivotConfig?.columns_config || [],
-      values: pivotConfig?.values_config || [],
-      filters: pivotConfig?.filters_config || [],
+      rows: safeArray(pivotConfig?.rows_config),
+      columns: safeArray(pivotConfig?.columns_config),
+      values: safeArray(pivotConfig?.values_config),
+      filters: safeArray(pivotConfig?.filters_config),
     }
   }, [liveConfig, pivotConfig])
 
