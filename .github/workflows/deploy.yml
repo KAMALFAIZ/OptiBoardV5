@@ -90,9 +90,21 @@ jobs:
       # NOTE : le frontend utilisateur est servi par IIS. Le backend 8084 ne
       # sert que l'API (sa route SPA pointe sur un template Vite non-builde).
       # Etapes conservees telles quelles — orthogonales au fix backend 8084.
+      # Le runner est self-hosted : son cache npm (~400 Mo, compte SYSTEM) persiste
+      # deja d'un job a l'autre. Inutile d'ajouter actions/cache — cela ferait
+      # transiter le meme cache par le reseau, plus lent encore.
+      #
+      # Le temps passe ici n'etait PAS du telechargement : les logs npm montrent
+      # 44 requetes registry "(cache revalidated)", certaines a 9 s, plus la
+      # requete d'audit — soit ~10 min de latence reseau pour des paquets deja
+      # presents localement. D'ou :
+      #   --prefer-offline : sert les metadonnees depuis le cache, ne va sur le
+      #                      reseau que pour ce qui manque reellement
+      #   --no-audit       : supprime l'appel d'audit (le lockfile fait foi ici)
+      #   --no-fund        : bruit en moins
       - name: Install Node dependencies
         working-directory: reporting-commercial/frontend
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
         shell: powershell
 
       - name: Build React frontend
