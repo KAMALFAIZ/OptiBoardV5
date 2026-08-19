@@ -10,6 +10,13 @@
       "cwd": "reporting-commercial/frontend"
     },
     {
+      "name": "Reporting - Frontend PREVIEW (build prod + PWA)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview"],
+      "port": 4173,
+      "cwd": "frontend"
+    },
+    {
       "name": "Reporting - Backend API (FastAPI)",
       "runtimeExecutable": "D:/kasoft-platform/OptiBoard/reporting-commercial/backend/venv/Scripts/python.exe",
       "runtimeArgs": ["run.py"],

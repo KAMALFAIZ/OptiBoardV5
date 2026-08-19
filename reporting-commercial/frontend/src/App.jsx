@@ -17,6 +17,7 @@ import { useIsMobile } from './hooks/useIsMobile'
 import LicenseBanner from './components/common/LicenseBanner'
 import api from './services/api'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import PwaPrompts from './components/pwa/PwaPrompts'
 
 // Pages critiques (affichées au premier rendu, pas de lazy)
 import LoginPage from './pages/LoginPage'
@@ -381,6 +382,8 @@ function App() {
     <Router>
       <ErrorBoundary title="Une erreur critique est survenue — veuillez recharger la page">
         <AppRoot />
+        {/* Banniere d'installation PWA + toast de mise a jour (overlays globaux) */}
+        <PwaPrompts />
       </ErrorBoundary>
     </Router>
   )
