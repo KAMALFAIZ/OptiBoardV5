@@ -35,7 +35,7 @@ from app.security import require_admin, require_superadmin   # Gardes d'autorisa
 from app.routes import (
     dashboard, ventes, ventes_detail, stocks, recouvrement,
     admin_sql, export, users, dashboard_builder, gridview_builder,
-    menus, report_scheduler, setup, etl_agents,
+    menus, report_scheduler, setup, etl_agents, etl_enroll,
     liste_ventes, analyse_ca_creances, pic_2026,
     datasource_templates, sql_jobs, pivot_v2,
     license, ai_assistant, master_publish, ai_learning, ai_prompts,
@@ -177,6 +177,7 @@ app.include_router(menus.router)
 app.include_router(report_scheduler.router)
 app.include_router(setup.router)
 app.include_router(etl_agents.router)
+app.include_router(etl_enroll.router)       # Enrôlement agents par jeton à usage unique
 app.include_router(liste_ventes.router)
 app.include_router(analyse_ca_creances.router)
 app.include_router(pic_2026.router)
