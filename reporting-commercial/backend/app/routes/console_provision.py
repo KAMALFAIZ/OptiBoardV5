@@ -14,9 +14,9 @@ Auth : même secret partagé `CONSOLE_TOKEN` que /api/console/instance-stats
 
 Le provisioning compose les deux helpers canoniques existants (aucune duplication
 de la logique métier de création d'instance) :
-  1. setup._create_first_local_dwh()      → APP_DWH (centrale) + admin client
-     (bcrypt) + APP_UserDWH (superadmin/admin) + APP_ClientDB (routage) +
-     source Sage optionnelle (APP_ETL_Agents + APP_DWH_Sources).
+  1. setup._create_first_local_dwh()      → APP_DWH (centrale, base_dwh=DWH_<CODE>
+     créée vide pour l'ETL) + admin client (bcrypt) + APP_UserDWH (superadmin/admin)
+     + APP_ClientDB (routage) + source Sage optionnelle (APP_ETL_Agents + APP_DWH_Sources).
   2. dwh_admin._create_client_optiboard_db() → complète la base OptiBoard_<CODE>
      avec TOUTES les tables client + migration des données Master + menus par défaut.
 
@@ -156,6 +156,7 @@ def _provision(req: ProvisionRequest, code: str, admin_password: str, sage_on: b
 
     return {
         "db_name": base.get("db_name") or f"OptiBoard_{code}",
+        "dwh_db_name": base.get("dwh_db_name") or f"DWH_{code}",
         "db_created": bool(base.get("db_created")),
         "dwh_registered": bool(base.get("dwh_inserted")),
         "users_linked": base.get("users_linked", 0),
@@ -239,6 +240,7 @@ async def provision_instance(
         "success": True,
         "code": code,
         "db_name": result["db_name"],
+        "dwh_db_name": result["dwh_db_name"],
         "db_created": result["db_created"],
         "dwh_registered": result["dwh_registered"],
         "tables_count": result["tables_count"],
