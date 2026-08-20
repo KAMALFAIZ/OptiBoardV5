@@ -3,6 +3,10 @@
 #  Arret service -> sauvegarde -> copie (preserve .env) -> redemarrage -> verif
 #  Lance-moi via DEPLOY_BACKEND.bat (auto-eleve) ou depuis un shell admin.
 # ======================================================================
+param(
+    # -NoPause : ne pas attendre de touche a la fin (execution automatisee/elevee).
+    [switch]$NoPause
+)
 $ErrorActionPreference = 'Stop'
 
 $src = 'D:\kasoft-platform\OptiBoard\reporting-commercial\backend\dist_client'
@@ -59,8 +63,28 @@ if ($code -eq 401) {
     Write-Host "   /api/agents/for-dwh -> reponse $code" -ForegroundColor Yellow
 }
 
+# Enrolement par jeton : POST avec un corps vide => 422 (route presente, validation
+# Pydantic refusee) et non 404. On evite volontairement un jeton bidon, qui
+# declencherait la creation de la table APP_ETL_Enroll_Tokens pendant une simple verif.
+$code2 = $null
+try {
+    Invoke-WebRequest 'http://127.0.0.1:8084/api/agents/enroll' -Method POST `
+        -Body '{}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 10 | Out-Null
+} catch { $code2 = $_.Exception.Response.StatusCode.value__ }
+if ($code2 -eq 422) {
+    Write-Host "   /api/agents/enroll  -> 422 (route DEPLOYEE, jeton exige) : OK" -ForegroundColor Green
+} elseif ($code2 -eq 404) {
+    Write-Host "   /api/agents/enroll  -> 404 : route ABSENTE (enrolement non deploye)" -ForegroundColor Red
+} else {
+    Write-Host "   /api/agents/enroll  -> reponse $code2" -ForegroundColor Yellow
+}
+
 Say ""
 Say "Termine. Sauvegarde: $bak"
 Say "En cas de souci: Stop-Service $svcName ; supprimer $dst ; renommer $bak en $dst ; Start-Service $svcName"
-Write-Host "`nAppuyez sur une touche pour fermer..." -ForegroundColor DarkGray
-[void][System.Console]::ReadKey($true)
+# Pause uniquement en session interactive : en execution automatisee (CI, agent,
+# PowerShell -NonInteractive) ReadKey echoue ou bloque le script indefiniment.
+if (-not $NoPause -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    Write-Host "`nAppuyez sur une touche pour fermer..." -ForegroundColor DarkGray
+    try { [void][System.Console]::ReadKey($true) } catch { }
+}
