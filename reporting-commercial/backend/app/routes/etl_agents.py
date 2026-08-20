@@ -554,6 +554,30 @@ async def get_agent_auth(
     return x_agent_id
 
 
+def _enforce_agent_auth(agent_id: str, x_api_key: Optional[str], x_dwh_code: Optional[str]) -> None:
+    """
+    Enforce l'authentification d'un agent, SANS possibilité de contournement.
+
+    Remplace le motif historique `if x_api_key and x_dwh_code:` qui laissait
+    passer tout appel omettant un en-tête (faille de bypass) :
+      - si une clé API est fournie, elle DOIT être valide (le DWH est résolu
+        depuis l'en-tête, ou à défaut depuis le monitoring central) ;
+      - sans clé API, seuls les jetons de session Démo sont admis ;
+      - tout le reste → 401.
+
+    Lève HTTPException (401/404) en cas d'échec. Ne retourne rien en cas de succès.
+    """
+    if x_api_key:
+        dwh = _get_dwh_for_agent(agent_id, x_dwh_code)  # résout via monitoring si l'en-tête manque
+        if not verify_agent(agent_id, x_api_key, dwh):
+            raise HTTPException(status_code=401, detail="Agent non autorisé")
+        return
+    # Pas de clé API : seul le mode démo (jeton = agent_id) est toléré.
+    if _get_demo_session(agent_id):
+        return
+    raise HTTPException(status_code=401, detail="Agent non autorisé (clé API requise)")
+
+
 # ============================================================
 # Routes Administration (UI)
 # ============================================================
@@ -2446,8 +2470,7 @@ async def agent_register(
     Dual-write : base client (statut complet) + central monitoring (metriques).
     Authentifie via X-API-Key.
     """
-    if x_api_key and not verify_agent(agent_id, x_api_key, x_dwh_code):
-        raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         data = await request.json()
 
@@ -2504,9 +2527,7 @@ def agent_heartbeat(
     Heartbeat d'un agent. Authentifie via X-API-Key.
     Dual-write : base client + central monitoring.
     """
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     # ── Mode Démo ─────────────────────────────────────────────────────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2648,9 +2669,7 @@ def agent_get_tables(
     if_none_match: Optional[str] = Header(None, alias="If-None-Match")
 ):
     """Recupere la configuration des tables pour un agent. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     # ── Mode Démo ─────────────────────────────────────────────────────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2841,9 +2860,7 @@ async def agent_push_data(
     """Reception des donnees synchronisees. Authentifie via X-API-Key.
     Idempotence opt-in via header X-Request-Id : un batch rejoue avec le meme
     request_id repond succes + duplicate:true sans retraiter les donnees."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
 
     # Valider les identifiants SQL pour prevenir l'injection
     try:
@@ -3330,9 +3347,7 @@ def agent_get_commands(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """Recupere les commandes en attente pour un agent. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         commands = execute_query(
             """
@@ -3368,9 +3383,7 @@ def agent_ack_command(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """Acquitte une commande. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         with get_db_cursor() as cursor:
             cursor.execute(
@@ -3398,9 +3411,7 @@ async def agent_complete_command(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """Marque une commande comme terminee. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         data = await request.json()
 
@@ -5357,8 +5368,14 @@ async def dwh_admin_create_single_client_db(code: str):
 
 
 @router.post("/agents/{agent_id}/sync-result")
-def agent_sync_result(agent_id: str, result: SyncResultRequest):
+def agent_sync_result(
+    agent_id: str,
+    result: SyncResultRequest,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
     """Rapporte le resultat d'une synchronisation"""
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         with get_db_cursor() as cursor:
             # Inserer le log
@@ -5893,25 +5910,27 @@ class PushDeletionsRequest(BaseModel):
 
 
 @router.post("/agents/{agent_id}/push-deletions")
-async def agent_push_deletions(agent_id: str, req: PushDeletionsRequest):
+async def agent_push_deletions(
+    agent_id: str,
+    req: PushDeletionsRequest,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
     """
     Detecte et supprime les lignes orphelines cote destination.
     Compare les IDs source recus avec ceux en destination.
     Supprime les IDs presents en destination mais absents de la source.
+
+    Endpoint DESTRUCTIF (DELETE sur les tables du DWH) : authentification agent
+    obligatoire. Le DWH ciblé est celui prouvé par la clé (en-tête authentifié),
+    jamais un dwh_code déduit d'une table centrale (résolution divergente historique).
     """
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         start_time = datetime.now()
 
-        # Recuperer le DWH code de l'agent
-        agents = execute_query(
-            "SELECT dwh_code FROM APP_ETL_Agents WHERE agent_id = ?",
-            (agent_id,),
-            use_cache=False
-        )
-        if not agents:
-            raise HTTPException(status_code=404, detail="Agent non trouve")
-
-        dwh_code = agents[0]['dwh_code']
+        # DWH cible = celui authentifié (en-tête), à défaut résolu via le monitoring.
+        dwh_code = _get_dwh_for_agent(agent_id, x_dwh_code)
 
         # Executer la detection et suppression
         result = await _detect_and_delete_orphans(

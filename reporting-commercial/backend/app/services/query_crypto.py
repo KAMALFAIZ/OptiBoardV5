@@ -10,7 +10,28 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_KEY = b"optiboard-query-encrypt-2026-ks!"  # 32 octets
+# Clé AES-256 (32 octets). Externalisée via OPTIBOARD_QUERY_AES_KEY pour permettre
+# la rotation. Repli sur la valeur historique afin de rester compatible avec les
+# agents C# déjà déployés (QueryDecryptor porte la même clé en dur) : tant que la
+# variable n'est pas définie DES DEUX CÔTÉS, le comportement est identique.
+_LEGACY_KEY = b"optiboard-query-encrypt-2026-ks!"  # 32 octets
+
+
+def _resolve_key() -> bytes:
+    env_key = os.environ.get("OPTIBOARD_QUERY_AES_KEY")
+    if env_key:
+        kb = env_key.encode("utf-8")
+        if len(kb) == 32:
+            return kb
+        logger.error(
+            "[query_crypto] OPTIBOARD_QUERY_AES_KEY doit faire exactement 32 octets "
+            "(%d fournis) — repli sur la clé legacy pour ne pas casser les agents.",
+            len(kb),
+        )
+    return _LEGACY_KEY
+
+
+_KEY = _resolve_key()
 _PREFIX = "$enc1$"
 
 

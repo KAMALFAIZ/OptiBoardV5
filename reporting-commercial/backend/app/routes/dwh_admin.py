@@ -2508,12 +2508,16 @@ class RepairClientDBRequest(BaseModel):
 
 
 @router.get("/dwh-admin/{code}/agent-config")
-def dwh_admin_agent_config(code: str, request: Request):
+def dwh_admin_agent_config(code: str, request: Request, agent_id: Optional[str] = None):
     """
     Génère un fichier de configuration chiffré (AES-256-GCM) pour l'Agent ETL Sage.
     Contient le couple (server_url + dwh_code) lié au client — évite toute
     saisie manuelle et empêche le mélange serveur/code DWH.
     Le fichier est illisible en clair : seul l'agent C# possède la clé de déchiffrement.
+
+    Si `agent_id` est fourni, un JETON D'ENRÔLEMENT à usage unique est embarqué :
+    l'agent l'échange au premier démarrage (POST /api/agents/enroll) contre son
+    ApiKey — plus aucun copier-coller manuel de la clé.
     """
     import base64
     import os as _os
@@ -2541,11 +2545,37 @@ def dwh_admin_agent_config(code: str, request: Request):
         proto = request.headers.get("X-Forwarded-Proto", "http")
         server_url = f"{proto}://{host}".rstrip("/") if host else str(request.base_url).rstrip("/")
 
+    # Garde-fou : ne JAMAIS distribuer une URL loopback à un agent distant.
+    # C'est la cause directe du "connexion refusée (127.0.0.1:8084)" chez le client :
+    # l'agent taperait sur sa propre machine. On exige alors SERVER_PUBLIC_URL.
+    _host_only = server_url.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
+    if not public_url and _host_only in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "URL serveur non routable détectée (" + server_url + "). "
+                "Renseignez SERVER_PUBLIC_URL (ex: https://optiboard.kasoft.ma) dans "
+                "le .env du serveur central avant de générer la config agent, sinon "
+                "l'agent client se connectera à sa propre machine."
+            ),
+        )
+
     payload = {
         "dwh_code": dwh["code"],
         "server_url": server_url,
         "client_nom": dwh["nom"]
     }
+
+    # Optionnel : embarquer un jeton d'enrôlement lié à un agent précis.
+    if agent_id:
+        try:
+            from .etl_enroll import mint_enroll_token
+            minted = mint_enroll_token(dwh["code"], agent_id)
+            payload["agent_id"] = agent_id
+            payload["enroll_token"] = minted["enroll_token"]
+            payload["enroll_expires_at"] = minted["expires_at"]
+        except Exception as _e:
+            logger.warning(f"[AGENT-CONFIG] Jeton d'enrôlement non émis pour {code}/{agent_id}: {_e}")
 
     # Chiffrement AES-256-GCM — clé partagée avec l'agent C#.
     # Configurable via OPTIBOARD_ETL_AES_KEY (32 octets) ; repli sur la clé
