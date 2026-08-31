@@ -5840,7 +5840,11 @@ def download_agent_package():
 
 
 @router.get("/admin/etl/agents/download/sage-agent")
-def download_sage_agent():
+def download_sage_agent(
+    request: Request,
+    agent_id: Optional[str] = None,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+):
     """
     Telecharge l'agent .NET SageETLAgent_MultiAgent (self-contained win-x64).
 
@@ -5848,12 +5852,21 @@ def download_sage_agent():
     `SageETLAgent_MultiAgent/SageETLAgent/SageETLAgent.zip` et le regenere
     a partir de `binpublish_new/` (prefixe d'entree `SageETLAgent/`) lorsque
     l'exe publie est plus recent que le zip (ou que le zip n'existe pas).
+
+    Si `agent_id` est fourni (avec `X-DWH-Code`), le zip est enrichi d'un
+    `agent_config_<CODE>.json` place a cote de l'exe : il embarque un jeton
+    d'enrolement a usage unique que l'agent echange contre sa cle API au premier
+    import. Le client dezippe, lance, importe — aucun identifiant a saisir.
+    Le zip de base en cache n'est jamais modifie : la copie enrichie est
+    construite dans un fichier temporaire, supprime apres envoi.
     """
     import zipfile
     import os
+    import shutil
     import tempfile
     from pathlib import Path
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
 
     # .../reporting-commercial/backend/app/routes/etl_agents.py -> OptiBoardV5/SageETLAgent_MultiAgent/SageETLAgent
     agent_dir = (
@@ -5896,10 +5909,64 @@ def download_sage_agent():
             raise HTTPException(status_code=500, detail=f"Erreur generation agent: {e}")
         logger.info(f"{zip_path.name} genere ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)")
 
+    # ── Zip nu (comportement historique) ──
+    if not agent_id:
+        return FileResponse(
+            path=str(zip_path),
+            media_type="application/zip",
+            filename="SageETLAgent.zip",
+        )
+
+    # ── Zip pre-configure : exe + fichier de config avec jeton d'enrolement ──
+    if not x_dwh_code:
+        raise HTTPException(
+            status_code=400,
+            detail="X-DWH-Code requis pour un telechargement pre-configure",
+        )
+
+    # L'agent doit exister dans la base client, sinon le jeton serait inechangeable.
+    try:
+        with client_cursor(x_dwh_code) as cur:
+            cur.execute("SELECT agent_id FROM APP_ETL_Agents WHERE agent_id = ?", (agent_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Agent introuvable pour ce DWH")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[AGENT-ZIP] Base client inaccessible pour {x_dwh_code}: {e}")
+        raise HTTPException(status_code=502, detail="Base client inaccessible")
+
+    from .dwh_admin import build_agent_config
+    cfg_name, cfg_content = build_agent_config(x_dwh_code, request, agent_id)
+
+    tmp_fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=str(agent_dir))
+    os.close(tmp_fd)
+    try:
+        shutil.copyfile(zip_path, tmp_zip)
+        # La config doit atterrir a cote de l'exe, donc sous le meme prefixe
+        # d'entree que celui utilise a la generation du zip de base.
+        with zipfile.ZipFile(tmp_zip, "a", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"SageETLAgent/{cfg_name}", cfg_content)
+    except Exception as e:
+        try:
+            os.remove(tmp_zip)
+        except OSError:
+            pass
+        logger.error(f"[AGENT-ZIP] Erreur ajout config au zip: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur preparation agent: {e}")
+
+    def _cleanup(path=tmp_zip):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    logger.info(f"[AGENT-ZIP] Zip pre-configure pour agent={agent_id} dwh={x_dwh_code}")
     return FileResponse(
-        path=str(zip_path),
+        path=tmp_zip,
         media_type="application/zip",
-        filename="SageETLAgent.zip",
+        filename=f"SageETLAgent_{x_dwh_code}.zip",
+        background=BackgroundTask(_cleanup),
     )
 
 

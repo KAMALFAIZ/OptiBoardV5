@@ -58,6 +58,7 @@ export default function ETLAdmin() {
   const [dwhList, setDwhList] = useState([])
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showDownloadPicker, setShowDownloadPicker] = useState(false)
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [showLogsModal, setShowLogsModal] = useState(false)
   const [error, setError] = useState(null)
@@ -148,24 +149,38 @@ export default function ETLAdmin() {
   }
 
   // Telecharge l'agent Sage ETL (.NET) a installer sur le serveur Sage du client
-  const handleDownloadAgent = async () => {
+  // Telechargement du zip agent. Avec un agentId, le zip embarque la config
+  // (jeton d'enrolement) : rien a saisir chez le client. Sans, zip nu.
+  const runDownloadAgent = async (agent = null) => {
+    setShowDownloadPicker(false)
     setDownloadingAgent(true)
     try {
-      const res = await downloadSageAgent()
+      const res = await downloadSageAgent(agent?.agent_id)
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }))
       const a = document.createElement('a')
       a.href = url
-      a.download = 'SageETLAgent.zip'
+      a.download = agent
+        ? `SageETLAgent_${agent.dwh_code || agent.name || 'config'}.zip`
+        : 'SageETLAgent.zip'
       document.body.appendChild(a)
       a.click()
       a.remove()
       window.URL.revokeObjectURL(url)
+      if (agent) {
+        setSuccessMsg(`Agent pret a l'emploi telecharge pour ${agent.name} — le jeton d'enrolement expire dans 24 h`)
+      }
     } catch (err) {
       console.error('Erreur telechargement agent Sage:', err)
       setError("Erreur lors du telechargement de l'agent Sage")
     } finally {
       setDownloadingAgent(false)
     }
+  }
+
+  const handleDownloadAgent = () => {
+    // Sans agent enregistre, rien a pre-configurer : telechargement direct.
+    if (!agents.length) return runDownloadAgent()
+    setShowDownloadPicker(true)
   }
 
   const handleAgentClick = (agent) => {
@@ -274,7 +289,7 @@ export default function ETLAdmin() {
             className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-2 transition-colors disabled:opacity-50"
             onClick={handleDownloadAgent}
             disabled={downloadingAgent}
-            title="Télécharger l'agent Sage ETL à installer sur le serveur Sage"
+            title="Télécharger l'agent Sage ETL, pré-configuré pour un agent (aucun identifiant à saisir)"
           >
             <Download size={16} className={downloadingAgent ? 'animate-pulse' : ''} />
             {downloadingAgent ? 'Préparation…' : 'Agent Sage'}
@@ -487,6 +502,63 @@ export default function ETLAdmin() {
           agent={selectedAgent}
           onClose={() => setShowLogsModal(false)}
         />
+      )}
+
+      {/* Choix de l'agent a pre-configurer dans le zip telecharge */}
+      {showDownloadPicker && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowDownloadPicker(false)}
+        >
+          <div
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Download size={18} />
+                Telecharger l'agent Sage
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Choisissez l'agent : le zip embarquera sa configuration et un jeton
+                d'enrolement valable 24 h. Chez le client, il suffit de dezipper, lancer,
+                puis importer le fichier de config — aucun identifiant a saisir.
+              </p>
+            </div>
+
+            <div className="p-2 overflow-y-auto">
+              {agents.map((agent) => (
+                <button
+                  key={agent.agent_id}
+                  onClick={() => runDownloadAgent(agent)}
+                  className="w-full text-left px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <div className="font-medium text-gray-900 dark:text-white">{agent.name}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {agent.dwh_name || agent.dwh_code}
+                    {agent.sage_database ? ` - ${agent.sage_database}` : ''}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex justify-between gap-2">
+              <button
+                onClick={() => runDownloadAgent()}
+                className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:underline"
+                title="Zip nu : identifiants a saisir manuellement dans l'agent"
+              >
+                Sans configuration
+              </button>
+              <button
+                onClick={() => setShowDownloadPicker(false)}
+                className="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

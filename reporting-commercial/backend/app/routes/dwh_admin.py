@@ -1776,6 +1776,85 @@ def _drop_db(serveur: str, db_name: str, user: str, password: str) -> dict:
         return {"dropped": False, "db": db_name, "error": str(e)}
 
 
+def _drain(cursor) -> None:
+    """Épuise les jeux de résultats restants d'une procédure étendue (xp_*)."""
+    try:
+        while cursor.nextset():
+            pass
+    except Exception:
+        pass
+
+
+def _dir_exists(cursor, path: str) -> bool:
+    """
+    Vérifie qu'un dossier existe RÉELLEMENT côté serveur SQL via xp_fileexist.
+    Colonnes retournées : [File Exists, File is a Directory, Parent Directory Exists].
+    On teste la 2e colonne : le chemin existe ET c'est un dossier.
+    """
+    try:
+        cursor.execute("EXEC master.dbo.xp_fileexist ?", (path,))
+        row = cursor.fetchone()
+        return bool(row and row[1] == 1)
+    except Exception:
+        return False
+    finally:
+        _drain(cursor)
+
+
+def _resolve_backup_dir(cur, subdir: str, db_name: str) -> str:
+    """
+    Détermine un dossier de sauvegarde côté serveur SQL réellement créable et
+    accessible en écriture par le compte de service SQL, puis le crée.
+
+    xp_create_subdir ne crée PAS toujours l'arborescence (permissions NTFS sur
+    C:\\Program Files\\..., etc.) et échouait silencieusement : BACKUP DATABASE
+    tombait alors en « Cannot open backup device ... error 3 (path not found) ».
+    On teste donc chaque candidat par xp_fileexist et on retient le premier
+    réellement présent après création, avec repli ultime sur la racine de
+    sauvegarde de l'instance (qui existe et est toujours accessible en écriture).
+    """
+    default_root = None
+    try:
+        cur.execute("SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS NVARCHAR(500))")
+        r = cur.fetchone()
+        if r and r[0]:
+            default_root = str(r[0]).rstrip("\\")
+    except Exception:
+        pass
+    finally:
+        _drain(cur)
+
+    # Candidats par ordre de préférence.
+    candidates = []
+    if default_root:
+        candidates.append(default_root + "\\OptiBoard\\" + subdir)
+    candidates.append("C:\\OptiBoard\\backups\\" + subdir)
+    if default_root:                       # repli ultime : la racine existe toujours
+        candidates.append(default_root)
+
+    create_err = None
+    for cand in candidates:
+        # xp_create_subdir crée toute l'arborescence (best effort, compte de service SQL).
+        try:
+            cur.execute("EXEC master.dbo.xp_create_subdir ?", (cand,))
+            _drain(cur)
+        except Exception as e:
+            create_err = e
+        if _dir_exists(cur, cand):
+            if cand == default_root:
+                logger.warning(
+                    f"[BACKUP] Sous-dossier OptiBoard\\{subdir} non créable pour "
+                    f"'{db_name}', repli sur la racine {cand}")
+            return cand
+
+    # Aucun candidat vérifiable : on retourne le premier pour laisser BACKUP DATABASE
+    # remonter l'erreur réelle (au lieu d'un échec silencieux du dossier).
+    logger.warning(
+        f"[BACKUP] Aucun dossier de sauvegarde vérifiable pour '{db_name}' "
+        f"(dernière erreur création: {create_err}), tentative sur {candidates[0]}")
+    return candidates[0]
+
+
 def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str = None,
                label: str = "predelete") -> dict:
     """
@@ -1807,23 +1886,9 @@ def _backup_db(serveur: str, db_name: str, user: str, password: str, stamp: str 
             conn.close()
             return {"backed_up": False, "db": db_name, "reason": "n'existe pas"}
 
-        # Dossier de sauvegarde côté serveur : dossier par défaut de l'instance + \OptiBoard\{subdir}
-        backup_dir = None
-        try:
-            cur.execute("SELECT CAST(SERVERPROPERTY('InstanceDefaultBackupPath') AS NVARCHAR(500))")
-            r = cur.fetchone()
-            if r and r[0]:
-                backup_dir = str(r[0]).rstrip("\\") + "\\OptiBoard\\" + subdir
-        except Exception:
-            pass
-        if not backup_dir:
-            backup_dir = "C:\\OptiBoard\\backups\\" + subdir
-
-        # Créer le dossier côté serveur (best effort, s'exécute sous le compte de service SQL)
-        try:
-            cur.execute("EXEC master.dbo.xp_create_subdir ?", (backup_dir,))
-        except Exception:
-            pass
+        # Dossier de sauvegarde côté serveur : créé ET vérifié (repli sur la racine
+        # de l'instance si le sous-dossier OptiBoard\{subdir} n'est pas créable).
+        backup_dir = _resolve_backup_dir(cur, subdir, db_name)
 
         bak_path = f"{backup_dir}\\{db_name}_{label}_{stamp}.bak"
         # PAS de STATS : les messages de progression de BACKUP DATABASE reviennent
@@ -2507,10 +2572,14 @@ class RepairClientDBRequest(BaseModel):
     recreate: bool = False                     # si True, supprime APP_ClientDB et recrée la base
 
 
-@router.get("/dwh-admin/{code}/agent-config")
-def dwh_admin_agent_config(code: str, request: Request, agent_id: Optional[str] = None):
+def build_agent_config(code: str, request: Request, agent_id: Optional[str] = None) -> tuple:
     """
-    Génère un fichier de configuration chiffré (AES-256-GCM) pour l'Agent ETL Sage.
+    Construit le fichier de configuration chiffré (AES-256-GCM) de l'Agent ETL Sage.
+
+    Retourne `(filename, envelope_json)`. Utilisé par la route de téléchargement
+    ci-dessous ET par le téléchargement de l'agent pré-configuré
+    (`etl_agents.download_sage_agent`) : une seule implémentation du chiffrement,
+    du garde-fou anti-loopback et de l'émission du jeton d'enrôlement.
     Contient le couple (server_url + dwh_code) lié au client — évite toute
     saisie manuelle et empêche le mélange serveur/code DWH.
     Le fichier est illisible en clair : seul l'agent C# possède la clé de déchiffrement.
@@ -2522,7 +2591,6 @@ def dwh_admin_agent_config(code: str, request: Request, agent_id: Optional[str] 
     import base64
     import os as _os
     import json as _json
-    from fastapi.responses import Response
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from ..config_multitenant import get_central_settings
 
@@ -2590,6 +2658,23 @@ def dwh_admin_agent_config(code: str, request: Request, agent_id: Optional[str] 
 
     envelope = _json.dumps({"v": 1, "data": encrypted_b64}, indent=2)
     filename = f"agent_config_{code}.json"
+    return filename, envelope
+
+
+@router.get("/dwh-admin/{code}/agent-config")
+def dwh_admin_agent_config(code: str, request: Request, agent_id: Optional[str] = None):
+    """
+    Télécharge le fichier de configuration chiffré de l'Agent ETL Sage.
+
+    Contient le couple (server_url + dwh_code) lié au client — évite toute saisie
+    manuelle et empêche le mélange serveur/code DWH. Si `agent_id` est fourni, un
+    JETON D'ENRÔLEMENT à usage unique est embarqué : l'agent l'échange au premier
+    démarrage (POST /api/agents/enroll) contre son ApiKey — plus aucun
+    copier-coller manuel de la clé.
+    """
+    from fastapi.responses import Response
+
+    filename, envelope = build_agent_config(code, request, agent_id)
     return Response(
         content=envelope,
         media_type="application/json",
