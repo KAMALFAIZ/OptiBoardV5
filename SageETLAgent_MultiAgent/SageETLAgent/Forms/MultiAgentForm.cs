@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Diagnostics;
@@ -813,7 +813,7 @@ namespace SageETLAgent.Forms
         {
             btnTestConnection.Click += async (s, e) => await TestConnectionAsync();
             btnLoadAgents.Click += async (s, e) => await LoadAgentsAsync();
-            btnImportConfig.Click += (s, e) => ImportAgentConfig();
+            btnImportConfig.Click += async (s, e) => await ImportAgentConfigAsync();
             btnSyncSelected.Click += async (s, e) => await SyncSelectedAsync();
             btnSyncAll.Click += async (s, e) => await SyncAllAsync();
             btnCancel.Click += (s, e) => _syncManager.Cancel();
@@ -1456,7 +1456,16 @@ namespace SageETLAgent.Forms
             return System.Text.Encoding.UTF8.GetString(plaintext);
         }
 
-        private void ImportAgentConfig()
+        /// <summary>
+        /// Importe un fichier agent_config_&lt;CODE&gt;.json (chiffre AES-256-GCM ou clair).
+        ///
+        /// Le fichier peut porter, en plus de server_url/dwh_code :
+        ///   - agent_id + api_key      -> identifiants fournis directement (voie legacy) ;
+        ///   - agent_id + enroll_token -> jeton a usage unique echange ici meme contre
+        ///     l'ApiKey (POST /api/agents/enroll) : plus aucun copier-coller manuel.
+        /// Le format "appsettings" (section SageEtl, PascalCase) est aussi accepte.
+        /// </summary>
+        private async Task ImportAgentConfigAsync()
         {
             using var dlg = new OpenFileDialog
             {
@@ -1487,11 +1496,27 @@ namespace SageETLAgent.Forms
                     jsonPayload = raw; // plain JSON (ancien format)
                 }
 
-                var config = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(jsonPayload);
+                // Deux conventions acceptees : snake_case (fichier genere par le backend)
+                // et PascalCase sous "SageEtl" (fichier de type appsettings.json).
+                var rootObj = Newtonsoft.Json.Linq.JObject.Parse(jsonPayload);
+                var cfg = rootObj["SageEtl"] as Newtonsoft.Json.Linq.JObject ?? rootObj;
+                string Val(params string[] names)
+                {
+                    foreach (var n in names)
+                    {
+                        var v = cfg[n]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+                    }
+                    return "";
+                }
 
-                string serverUrl = config?.server_url?.ToString() ?? "";
-                string dwhCode   = config?.dwh_code?.ToString()   ?? "";
-                string clientNom = config?.client_nom?.ToString()  ?? dwhCode;
+                string serverUrl   = Val("server_url", "ServerUrl");
+                string dwhCode     = Val("dwh_code", "DwhCode");
+                string clientNom   = Val("client_nom", "ClientNom");
+                string agentId     = Val("agent_id", "AgentId");
+                string apiKey      = Val("api_key", "ApiKey");
+                string enrollToken = Val("enroll_token", "EnrollToken");
+                if (string.IsNullOrWhiteSpace(clientNom)) clientNom = dwhCode;
 
                 if (string.IsNullOrWhiteSpace(serverUrl) || string.IsNullOrWhiteSpace(dwhCode))
                 {
@@ -1507,6 +1532,62 @@ namespace SageETLAgent.Forms
 
                 AppendLog($"Config importee : client={clientNom}, serveur={serverUrl}, code={dwhCode}");
                 lblStatus.Text = $"Config : {clientNom} ({dwhCode})";
+
+                // Enrolement : le jeton est a usage unique et de duree de vie courte,
+                // on l'echange immediatement contre l'ApiKey definitive.
+                if (string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(enrollToken))
+                {
+                    lblStatus.Text = "Enrolement...";
+                    AppendLog("Jeton d'enrolement detecte : echange contre la cle API...");
+                    using var enrollClient = new ApiClient(serverUrl, dwhCode);
+                    var (ok, enrolledId, enrolledKey, enrolledDwh, message) = await enrollClient.EnrollAsync(enrollToken);
+                    if (ok)
+                    {
+                        agentId = enrolledId;
+                        apiKey  = enrolledKey;
+                        if (!string.IsNullOrWhiteSpace(enrolledDwh) &&
+                            !string.Equals(enrolledDwh, dwhCode, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Le serveur fait autorite sur le DWH lie au jeton.
+                            dwhCode = enrolledDwh;
+                            _dwhCode = enrolledDwh;
+                            txtDwhCode.Text = enrolledDwh;
+                        }
+                        AppendLog($"Enrolement reussi : agent {agentId} (cle recue et enregistree)");
+                    }
+                    else
+                    {
+                        AppendLog($"Enrolement echoue : {message}");
+                        MessageBox.Show(
+                            "Le jeton d'enrolement n'a pas pu etre echange :\n" + message + "\n\n" +
+                            "Le serveur et le code DWH ont bien ete importes. Regenerez un fichier\n" +
+                            "de configuration depuis la console (le jeton est a usage unique et\n" +
+                            "expire), ou collez manuellement l'AgentId et la Cle.",
+                            "Enrolement impossible", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+
+                // Identifiants agent : alimentent la GUI + la config runtime persistee.
+                if (!string.IsNullOrWhiteSpace(agentId) || !string.IsNullOrWhiteSpace(apiKey))
+                {
+                    _perfConfig ??= new SageETLAgent.Services.ServiceConfig();
+                    if (!string.IsNullOrWhiteSpace(agentId))
+                    {
+                        txtAgentId.Text = agentId;
+                        _perfConfig.AgentId = agentId;
+                    }
+                    if (!string.IsNullOrWhiteSpace(apiKey))
+                    {
+                        txtApiKey.Text = apiKey;
+                        _perfConfig.ApiKey = apiKey;
+                    }
+                    lblStatus.Text = $"Config : {clientNom} ({dwhCode}) - identifiants agent OK";
+                }
+                else
+                {
+                    AppendLog("Aucun identifiant agent dans le fichier : saisissez Agent + Cle manuellement.");
+                }
+
                 SaveAppSettings();
             }
             catch (Exception ex)
@@ -1562,7 +1643,10 @@ namespace SageETLAgent.Forms
                 {
                     MessageBox.Show(
                         "Les identifiants de l'agent (Agent + Cle) sont requis.\n\n" +
-                        "Creez l'agent dans la console OptiBoard pour ce DWH, puis collez\n" +
+                        "Voie recommandee : bouton \"Importer config\" avec le fichier\n" +
+                        "agent_config_<CODE>.json telecharge depuis la console : il embarque\n" +
+                        "un jeton d'enrolement qui remplit Agent + Cle automatiquement.\n\n" +
+                        "Sinon, creez l'agent dans la console OptiBoard pour ce DWH et collez\n" +
                         "l'AgentId et la Cle API generes ici. Ils sont necessaires pour\n" +
                         "s'authentifier aupres du serveur (endpoint securise /api/agents/for-dwh).",
                         "Identifiants agent requis", MessageBoxButtons.OK, MessageBoxIcon.Warning);
