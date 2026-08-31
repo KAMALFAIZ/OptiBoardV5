@@ -5868,20 +5868,40 @@ def download_sage_agent(
     from fastapi.responses import FileResponse
     from starlette.background import BackgroundTask
 
-    # .../reporting-commercial/backend/app/routes/etl_agents.py -> OptiBoardV5/SageETLAgent_MultiAgent/SageETLAgent
-    agent_dir = (
-        Path(__file__).parent.parent.parent.parent.parent
-        / "SageETLAgent_MultiAgent" / "SageETLAgent"
-    )
-    publish_dir = agent_dir / "binpublish_new"
-    exe_path = publish_dir / "SageETLAgent.exe"
-    zip_path = agent_dir / "SageETLAgent.zip"
+    # Le publish de l'agent ne vit pas au meme endroit en dev (arborescence du
+    # depot) et sur une installation (C:\OptiBoard\backend). On essaie les
+    # emplacements connus, du plus explicite au plus historique.
+    _here = Path(__file__).resolve()
+    candidates = []
+    _env_dir = os.environ.get("OPTIBOARD_AGENT_DIR")
+    if _env_dir:
+        candidates.append(Path(_env_dir))
+    candidates += [
+        # Installation : C:\OptiBoard\agent\binpublish_new (a cote de backend\)
+        _here.parent.parent.parent.parent / "agent" / "binpublish_new",
+        # Depot de dev : <repo>/SageETLAgent_MultiAgent/SageETLAgent/binpublish_new
+        _here.parent.parent.parent.parent.parent
+        / "SageETLAgent_MultiAgent" / "SageETLAgent" / "binpublish_new",
+    ]
 
-    if not exe_path.exists():
+    publish_dir = next((c for c in candidates if (c / "SageETLAgent.exe").exists()), None)
+    if publish_dir is None:
+        logger.error(
+            "[AGENT-ZIP] Publish agent introuvable. Cherche dans : "
+            + " | ".join(str(c) for c in candidates)
+        )
         raise HTTPException(
             status_code=404,
-            detail="Agent non construit (binpublish_new/SageETLAgent.exe introuvable)",
+            detail=(
+                "Agent non construit : SageETLAgent.exe introuvable. Deposez le publish "
+                "de l'agent dans l'un de ces dossiers, ou definissez OPTIBOARD_AGENT_DIR : "
+                + " | ".join(str(c) for c in candidates)
+            ),
         )
+
+    agent_dir = publish_dir.parent
+    exe_path = publish_dir / "SageETLAgent.exe"
+    zip_path = agent_dir / "SageETLAgent.zip"
 
     # Regenerer le zip si absent ou perime (exe plus recent que le zip)
     needs_build = (
@@ -5889,7 +5909,7 @@ def download_sage_agent(
         or exe_path.stat().st_mtime > zip_path.stat().st_mtime
     )
     if needs_build:
-        logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir.name}/ ...")
+        logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir} ...")
         tmp_fd, tmp_name = tempfile.mkstemp(suffix=".zip", dir=str(agent_dir))
         os.close(tmp_fd)
         try:
