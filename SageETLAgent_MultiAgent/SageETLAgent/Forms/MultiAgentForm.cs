@@ -1438,9 +1438,30 @@ namespace SageETLAgent.Forms
 
         #region Mode Manuel
 
-        // Clé AES-256-GCM partagée avec le backend Python (32 octets)
-        private static readonly byte[] AgentCfgKey =
-            System.Text.Encoding.ASCII.GetBytes("kasoft_optiboard_etl_key_2026!!!");
+        // Clé AES-256-GCM historique, partagée avec le backend Python (32 octets).
+        // Repli utilisé quand OPTIBOARD_ETL_AES_KEY n'est pas définie — le backend
+        // applique exactement le même repli (dwh_admin.dwh_admin_agent_config).
+        private const string AgentCfgLegacyKey = "kasoft_optiboard_etl_key_2026!!!";
+
+        /// <summary>
+        /// Clés candidates pour déchiffrer un fichier de config agent, par ordre de
+        /// priorité : OPTIBOARD_ETL_AES_KEY (variable d'environnement, 32 octets —
+        /// même variable que le serveur central) puis la clé historique.
+        /// Essayer les deux évite de casser les agents déjà déployés le jour où la
+        /// variable est introduite côté serveur (ou l'inverse).
+        /// </summary>
+        private static IEnumerable<byte[]> AgentCfgKeys()
+        {
+            var envKey = Environment.GetEnvironmentVariable("OPTIBOARD_ETL_AES_KEY");
+            if (!string.IsNullOrEmpty(envKey))
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(envKey);
+                if (bytes.Length == 32)
+                    yield return bytes;
+                // Longueur invalide : on n'echoue pas ici, le repli legacy suit.
+            }
+            yield return System.Text.Encoding.ASCII.GetBytes(AgentCfgLegacyKey);
+        }
 
         private static string DecryptAgentConfig(string encryptedBase64)
         {
@@ -1449,11 +1470,28 @@ namespace SageETLAgent.Forms
             var withTag    = combined[12..];               // reste = ciphertext + tag
             var tag        = withTag[^16..];               // 16 derniers octets = tag GCM
             var ciphertext = withTag[..^16];
-            var plaintext  = new byte[ciphertext.Length];
 
-            using var aesGcm = new System.Security.Cryptography.AesGcm(AgentCfgKey, 16);
-            aesGcm.Decrypt(nonce, ciphertext, tag, plaintext);
-            return System.Text.Encoding.UTF8.GetString(plaintext);
+            Exception? last = null;
+            foreach (var key in AgentCfgKeys())
+            {
+                try
+                {
+                    var plaintext = new byte[ciphertext.Length];
+                    using var aesGcm = new System.Security.Cryptography.AesGcm(key, 16);
+                    aesGcm.Decrypt(nonce, ciphertext, tag, plaintext);
+                    return System.Text.Encoding.UTF8.GetString(plaintext);
+                }
+                catch (System.Security.Cryptography.CryptographicException ex)
+                {
+                    last = ex; // mauvaise cle : on tente la suivante
+                }
+            }
+
+            throw new Exception(
+                "Dechiffrement impossible : la cle AES ne correspond pas au fichier. " +
+                "Definissez OPTIBOARD_ETL_AES_KEY (32 octets, valeur identique au serveur " +
+                "central) sur cette machine, ou regenerez le fichier depuis la console.",
+                last);
         }
 
         /// <summary>
