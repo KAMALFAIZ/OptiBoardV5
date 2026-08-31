@@ -63,10 +63,23 @@ if (-not (Test-Path "$dstBack\.env")) {
 if (-not $SkipFrontend) {
     if (-not (Test-Path "$srcFront\index.html")) { throw "Source frontend incomplete : $srcFront" }
     if (-not $FrontendDir) {
-        $candidats = @( (Join-Path $InstallDir 'frontend'), 'C:\inetpub\wwwroot\optiboard' )
-        $FrontendDir = $candidats | Where-Object { Test-Path (Join-Path $_ 'index.html') } | Select-Object -First 1
+        # Plusieurs dispositions existent selon les installations. 'C:\inetpub\optiboard'
+        # est celle utilisee par DEPLOY.ps1 : l'oublier fait deployer dans un dossier
+        # qui n'est pas celui servi, avec un backend a jour et un frontend fige.
+        $candidats = @(
+            (Join-Path $InstallDir 'frontend'),
+            'C:\inetpub\optiboard',
+            'C:\inetpub\wwwroot\optiboard'
+        )
+        $trouves = @($candidats | Where-Object { Test-Path (Join-Path $_ 'index.html') })
+        $FrontendDir = $trouves | Select-Object -First 1
         if (-not $FrontendDir) {
             throw "Dossier frontend introuvable. Relancez avec -FrontendDir <chemin> ou -SkipFrontend"
+        }
+        if ($trouves.Count -gt 1) {
+            Warn "Plusieurs dossiers frontend candidats : $($trouves -join ', ')"
+            Warn "Retenu : $FrontendDir — verifiez que c'est bien celui servi par le serveur web,"
+            Warn "sinon relancez avec -FrontendDir <chemin>."
         }
     }
 }
@@ -152,6 +165,26 @@ if (Test-Path $agentPublish) {
 } else {
     Warn "   publish agent absent : deposez-le dans $InstallDir\agent\binpublish_new"
     Warn "   (ou pointez OPTIBOARD_AGENT_DIR vers son dossier), sinon 'Agent Sage' -> 404"
+}
+
+# Le frontend deploye doit etre celui reellement servi : si le serveur web pointe
+# vers un autre dossier, le backend est a jour mais l'interface reste figee.
+if (-not $SkipFrontend) {
+    try {
+        $localIndex = Get-Content (Join-Path $FrontendDir 'index.html') -Raw
+        $served     = (Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 10).Content
+        $rx         = '(?:src|href)="[^"]*assets/(index-[^"]+\.js)"'
+        $localJs    = [regex]::Match($localIndex, $rx).Groups[1].Value
+        $servedJs   = [regex]::Match($served,     $rx).Groups[1].Value
+        if ($localJs -and $servedJs -and $localJs -eq $servedJs) {
+            Ok "   frontend servi = frontend deploye ($localJs)"
+        } elseif ($servedJs) {
+            Warn "   frontend servi ($servedJs) != deploye ($localJs)"
+            Warn "   Le serveur web sert un AUTRE dossier : relancez avec -FrontendDir <chemin servi>"
+        }
+    } catch {
+        Warn "   controle du frontend servi impossible : $($_.Exception.Message)"
+    }
 }
 
 Write-Host ""
