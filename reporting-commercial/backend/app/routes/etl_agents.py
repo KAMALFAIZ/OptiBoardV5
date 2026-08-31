@@ -28,6 +28,8 @@ from app.services.query_crypto import enc_query, dec_query, dec_rows, migrate_en
 # Instance du gestionnaire DWH
 dwh_manager = DWHConnectionManager()
 
+from ..services.secret_crypto import enc_secret, dec_secret, dec_rows as dec_secret_rows
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["ETL Agents"])
@@ -764,6 +766,10 @@ def list_agents(
                 cols = [c[0] for c in cursor.description]
                 agents = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
+            # sage_password est chiffre au repos ($sec1$) : l'agent ETL authentifie
+            # doit recevoir le mot de passe utilisable pour joindre Sage.
+            dec_secret_rows(agents)
+
             # Recuperer les credentials DWH depuis APP_DWH (base centrale)
             dwh_info_rows = execute_central(
                 "SELECT serveur_dwh, base_dwh, user_dwh, password_dwh FROM APP_DWH WHERE code = ?",
@@ -911,7 +917,7 @@ def create_agent(
                     (
                         agent_id, agent.name, agent.description,
                         agent.sage_server, agent.sage_database,
-                        agent.sage_username, agent.sage_password,
+                        agent.sage_username, enc_secret(agent.sage_password),
                         agent.code_societe, agent.nom_societe,
                         api_key_hash, api_key_prefix,
                         agent.sync_interval_seconds,
@@ -1113,7 +1119,9 @@ def get_agent(
                 raise HTTPException(status_code=404, detail="Agent non trouve")
             return {"success": True, "data": monitoring_rows[0], "_source": "monitoring"}
 
-        return {"success": True, "data": dict(zip(cols, row))}
+        data = dict(zip(cols, row))
+        dec_secret_rows([data])
+        return {"success": True, "data": data}
 
     except HTTPException:
         raise
@@ -1159,7 +1167,7 @@ def update_agent(
         if updates.sage_username is not None:
             set_clauses.append("sage_username = ?"); params.append(updates.sage_username)
         if updates.sage_password is not None:
-            set_clauses.append("sage_password = ?"); params.append(updates.sage_password)
+            set_clauses.append("sage_password = ?"); params.append(enc_secret(updates.sage_password))
 
         params.append(agent_id)
 

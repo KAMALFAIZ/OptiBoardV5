@@ -7,6 +7,8 @@ import hashlib
 from pathlib import Path
 import logging
 
+from ..services.secret_crypto import enc_secret as _enc_secret
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -2004,7 +2006,7 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
                                 f"Agent {societe_nom}",
                                 "Pre-configure par le wizard de setup",
                                 sage_server, sage_database,
-                                sage_username or "", sage_password or "",
+                                sage_username or "", _enc_secret(sage_password) or "",
                                 societe_code, societe_nom
                             ))
                             result["sage_agent_id"] = setup_agent_id
