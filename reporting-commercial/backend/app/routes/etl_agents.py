@@ -5928,17 +5928,42 @@ SECURITE - IMPORTANT
 """
 
 
-def _zip_has_current_readme(zip_path) -> bool:
-    """Le zip en cache contient-il la notice a la version courante ?"""
+def _agent_build_signature(publish_dir, exe_path) -> str:
+    """
+    Signature de ce que DOIT contenir le zip : taille et date de l'exe source,
+    nombre de fichiers du publish, version de la notice.
+
+    Remplace la comparaison de dates `mtime(exe) > mtime(zip)`, qui echouait
+    silencieusement : deposer un nouveau publish avec `Copy-Item`, robocopy ou
+    une extraction de zip PRESERVE l'horodatage d'origine du fichier. Un exe
+    plus recent en contenu pouvait donc etre plus ancien en date que le cache
+    -> le serveur continuait de distribuer l'ancienne archive (constate en prod
+    le 2026-09-07 : exe du 26/07 encore servi apres depot du build du 06/09).
+    Comparer taille + date + nombre de fichiers detecte tout remplacement, quel
+    que soit le sens des horodatages.
+    """
+    import os as _os
+    st = exe_path.stat()
+    nb_files = sum(len(files) for _root, _dirs, files in _os.walk(publish_dir))
+    return json.dumps(
+        {
+            "readme": _AGENT_README_VERSION,
+            "exe_size": st.st_size,
+            "exe_mtime": int(st.st_mtime),
+            "files": nb_files,
+        },
+        sort_keys=True,
+    )
+
+
+def _zip_build_signature(zip_path) -> Optional[str]:
+    """Signature enregistree dans le commentaire du zip en cache, ou None."""
     import zipfile
     try:
         with zipfile.ZipFile(zip_path) as zf:
-            name = f"SageETLAgent/{_AGENT_README_NAME}"
-            if name not in zf.namelist():
-                return False
-            return _AGENT_README_VERSION.encode() in zf.read(name)
+            return zf.comment.decode("utf-8") or None
     except Exception:
-        return False
+        return None  # zip absent, illisible ou tronque -> reconstruire
 
 
 @router.get("/admin/etl/agents/download/sage-agent")
@@ -6005,12 +6030,14 @@ def download_sage_agent(
     exe_path = publish_dir / "SageETLAgent.exe"
     zip_path = agent_dir / "SageETLAgent.zip"
 
-    # Regenerer le zip si absent, perime (exe plus recent), ou si la notice
-    # d'installation qu'il embarque n'est pas a la version courante.
+    # Regenerer le zip des que le publish source ou la notice ont change.
+    # La signature (taille + date de l'exe, nombre de fichiers, version de la
+    # notice) est stockee dans le commentaire du zip : elle ne depend pas de
+    # l'ordre des horodatages, contrairement a l'ancien `mtime(exe) > mtime(zip)`.
+    build_signature = _agent_build_signature(publish_dir, exe_path)
     needs_build = (
         not zip_path.exists()
-        or exe_path.stat().st_mtime > zip_path.stat().st_mtime
-        or not _zip_has_current_readme(zip_path)
+        or _zip_build_signature(zip_path) != build_signature
     )
     if needs_build:
         logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir} ...")
@@ -6031,6 +6058,9 @@ def download_sage_agent(
                     f"SageETLAgent/{_AGENT_README_NAME}",
                     b"\xef\xbb\xbf" + _AGENT_README.replace("\n", "\r\n").encode("utf-8"),
                 )
+                # Signature de construction : lue au prochain appel pour savoir
+                # si ce cache correspond encore au publish present sur disque.
+                zf.comment = build_signature.encode("utf-8")
             os.replace(tmp_name, zip_path)  # remplacement atomique
         except Exception as e:
             try:
