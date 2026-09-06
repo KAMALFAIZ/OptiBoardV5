@@ -114,13 +114,62 @@ jobs:
         env:
           VITE_API_URL: ${{ secrets.PROD_API_URL }}
 
+      # Le dossier REELLEMENT servi par IIS n'est pas toujours
+      # C:\inetpub\wwwroot\optiboard : selon l'installation c'est
+      # C:\inetpub\optiboard (cf. DEPLOY.ps1 / DEPLOY_PACKAGE.ps1). Copier dans
+      # le mauvais dossier laisse un backend a jour et une interface figee, sans
+      # que rien ne le signale (interface amm.kasoft.ma figee au 31/07/2026).
+      # On deploie donc dans TOUS les dossiers OptiBoard montes par IIS, et on
+      # verifie que le nouveau bundle y est bien arrive.
+      #
+      # robocopy /E (pas /MIR) : ne supprime rien. Le dossier servi contient des
+      # fichiers absents du build (web.config des regles de reecriture SPA) que
+      # /MIR effacerait. Les anciens assets restent, inoffensifs (noms hashes).
       - name: Deploy frontend to IIS
         run: |
-          $dest = "C:\inetpub\wwwroot\optiboard"
-          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-          New-Item -ItemType Directory -Path $dest -Force | Out-Null
-          Copy-Item -Path "reporting-commercial\frontend\dist\*" -Destination $dest -Recurse -Force
-          Write-Host "Frontend deploye dans $dest"
+          $src = "reporting-commercial\frontend\dist"
+          if (-not (Test-Path "$src\index.html")) { Write-Error "Build frontend absent : $src"; exit 1 }
+
+          $targets = New-Object System.Collections.Generic.List[string]
+          try {
+            Import-Module WebAdministration -ErrorAction Stop
+            Get-Website | ForEach-Object {
+              $p = $_.physicalPath
+              if ($p) {
+                $p = [System.Environment]::ExpandEnvironmentVariables($p)
+                if ($p -match 'optiboard' -and (Test-Path (Join-Path $p 'index.html'))) {
+                  $targets.Add((Resolve-Path $p).Path)
+                }
+              }
+            }
+          } catch {
+            Write-Host "WebAdministration indisponible : $($_.Exception.Message)"
+          }
+
+          # Candidats connus, meme s'ils ne sont pas (ou plus) montes dans IIS.
+          foreach ($c in @("C:\inetpub\optiboard", "C:\inetpub\wwwroot\optiboard")) {
+            if (Test-Path (Join-Path $c 'index.html')) { $targets.Add((Resolve-Path $c).Path) }
+          }
+
+          $targets = @($targets | Sort-Object -Unique)
+          if ($targets.Count -eq 0) {
+            $fallback = "C:\inetpub\wwwroot\optiboard"
+            New-Item -ItemType Directory -Path $fallback -Force | Out-Null
+            $targets = @($fallback)
+            Write-Host "Aucun dossier frontend existant detecte -> creation de $fallback"
+          }
+
+          $newIndex = (Get-ChildItem "$src\assets" -Filter 'index-*.js' | Select-Object -First 1).Name
+          foreach ($dest in $targets) {
+            Write-Host "Deploiement frontend -> $dest"
+            robocopy $src $dest /E /NFL /NDL /NJH /NJS /NP /R:2 /W:2 | Out-Null
+            if ($LASTEXITCODE -ge 8) { Write-Error "robocopy frontend a echoue ($dest, code $LASTEXITCODE)"; exit 1 }
+            if (-not (Test-Path (Join-Path $dest "assets\$newIndex"))) {
+              Write-Error "Bundle $newIndex absent de $dest apres copie"
+              exit 1
+            }
+          }
+          Write-Host "Frontend deploye ($newIndex) dans : $($targets -join ', ')"
         shell: powershell
 
       # ── Backend : copie vers l'instance LIVE 8084 ────────────────────────
