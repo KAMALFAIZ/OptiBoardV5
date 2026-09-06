@@ -2634,6 +2634,32 @@ def build_agent_config(code: str, request: Request, agent_id: Optional[str] = No
         "client_nom": dwh["nom"]
     }
 
+    # Agent non précisé (cas du bouton « Télécharger config » de la console, qui
+    # n'a pas d'agent sous la main) : si le DWH n'a qu'UN SEUL agent actif, c'est
+    # forcément celui-là. Sans cette résolution, le fichier ne portait ni agent_id
+    # ni jeton — l'agent importait le DWH puis restait bloqué en 401 faute de clé.
+    # Plusieurs agents (ou aucun) => on ne devine pas : fichier sans jeton, comme avant.
+    if not agent_id:
+        try:
+            from ..database_unified import client_cursor as _client_cursor
+            with _client_cursor(dwh["code"]) as _cur:
+                _cur.execute(
+                    "SELECT agent_id FROM APP_ETL_Agents WHERE is_active = 1 ORDER BY created_at"
+                )
+                _rows = _cur.fetchall()
+            if len(_rows) == 1:
+                agent_id = _rows[0][0]
+                logger.info(f"[AGENT-CONFIG] {code}: agent unique resolu automatiquement ({agent_id})")
+            elif len(_rows) > 1:
+                logger.warning(
+                    f"[AGENT-CONFIG] {code}: {len(_rows)} agents actifs — jeton non embarque "
+                    f"(preciser ?agent_id=... pour en choisir un)"
+                )
+            else:
+                logger.warning(f"[AGENT-CONFIG] {code}: aucun agent actif — jeton non embarque")
+        except Exception as _e:
+            logger.warning(f"[AGENT-CONFIG] {code}: resolution de l'agent impossible: {_e}")
+
     # Optionnel : embarquer un jeton d'enrôlement lié à un agent précis.
     if agent_id:
         try:
