@@ -1497,6 +1497,12 @@ namespace SageETLAgent.Forms
         /// <summary>
         /// Importe un fichier agent_config_&lt;CODE&gt;.json (chiffre AES-256-GCM ou clair).
         ///
+        /// REGLE D'IMPORT : seul le code DWH est ecrase. Serveur, Agent et Cle deja
+        /// renseignes sont conserves tels quels (un fichier peut porter une URL perimee
+        /// ou les identifiants d'un autre poste) ; ils ne sont alimentes depuis le
+        /// fichier que si le champ correspondant est VIDE — cas d'un poste neuf, ou
+        /// l'enrolement par jeton fonctionne comme avant.
+        ///
         /// Le fichier peut porter, en plus de server_url/dwh_code :
         ///   - agent_id + api_key      -> identifiants fournis directement (voie legacy) ;
         ///   - agent_id + enroll_token -> jeton a usage unique echange ici meme contre
@@ -1556,28 +1562,53 @@ namespace SageETLAgent.Forms
                 string enrollToken = Val("enroll_token", "EnrollToken");
                 if (string.IsNullOrWhiteSpace(clientNom)) clientNom = dwhCode;
 
-                if (string.IsNullOrWhiteSpace(serverUrl) || string.IsNullOrWhiteSpace(dwhCode))
+                // Le DWH est la SEULE information que l'import ecrase systematiquement.
+                if (string.IsNullOrWhiteSpace(dwhCode))
                 {
-                    MessageBox.Show("Fichier de configuration invalide : server_url ou dwh_code manquant.",
+                    MessageBox.Show("Fichier de configuration invalide : dwh_code manquant.",
                         "Erreur import", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
-                txtServerUrl.Text = serverUrl;
-                txtDwhCode.Text   = dwhCode;
-                _serverUrl = serverUrl;
-                _dwhCode   = dwhCode;
+                // ── Regle d'import : le DWH change, le reste n'est jamais ecrase ──────
+                // Serveur / Agent / Cle deja renseignes dans la GUI font autorite : un
+                // fichier de config peut porter une URL perimee ou des identifiants
+                // d'un autre poste, et les ecraser cassait une configuration saine.
+                // Ils ne sont alimentes depuis le fichier que si le champ est VIDE
+                // (premiere installation), ce qui preserve l'enrolement d'un poste neuf.
+                txtDwhCode.Text = dwhCode;
+                _dwhCode        = dwhCode;
+                AppendLog($"Config importee : client={clientNom}, code DWH={dwhCode}");
 
-                AppendLog($"Config importee : client={clientNom}, serveur={serverUrl}, code={dwhCode}");
+                bool serverEmpty = string.IsNullOrWhiteSpace(txtServerUrl.Text);
+                if (!string.IsNullOrWhiteSpace(serverUrl) && serverEmpty)
+                {
+                    txtServerUrl.Text = serverUrl;
+                    _serverUrl        = serverUrl;
+                    AppendLog($"Serveur renseigne depuis le fichier : {serverUrl}");
+                }
+                else
+                {
+                    _serverUrl = txtServerUrl.Text.Trim();
+                    if (!string.IsNullOrWhiteSpace(serverUrl) &&
+                        !string.Equals(serverUrl, _serverUrl, StringComparison.OrdinalIgnoreCase))
+                        AppendLog($"Serveur conserve : {_serverUrl} (fichier ignore : {serverUrl})");
+                }
+
                 lblStatus.Text = $"Config : {clientNom} ({dwhCode})";
 
+                // Identifiants deja presents dans la GUI : ils ne sont jamais remplaces.
+                bool agentIdEmpty = string.IsNullOrWhiteSpace(txtAgentId.Text);
+                bool apiKeyEmpty  = string.IsNullOrWhiteSpace(txtApiKey.Text);
+
                 // Enrolement : le jeton est a usage unique et de duree de vie courte,
-                // on l'echange immediatement contre l'ApiKey definitive.
-                if (string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(enrollToken))
+                // on l'echange immediatement contre l'ApiKey definitive. Uniquement si
+                // aucune cle n'est deja en place (sinon ce serait ecraser l'existant).
+                if (apiKeyEmpty && string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(enrollToken))
                 {
                     lblStatus.Text = "Enrolement...";
                     AppendLog("Jeton d'enrolement detecte : echange contre la cle API...");
-                    using var enrollClient = new ApiClient(serverUrl, dwhCode);
+                    using var enrollClient = new ApiClient(_serverUrl, dwhCode);
                     var (ok, enrolledId, enrolledKey, enrolledDwh, message) = await enrollClient.EnrollAsync(enrollToken);
                     if (ok)
                     {
@@ -1598,33 +1629,45 @@ namespace SageETLAgent.Forms
                         AppendLog($"Enrolement echoue : {message}");
                         MessageBox.Show(
                             "Le jeton d'enrolement n'a pas pu etre echange :\n" + message + "\n\n" +
-                            "Le serveur et le code DWH ont bien ete importes. Regenerez un fichier\n" +
+                            "Le code DWH a bien ete importe. Regenerez un fichier\n" +
                             "de configuration depuis la console (le jeton est a usage unique et\n" +
                             "expire), ou collez manuellement l'AgentId et la Cle.",
                             "Enrolement impossible", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     }
                 }
+                else if (!string.IsNullOrWhiteSpace(enrollToken) && !apiKeyEmpty)
+                {
+                    AppendLog("Jeton d'enrolement ignore : une cle API est deja renseignee.");
+                }
 
-                // Identifiants agent : alimentent la GUI + la config runtime persistee.
-                if (!string.IsNullOrWhiteSpace(agentId) || !string.IsNullOrWhiteSpace(apiKey))
+                // Identifiants agent : alimentent la GUI + la config runtime persistee,
+                // UNIQUEMENT si le champ correspondant est vide (cf. regle d'import).
+                _perfConfig ??= new SageETLAgent.Services.ServiceConfig();
+                bool credsSet = false;
+
+                if (!string.IsNullOrWhiteSpace(agentId) && agentIdEmpty)
                 {
-                    _perfConfig ??= new SageETLAgent.Services.ServiceConfig();
-                    if (!string.IsNullOrWhiteSpace(agentId))
-                    {
-                        txtAgentId.Text = agentId;
-                        _perfConfig.AgentId = agentId;
-                    }
-                    if (!string.IsNullOrWhiteSpace(apiKey))
-                    {
-                        txtApiKey.Text = apiKey;
-                        _perfConfig.ApiKey = apiKey;
-                    }
+                    txtAgentId.Text     = agentId;
+                    _perfConfig.AgentId = agentId;
+                    credsSet = true;
+                }
+                if (!string.IsNullOrWhiteSpace(apiKey) && apiKeyEmpty)
+                {
+                    txtApiKey.Text     = apiKey;
+                    _perfConfig.ApiKey = apiKey;
+                    credsSet = true;
+                }
+
+                // Ce qui reste a l'ecran fait foi (saisie manuelle comprise).
+                _perfConfig.AgentId = txtAgentId.Text.Trim();
+                _perfConfig.ApiKey  = txtApiKey.Text.Trim();
+
+                if (credsSet)
                     lblStatus.Text = $"Config : {clientNom} ({dwhCode}) - identifiants agent OK";
-                }
+                else if (!agentIdEmpty || !apiKeyEmpty)
+                    AppendLog("Identifiants agent conserves (non ecrases par le fichier).");
                 else
-                {
                     AppendLog("Aucun identifiant agent dans le fichier : saisissez Agent + Cle manuellement.");
-                }
 
                 SaveAppSettings();
             }
