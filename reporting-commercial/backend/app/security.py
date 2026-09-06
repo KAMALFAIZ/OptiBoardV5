@@ -163,6 +163,29 @@ def _require(request: Request, *, superadmin_only: bool) -> dict:
     return {"user_id": user_id, "dwh_code": dwh_code, "realm": realm, "role": role}
 
 
+def is_superadmin_session(request: Optional[Request]) -> bool:
+    """
+    Le porteur de cette requête est-il un superadmin CENTRAL ? (non bloquant)
+
+    Variante booléenne de `require_superadmin`, pour les routes qui doivent
+    *choisir* entre une vue centrale (tous tenants) et une vue client selon le
+    rôle réel — sans jamais faire confiance à un en-tête falsifiable comme
+    `X-User-Role`. Fail-closed : toute absence de session, erreur de résolution
+    ou rôle non superadmin renvoie False.
+    """
+    if request is None:
+        return False
+    try:
+        user_id, dwh_code = _authenticated_identity(request)
+        if not user_id:
+            return False
+        realm, role = _resolve_role(user_id, dwh_code)
+        return realm == "central" and role in _SUPERADMIN_ROLES
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[SECURITY] is_superadmin_session: {e}")
+        return False
+
+
 async def require_admin(request: Request) -> dict:
     """Autorise superadmin (central) ou admin_client (base client)."""
     return _require(request, superadmin_only=False)

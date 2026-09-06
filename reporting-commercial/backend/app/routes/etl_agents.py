@@ -23,6 +23,7 @@ from app.database_unified import (
     execute_central, write_central,
 )
 from app.config_multitenant import get_central_settings as _get_central_settings, reload_central_settings as _reload_central_settings
+from app.security import is_superadmin_session
 from app.services.query_crypto import enc_query, dec_query, dec_rows, migrate_encrypt_existing
 
 # Instance du gestionnaire DWH
@@ -586,18 +587,34 @@ def _enforce_agent_auth(agent_id: str, x_api_key: Optional[str], x_dwh_code: Opt
 
 @router.get("/admin/etl/agents")
 def list_agents(
+    request: Request = None,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     status: Optional[str] = Query(None, description="Filtrer par statut"),
     dwh_code: Optional[str] = Query(None, description="Filtrer par DWH (vue centrale uniquement)"),
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
     """
     Liste les agents ETL.
-    - Si X-DWH-Code absent ou 'CENTRAL' → superadmin : lit APP_ETL_Agents_Monitoring (toutes bases).
-    - Si X-DWH-Code present → client : lit APP_ETL_Agents de sa base.
+    - Vue centrale (APP_ETL_Agents_Monitoring, tous tenants) : reservee au
+      superadmin CENTRAL, prouve par une session validee.
+    - Sinon vue client : APP_ETL_Agents de la base du DWH demande.
+
+    Isolation multi-tenant : le basculement vers la vue centrale ne depend
+    JAMAIS d'un en-tete fourni par l'appelant (l'ancien `X-User-Role:
+    superadmin` etait falsifiable et permettait a tout utilisateur authentifie
+    d'enumerer les agents de tous les clients). Fail-closed : sans session
+    superadmin centrale, un appel sans X-DWH-Code est refuse (403).
     """
-    # Superadmin = pas de code, ou code 'CENTRAL', ou role superadmin explicite
-    is_central = not x_dwh_code or x_dwh_code.upper() == 'CENTRAL' or x_user_role == 'superadmin'
+    # Vue centrale demandee = pas de code tenant, ou code 'CENTRAL'
+    wants_central = not x_dwh_code or x_dwh_code.upper() == 'CENTRAL'
+    if wants_central:
+        if not is_superadmin_session(request):
+            raise HTTPException(
+                status_code=403,
+                detail="Vue centrale reservee au superadmin — precisez X-DWH-Code pour la vue client"
+            )
+        is_central = True
+    else:
+        is_central = False
 
     # ── Mode Démo : token = DWH code ──────────────────────────────────────────
     if x_dwh_code and not is_central:
