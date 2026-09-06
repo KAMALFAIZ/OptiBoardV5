@@ -1943,7 +1943,7 @@ export default function GridViewBuilder() {
                                 .filter(m => {
                                   const q = parentSearch.trim().toLowerCase()
                                   if (!q) return true
-                                  return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
+                                  return (m.nom || '').toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
                                 })
                                 .map(m => (
                                   <button
@@ -1955,7 +1955,7 @@ export default function GridViewBuilder() {
                                     {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
                                   </button>
                                 ))}
-                              {parentSearch.trim() && menuFlat.filter(m => m.nom.toLowerCase().includes(parentSearch.trim().toLowerCase())).length === 0 && (
+                              {parentSearch.trim() && menuFlat.filter(m => (m.nom || '').toLowerCase().includes(parentSearch.trim().toLowerCase())).length === 0 && (
                                 <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
                               )}
                             </div>
@@ -2015,7 +2015,7 @@ export default function GridViewBuilder() {
                                     .filter(m => {
                                       const q = existingSearch.trim().toLowerCase()
                                       if (!q) return true
-                                      return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
+                                      return (m.nom || '').toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
                                     })
                                     .map(m => (
                                       <button
@@ -2027,7 +2027,7 @@ export default function GridViewBuilder() {
                                         {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
                                       </button>
                                     ))}
-                                  {existingSearch.trim() && attachableMenus.filter(m => m.nom.toLowerCase().includes(existingSearch.trim().toLowerCase())).length === 0 && (
+                                  {existingSearch.trim() && attachableMenus.filter(m => (m.nom || '').toLowerCase().includes(existingSearch.trim().toLowerCase())).length === 0 && (
                                     <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
                                   )}
                                 </div>

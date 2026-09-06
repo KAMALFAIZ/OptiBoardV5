@@ -397,9 +397,10 @@ export default function MenuManagement() {
   const filterMenus = useCallback((menuList, query, type, showInactiveMenus) => {
     const filterMenu = (menu) => {
       // Vérifier le menu actuel
-      const matchesSearch = !query ||
-        menu.nom.toLowerCase().includes(query.toLowerCase()) ||
-        menu.code.toLowerCase().includes(query.toLowerCase())
+      const q = (query || '').toLowerCase()
+      const matchesSearch = !q ||
+        (menu.nom || '').toLowerCase().includes(q) ||
+        (menu.code || '').toLowerCase().includes(q)
       const matchesType = type === 'all' || menu.type === type || (type === 'pivot-v2' && menu.type === 'pivot')
       const matchesActive = showInactiveMenus || menu.is_active
 
