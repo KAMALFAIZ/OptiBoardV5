@@ -5856,6 +5856,91 @@ def download_agent_package():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Notice d'installation embarquee dans le zip client. Elle vit ICI (et non dans
+# binpublish_new/) pour deux raisons : elle est versionnee avec le code, et elle
+# survit a chaque nouveau publish de l'agent, qui ecrase le dossier de publish.
+# Incrementer _AGENT_README_VERSION force la regeneration du zip en cache.
+_AGENT_README_NAME = "LISEZ-MOI.txt"
+_AGENT_README_VERSION = "2026-09-07"
+
+_AGENT_README = """AGENT ETL SAGE - OPTIBOARD
+Notice d'installation (version """ + _AGENT_README_VERSION + """)
+==========================================================
+
+CE QUE FAIT CET AGENT
+    Il lit votre base Sage sur votre reseau local et envoie les donnees vers
+    votre entrepot OptiBoard. Il ne recoit aucune commande d'ecriture sur Sage :
+    l'acces a Sage est en LECTURE SEULE.
+
+PREREQUIS
+    - Windows 64 bits.
+    - Un acces reseau au serveur SQL qui heberge Sage.
+    - Un acces Internet sortant vers le serveur OptiBoard (port 80).
+    - Aucun runtime a installer : l'executable est autonome.
+
+INSTALLATION
+    1. Decompressez ce dossier a un emplacement definitif, par exemple
+       C:\\SageETLAgent  (evitez le Bureau et le dossier Telechargements :
+       l'agent y ecrit ses journaux et sa configuration).
+    2. Lancez SageETLAgent.exe.
+
+CONFIGURATION (le plus simple)
+    3. Cliquez sur le bouton "Importer config" (icone dossier, en haut a droite)
+       et selectionnez le fichier agent_config_<CODE>.json livre avec ce zip.
+       Il renseigne le code client et, s'il contient un jeton d'enrolement,
+       l'agent recupere tout seul sa cle d'acces au serveur.
+
+       A savoir : l'import ne remplace QUE le code DWH. Le serveur, l'identifiant
+       d'agent et la cle deja saisis a l'ecran sont conserves ; ils ne sont
+       renseignes depuis le fichier que si le champ est vide.
+
+    4. Si vous n'avez pas de fichier de config, saisissez a la main l'adresse du
+       serveur, le code client, l'identifiant d'agent et la cle fournis par
+       votre prestataire.
+
+DEMARRAGE
+    5. Cliquez sur la fleche de rechargement pour charger la liste des agents.
+       Votre agent doit apparaitre dans le tableau.
+    6. Choisissez le mode "Continu" puis cliquez sur le bouton vert.
+       La synchronisation demarre et se repete automatiquement.
+
+VERIFIER QUE TOUT VA BIEN
+    - Onglet "Progression" : avancement de la synchronisation en cours.
+    - Onglet "Logs" : journal detaille, egalement ecrit dans le sous-dossier
+      logs\\ (un fichier par jour).
+    - Cote OptiBoard, l'agent doit apparaitre "En ligne" dans la console.
+
+EN CAS DE PROBLEME
+    "Impossible de se connecter au serveur distant"
+        L'adresse du serveur est injoignable depuis ce poste. Verifiez l'adresse
+        saisie et le pare-feu / proxy de sortie.
+    "Agent non autorise" (401)
+        La cle API n'est plus valide (elle a ete regeneree cote serveur).
+        Demandez un nouveau fichier de configuration a votre prestataire.
+    "Connexion Sage echouee"
+        Le serveur SQL de Sage n'est pas joignable depuis ce poste, ou les
+        identifiants Sage enregistres cote serveur sont errones.
+
+SECURITE - IMPORTANT
+    Le fichier agent_config_<CODE>.json contient un jeton a USAGE UNIQUE et de
+    duree de vie courte. Ne le diffusez pas et supprimez-le apres l'import.
+    Ne partagez jamais le contenu du champ "Cle" : il donne acces a vos donnees.
+"""
+
+
+def _zip_has_current_readme(zip_path) -> bool:
+    """Le zip en cache contient-il la notice a la version courante ?"""
+    import zipfile
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            name = f"SageETLAgent/{_AGENT_README_NAME}"
+            if name not in zf.namelist():
+                return False
+            return _AGENT_README_VERSION.encode() in zf.read(name)
+    except Exception:
+        return False
+
+
 @router.get("/admin/etl/agents/download/sage-agent")
 def download_sage_agent(
     request: Request,
@@ -5920,10 +6005,12 @@ def download_sage_agent(
     exe_path = publish_dir / "SageETLAgent.exe"
     zip_path = agent_dir / "SageETLAgent.zip"
 
-    # Regenerer le zip si absent ou perime (exe plus recent que le zip)
+    # Regenerer le zip si absent, perime (exe plus recent), ou si la notice
+    # d'installation qu'il embarque n'est pas a la version courante.
     needs_build = (
         not zip_path.exists()
         or exe_path.stat().st_mtime > zip_path.stat().st_mtime
+        or not _zip_has_current_readme(zip_path)
     )
     if needs_build:
         logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir} ...")
@@ -5935,7 +6022,15 @@ def download_sage_agent(
                     for name in files:
                         fp = Path(root) / name
                         rel = fp.relative_to(publish_dir).as_posix()
+                        if rel == _AGENT_README_NAME:
+                            continue  # la notice versionnee ci-dessous fait foi
                         zf.write(fp, f"SageETLAgent/{rel}")
+                # Notice d'installation (BOM UTF-8 : lisible tel quel dans le
+                # Bloc-notes Windows, accents compris).
+                zf.writestr(
+                    f"SageETLAgent/{_AGENT_README_NAME}",
+                    b"\xef\xbb\xbf" + _AGENT_README.replace("\n", "\r\n").encode("utf-8"),
+                )
             os.replace(tmp_name, zip_path)  # remplacement atomique
         except Exception as e:
             try:
