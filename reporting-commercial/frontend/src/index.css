@@ -566,3 +566,66 @@ svg.text-gray-600 { color: var(--color-primary-600) !important; }
     margin: 0 !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════ */
+/* MOBILE TACTILE — anti zoom Safari iOS + cibles 44 px       */
+/* ═══════════════════════════════════════════════════════════ */
+/* Safari iOS zoome automatiquement sur tout champ dont la police
+   fait moins de 16px, et ne dézoome jamais seul. 16px exactement
+   supprime le zoom. Portée limitée aux écrans tactiles étroits :
+   le rendu desktop (0.8125rem) reste inchangé. */
+@media (max-width: 767px) and (pointer: coarse) {
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"],
+  input[type="time"],
+  textarea,
+  select {
+    font-size: 16px;
+    padding: 0.5rem 0.75rem;
+    min-height: 44px;
+  }
+
+  textarea {
+    min-height: 5.5rem;
+    max-height: none;
+  }
+
+  select {
+    min-height: 44px;
+  }
+
+  /* Cibles tactiles : 44x44 minimum (Apple HIG).
+     Les grilles de données gardent leur densité propre. */
+  button,
+  [role="button"],
+  a.btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .ag-root-wrapper button,
+  .ag-root-wrapper [role="button"],
+  .pivot-container button,
+  .pivot-container [role="button"],
+  .tap-compact,
+  .tap-compact button {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  /* Cases et boutons radio : 13px natif -> 20px visé au doigt */
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 20px;
+    height: 20px;
+  }
+}
