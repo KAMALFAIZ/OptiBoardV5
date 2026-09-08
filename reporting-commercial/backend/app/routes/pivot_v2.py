@@ -12,6 +12,7 @@ Full-stack rewrite du systeme pivot avec:
 import io
 import json
 import logging
+import os
 import re
 import time
 import hashlib
@@ -53,6 +54,43 @@ def _client_match(central_row: dict) -> Optional[tuple]:
     if central_row.get("nom"):
         return ("nom = ?", central_row["nom"])
     return None
+
+
+# Plafond de cellules d'un tableau croise (lignes x colonnes x mesures).
+# 300 000 laisse passer une annee complete de l'etat de tonnage ALEAFOOD
+# (9 313 x 22 = 204 886 cellules, ~10 Mo) et arrete les dix ans
+# (47 352 x 44 = 2 083 488 cellules, ~99 Mo). Mettre a 0 pour desactiver.
+try:
+    MAX_PIVOT_CELLS = int(os.environ.get("MAX_PIVOT_CELLS", "300000"))
+except (TypeError, ValueError):
+    MAX_PIVOT_CELLS = 300000
+
+
+def _estimate_result_cells(source_data, rows_config, columns_config, values_config):
+    """Compte exactement les cellules que produirait le pivot, en une passe.
+
+    Retourne (cellules, nb_combinaisons_de_lignes, nb_valeurs_de_colonnes).
+    Le comptage precede volontairement le pivotage : c'est lui qui coute cher
+    en memoire et en temps sur les gros volumes.
+    """
+    row_fields = [f["field"] for f in (rows_config or []) if f.get("field")]
+    col_field = columns_config[0]["field"] if columns_config else None
+    n_values = max(len(values_config or []), 1)
+
+    if not row_fields and not col_field:
+        return len(source_data) * n_values, len(source_data), 1
+
+    row_keys = set()
+    col_vals = set()
+    for row in source_data:
+        if row_fields:
+            row_keys.add(tuple(row.get(f) for f in row_fields))
+        if col_field:
+            col_vals.add(row.get(col_field))
+
+    n_rows = len(row_keys) if row_fields else 1
+    n_cols = len(col_vals) if col_field else 1
+    return n_rows * n_cols * n_values, n_rows, n_cols
 
 
 _client_pivot_cols_cache: Dict[str, set] = {}
@@ -1954,6 +1992,45 @@ async def execute_pivot(
                 "formattingRules": formatting_rules,
                 "metadata": {"totalRows": 0, "executionTime": 0, "hasSubtotals": False},
                 "debug": debug_info
+            }
+
+        # ── Garde-fou volumetrie ────────────────────────────────────────────
+        # La reponse porte une cellule par (combinaison de lignes x valeur de
+        # colonne x mesure), chacune avec sa cle JSON : la charge utile croit en
+        # lignes x colonnes, pas en nombre de lignes. Mesure sur ALEAFOOD avec
+        # l'etat de tonnage : 1 mois = 0,7 Mo, 1 an = 10,6 Mo, 10 ans = 98,8 Mo.
+        # Passe ce seuil, le navigateur abandonne sur le timeout de 60 s et
+        # n'affiche qu'un "Erreur execution du pivot" muet, apres avoir fait
+        # travailler le serveur pour rien. Mieux vaut refuser tot et dire quoi
+        # faire. Le comptage ci-dessous est exact (une seule passe sur les
+        # donnees) et non une estimation.
+        cells_estimate, n_row_keys, n_col_vals = _estimate_result_cells(
+            source_data, rows_config, columns_config, values_config)
+        if MAX_PIVOT_CELLS and cells_estimate > MAX_PIVOT_CELLS:
+            logger.warning(
+                f"[PIVOT {pivot_id}] refus volumetrie : {n_row_keys} lignes x "
+                f"{n_col_vals} colonnes = {cells_estimate} cellules "
+                f"(plafond {MAX_PIVOT_CELLS}) — contexte {context}"
+            )
+            return {
+                "success": False,
+                "error": (
+                    u"Période trop large pour un tableau croisé : "
+                    u"%s lignes × %s colonnes, soit %s cellules "
+                    u"(maximum %s). Réduisez la période dans le filtre de dates, "
+                    u"ou retirez un niveau de lignes."
+                    % (f"{n_row_keys:,}".replace(",", " "),
+                       f"{n_col_vals:,}".replace(",", " "),
+                       f"{cells_estimate:,}".replace(",", " "),
+                       f"{MAX_PIVOT_CELLS:,}".replace(",", " "))
+                ),
+                "data": [],
+                "pivotColumns": [],
+                "rowFields": rows_config,
+                "columnField": columns_config[0]["field"] if columns_config else None,
+                "valueFields": values_config,
+                "metadata": {"totalRows": n_row_keys, "cells": cells_estimate,
+                             "maxCells": MAX_PIVOT_CELLS},
             }
 
         # Colonnes pivot — support multi-niveaux (hierarchique)
