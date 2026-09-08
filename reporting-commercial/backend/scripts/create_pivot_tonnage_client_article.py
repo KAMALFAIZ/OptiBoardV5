@@ -26,9 +26,10 @@ Points de portage specifiques a cette forme
       replace(replace(AR_Design, 'CAFE CITTA D''ITALIA ', ''), 'CAFE LA VARENNE - ', '')
   applique a [Articles].[Désignation Article]. Ce sont ces libelles raccourcis qui
   servent d'en-tetes de colonnes (ALEA EXPRESSO, BLUE MOON, CAFE CALEAFFE...).
-* [Periode Libelle] utilise FORMAT(date, 'MMMM yyyy', 'fr-FR') pour obtenir
-  "septembre 2026" comme dans Sage. [Periode] ('yyyy-MM') est conservee a cote
-  pour permettre un tri chronologique correct.
+* [Periode Libelle] produit "septembre 2026" comme dans Sage, via un CASE sur
+  MONTH() plutot que FORMAT(date,'MMMM yyyy','fr-FR') : FORMAT est nettement plus
+  couteux en SQL Server, et le CASE ne depend pas de la langue du serveur.
+  [Periode] ('yyyy-MM') est conservee a cote pour le tri chronologique.
 * Le grain descend jusqu'a l'article : c'est indispensable pour qu'il puisse
   servir de dimension de colonnes. Les mesures restent additives, donc les totaux
   et sous-totaux du pivot sont exacts a tous les niveaux.
@@ -55,19 +56,18 @@ MENU_PARENT_FALLBACK = 2  # dossier "Chiffre d'Affaires"
 
 QUERY_TEMPLATE = u"""SELECT
     LTRIM(RTRIM(cl.[Représentant]))                        AS [Representant],
-    FORMAT(li.[Date BL], 'yyyy-MM')                        AS [Periode],
-    FORMAT(li.[Date BL], 'MMMM yyyy', 'fr-FR')             AS [Periode Libelle],
-    YEAR(li.[Date BL])                                     AS [Annee],
-    li.[Code client]                                       AS [Code Client],
-    MIN(li.[Intitulé client])                              AS [Client],
-    MIN(cl.[Ville])                                        AS [Ville],
-    li.[Code article]                                      AS [Code Article],
-    MIN(ar.[Désignation Article])                          AS [Designation],
-    MIN(REPLACE(REPLACE(ar.[Désignation Article],
-        'CAFE CITTA D''ITALIA ', ''), 'CAFE LA VARENNE - ', ''))
+    CONVERT(CHAR(7), li.[Date BL], 126)                    AS [Periode],
+    CASE MONTH(li.[Date BL])
+        WHEN  1 THEN N'janvier'   WHEN  2 THEN N'février' WHEN  3 THEN N'mars'
+        WHEN  4 THEN N'avril'     WHEN  5 THEN N'mai'      WHEN  6 THEN N'juin'
+        WHEN  7 THEN N'juillet'   WHEN  8 THEN N'août'     WHEN  9 THEN N'septembre'
+        WHEN 10 THEN N'octobre'   WHEN 11 THEN N'novembre' ELSE N'décembre'
+    END + N' ' + CAST(YEAR(li.[Date BL]) AS NVARCHAR(4))   AS [Periode Libelle],
+    li.[Intitulé client]                                   AS [Client],
+    REPLACE(REPLACE(ar.[Désignation Article],
+        'CAFE CITTA D''ITALIA ', ''), 'CAFE LA VARENNE - ', '')
                                                            AS [Designation Abregee],
     SUM(li.[Quantité])                                     AS [Tonnage Kg],
-    CAST(SUM(li.[Quantité]) / 1000.0 AS DECIMAL(19,3))     AS [Tonnage T],
     SUM(li.[Montant HT Net])                               AS [Montant HT],
     li.societe                                             AS [Societe]
 FROM [Lignes_des_ventes] li
@@ -90,10 +90,27 @@ WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND (@representant IS NULL OR LTRIM(RTRIM(cl.[Représentant])) = @representant)
 GROUP BY
     LTRIM(RTRIM(cl.[Représentant])),
-    FORMAT(li.[Date BL], 'yyyy-MM'),
-    FORMAT(li.[Date BL], 'MMMM yyyy', 'fr-FR'),
-    YEAR(li.[Date BL]),
-    li.[Code client], li.[Code article], li.societe"""
+    CONVERT(CHAR(7), li.[Date BL], 126),
+    CASE MONTH(li.[Date BL])
+        WHEN  1 THEN N'janvier'   WHEN  2 THEN N'février' WHEN  3 THEN N'mars'
+        WHEN  4 THEN N'avril'     WHEN  5 THEN N'mai'      WHEN  6 THEN N'juin'
+        WHEN  7 THEN N'juillet'   WHEN  8 THEN N'août'     WHEN  9 THEN N'septembre'
+        WHEN 10 THEN N'octobre'   WHEN 11 THEN N'novembre' ELSE N'décembre'
+    END + N' ' + CAST(YEAR(li.[Date BL]) AS NVARCHAR(4)),
+    li.[Intitulé client],
+    REPLACE(REPLACE(ar.[Désignation Article],
+        'CAFE CITTA D''ITALIA ', ''), 'CAFE LA VARENNE - ', ''),
+    li.societe"""
+# Volume : cet etat est lourd par nature (representant x mois x client x article).
+# Mesures ALEAFOOD : 1 mois = 657 lignes / 2,4 s ; 1 an = 11 251 / 11,6 s ;
+# 10 ans (plage par defaut du viewer) = 47 352 / ~31-50 s, au-dela du timeout de
+# 60 s du frontend une fois le rendu compris. D'ou les choix ci-dessous :
+#   - CONVERT + CASE plutot que FORMAT(), nettement moins couteux en SQL Server ;
+#   - seules les colonnes reellement consommees par le pivot sont renvoyees
+#     (ni code article, ni code client, ni ville, ni Tonnage T), pour reduire la
+#     charge utile JSON et le travail de rendu.
+# Cela ne dispense pas de borner la periode : l'etat Sage d'origine est consulte
+# sur une journee ou un mois.
 
 PARAMETERS = [
     {"name": "dateDebut", "type": "date", "label": u"Date début (date BL)", "required": True,
