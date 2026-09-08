@@ -54,7 +54,7 @@ MENU_PARENT_FALLBACK = 3  # dossier "Documents Commerciaux"
 
 QUERY_TEMPLATE = u"""SELECT
     li.[Type Document]                                     AS [Type Document],
-    LTRIM(RTRIM(cl.[Représentant]))                        AS [Representant],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                        AS [Representant],
     li.[Intitulé client]                                   AS [Intitule],
     li.[N° Pièce]                                          AS [Piece Document],
     ISNULL(li.[Date document], li.[Date])                  AS [Date Document],
@@ -80,7 +80,7 @@ LEFT JOIN [Clients] cl
        ON cl.[Code client] = li.[Code client]
       AND cl.societe = li.societe
 LEFT JOIN [Collaborateurs] co
-       ON LTRIM(RTRIM(co.[Nom collaborateur])) = LTRIM(RTRIM(cl.[Représentant]))
+       ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
       AND co.societe = li.societe
 WHERE ISNULL(li.[Date document], li.[Date]) BETWEEN @dateDebut AND @dateFin
   AND (@societe      IS NULL OR li.societe = @societe)

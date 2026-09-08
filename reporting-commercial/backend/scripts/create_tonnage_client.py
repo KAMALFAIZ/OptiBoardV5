@@ -78,7 +78,7 @@ QUERY_TEMPLATE = u"""SELECT
     FORMAT(li.[Date BL], 'yyyy-MM')                    AS [Periode],
     YEAR(li.[Date BL])                                 AS [Annee],
     MONTH(li.[Date BL])                                AS [Mois],
-    LTRIM(RTRIM(cl.[Représentant]))                    AS [Representant],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                    AS [Representant],
     li.[Code client]                                   AS [Code Client],
     MIN(li.[Intitulé client])                          AS [Client],
     MIN(cl.[Ville])                                    AS [Ville],
@@ -98,6 +98,9 @@ LEFT JOIN [IL_Articles] il
 LEFT JOIN [Clients] cl
       ON cl.[Code client] = li.[Code client]
      AND cl.societe = li.societe
+LEFT JOIN [Collaborateurs] co
+      ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
+     AND co.societe = li.societe
 WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
   AND li.[Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
@@ -105,10 +108,10 @@ WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND (@catalogue    IS NULL OR li.[Catalogue 1] = @catalogue)
   AND (@societe      IS NULL OR li.societe = @societe)
   AND (@client       IS NULL OR li.[Code client] = @client)
-  AND (@representant IS NULL OR LTRIM(RTRIM(cl.[Représentant])) = @representant)
+  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
     FORMAT(li.[Date BL], 'yyyy-MM'), YEAR(li.[Date BL]), MONTH(li.[Date BL]),
-    LTRIM(RTRIM(cl.[Représentant])), li.[Code client], li.societe"""
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Code client], li.societe"""
 # NB : pas d'ORDER BY final. Le endpoint /grids/{id}/data encapsule la requete dans
 # des sous-requetes (COUNT + OFFSET/FETCH) ou SQL Server interdit ORDER BY ; l'ordre
 # d'affichage est porte par default_sort.

@@ -69,7 +69,7 @@ QUERY_TEMPLATE = u"""SELECT
     FORMAT(li.[Date], 'yyyy-MM')                       AS [Periode],
     YEAR(li.[Date])                                    AS [Annee],
     MONTH(li.[Date])                                   AS [Mois],
-    LTRIM(RTRIM(cl.[Représentant]))                    AS [Representant],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                    AS [Representant],
     li.[Code article]                                  AS [Code Article],
     MIN(li.[Désignation ligne])                        AS [Designation],
     li.[Catalogue 1]                                   AS [Catalogue],
@@ -80,7 +80,7 @@ QUERY_TEMPLATE = u"""SELECT
     li.societe                                         AS [Societe],
     ROW_NUMBER() OVER (
         ORDER BY FORMAT(li.[Date], 'yyyy-MM') DESC,
-                 LTRIM(RTRIM(cl.[Représentant])), li.[Code article]
+                 COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Code article]
     )                                                  AS [Ordre Ligne]
 FROM [Lignes_des_ventes] li
 JOIN [Articles] ar
@@ -92,16 +92,19 @@ LEFT JOIN [IL_Articles] il
 LEFT JOIN [Clients] cl
       ON cl.[Code client] = li.[Code client]
      AND cl.societe = li.societe
+LEFT JOIN [Collaborateurs] co
+      ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
+     AND co.societe = li.societe
 WHERE li.[Date] BETWEEN @dateDebut AND @dateFin
   AND ISNULL(il.[Géré en Tonnage], N'Non') <> N'Oui'
   AND li.[Catalogue 1] = ISNULL(@catalogue, N'CAFE')
   AND li.[Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
   AND li.[Remise 1] = N'0,00 %'
   AND (@societe      IS NULL OR li.societe = @societe)
-  AND (@representant IS NULL OR LTRIM(RTRIM(cl.[Représentant])) = @representant)
+  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
     FORMAT(li.[Date], 'yyyy-MM'), YEAR(li.[Date]), MONTH(li.[Date]),
-    LTRIM(RTRIM(cl.[Représentant])), li.[Code article], li.[Catalogue 1], li.societe"""
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Code article], li.[Catalogue 1], li.societe"""
 # NB : pas d'ORDER BY final. Le endpoint /grids/{id}/data encapsule la requete dans
 # des sous-requetes (COUNT + OFFSET/FETCH) ou SQL Server interdit ORDER BY ; l'ordre
 # d'affichage est porte par default_sort.

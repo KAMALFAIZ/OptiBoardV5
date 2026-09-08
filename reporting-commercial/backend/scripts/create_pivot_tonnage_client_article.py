@@ -55,7 +55,7 @@ PV_CODE = "PV_TONNAGE_CLIENT_ARTICLE"
 MENU_PARENT_FALLBACK = 2  # dossier "Chiffre d'Affaires"
 
 QUERY_TEMPLATE = u"""SELECT
-    LTRIM(RTRIM(cl.[Représentant]))                        AS [Representant],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                        AS [Representant],
     CONVERT(CHAR(7), li.[Date BL], 126)                    AS [Periode],
     CASE MONTH(li.[Date BL])
         WHEN  1 THEN N'janvier'   WHEN  2 THEN N'février' WHEN  3 THEN N'mars'
@@ -80,6 +80,9 @@ LEFT JOIN [IL_Articles] il
 LEFT JOIN [Clients] cl
       ON cl.[Code client] = li.[Code client]
      AND cl.societe = li.societe
+LEFT JOIN [Collaborateurs] co
+      ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
+     AND co.societe = li.societe
 WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
   AND li.[Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
@@ -87,9 +90,9 @@ WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND (@catalogue    IS NULL OR li.[Catalogue 1] = @catalogue)
   AND (@societe      IS NULL OR li.societe = @societe)
   AND (@client       IS NULL OR li.[Code client] = @client)
-  AND (@representant IS NULL OR LTRIM(RTRIM(cl.[Représentant])) = @representant)
+  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
-    LTRIM(RTRIM(cl.[Représentant])),
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))),
     CONVERT(CHAR(7), li.[Date BL], 126),
     CASE MONTH(li.[Date BL])
         WHEN  1 THEN N'janvier'   WHEN  2 THEN N'février' WHEN  3 THEN N'mars'
