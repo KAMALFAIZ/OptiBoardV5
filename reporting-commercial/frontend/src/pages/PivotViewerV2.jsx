@@ -7,7 +7,7 @@ import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   getPivotV2, executePivotV2, drilldownPivotV2, exportPivotV2,
   getPivotV2Fields, getPivotV2UserPrefs, savePivotV2UserPrefs, resetPivotV2UserPrefs,
-  getUnifiedDataSourceFields, updatePivotV2
+  getUnifiedDataSourceFields, updatePivotV2, isRequestCanceled
 } from '../services/api'
 import api from '../services/api'
 import { PivotTable, PivotChart, DrillDownModal } from '../components/PivotV2'
@@ -557,6 +557,15 @@ export default function PivotViewerV2() {
   const executePivot = async (configOverride, customLiveConfig) => {
     setExecuting(true)
     setError(null)
+    // Une execution annulee n'est pas un echec : executePivotV2 passe par
+    // cancelableRequest, qui avorte la requete precedente des qu'une nouvelle
+    // part sur la meme cle. Changer la periode declenche plusieurs executions
+    // successives ; sans ce drapeau, le rejet de l'AbortController tombait dans
+    // le catch et affichait "Erreur execution du pivot" alors que la requete
+    // suivante aboutissait normalement (d'ou des 200 OK cote serveur pour un
+    // ecran en erreur). On laisse alors la main a l'execution qui a pris le
+    // relais, sans toucher ni a l'erreur ni au drapeau de chargement.
+    let canceled = false
     try {
       const ctx = {
         dateDebut: globalFilters?.dateDebut,
@@ -580,9 +589,13 @@ export default function PivotViewerV2() {
         setError(res.data?.error || 'Erreur execution')
       }
     } catch (err) {
+      if (isRequestCanceled(err)) {
+        canceled = true
+        return
+      }
       setError('Erreur execution du pivot')
     } finally {
-      setExecuting(false)
+      if (!canceled) setExecuting(false)
     }
   }
 
