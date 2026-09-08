@@ -59,6 +59,13 @@ VALUES (N'Valeurs informations libres',
 N'__INFO_LIBRES_VALUES__',
 N'Info_Libres_Valeurs', N'CB_File,entity_key,CB_Name', N'DB', 'full', NULL, 'high', 3, 0);
 
+-- 2c. Correspondance cle tiers infos libres : CT_Num <-> cbMarq de F_COMPTET (FULL, ADDITIF)
+-- Rattache les infos libres des tiers (F_COMPTET) aux tables Clients/Fournisseurs.
+INSERT INTO ETL_Tables_Config (table_name, source_query, target_table, join_column, filter_column, sync_type, timestamp_column, priority, sort_order, delete_orphans)
+VALUES (N'Correspondance clé tiers',
+N'SELECT CT_Num AS [Code tiers], CAST(cbMarq AS NVARCHAR(50)) AS [Clé Sage], CASE CT_Type WHEN 0 THEN ''Client'' WHEN 1 THEN ''Fournisseur'' ELSE ''Autre'' END AS [Type tiers] FROM F_COMPTET',
+N'Info_Libres_Cle_Tiers', NULL, N'DB', 'full', NULL, 'high', 4, 0);
+
 -- 3. Liste des articles (INCREMENTAL)
 INSERT INTO ETL_Tables_Config (table_name, source_query, target_table, join_column, filter_column, sync_type, timestamp_column, priority, sort_order, delete_orphans)
 VALUES (N'Liste des articles',

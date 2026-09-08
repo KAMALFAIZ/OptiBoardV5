@@ -45,6 +45,11 @@ def _get_sage_societes(dwh_code: str) -> List[Dict[str, Any]]:
             use_cache=False,
         )
         if agents:
+            # password_sage vient de APP_ETL_Agents.sage_password, chiffre au repos
+            # ($sec1$) ; le plaintext legacy traverse dec_secret sans changement.
+            from ..services.secret_crypto import dec_secret
+            for a in agents:
+                a["password_sage"] = dec_secret(a.get("password_sage"))
             logger.debug(f"[SAGE DIRECT] {len(agents)} agent(s) Sage trouvé(s) dans APP_ETL_Agents pour {dwh_code}")
             return agents
     except Exception as e:

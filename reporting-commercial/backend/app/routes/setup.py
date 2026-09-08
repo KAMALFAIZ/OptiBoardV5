@@ -7,6 +7,8 @@ import hashlib
 from pathlib import Path
 import logging
 
+from ..services.secret_crypto import enc_secret as _enc_secret
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -1744,8 +1746,10 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
                             sage_societe_nom: Optional[str] = None) -> dict:
     """
     Crée un premier client (DWH) local pendant le setup initial:
-      1. CREATE DATABASE [OptiBoard_<code>] sur le meme serveur SQL
-      2. INSERT INTO APP_DWH avec les memes credentials
+      1. CREATE DATABASE [OptiBoard_<code>] (base applicative client) sur le meme serveur SQL
+      2. INSERT INTO APP_DWH avec les memes credentials — base_dwh = DWH_<code>
+         (entrepot, cree vide : les tables sont alimentees par l'agent ETL),
+         base_optiboard = OptiBoard_<code> (convention DWH_ + OptiBoard_)
       3. INSERT INTO APP_UserDWH pour superadmin et admin (acces complet)
       4. (optionnel) Crer un admin client dans APP_Users + le lier au DWH
       5. (optionnel) INSERT INTO APP_DWH_Sources pour la base Sage source
@@ -1756,7 +1760,9 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
     code = (code or "LOCAL").strip().upper().replace(" ", "_")[:50]
     nom = (nom or code).strip()[:200]
     client_db = f"OptiBoard_{code}"
+    dwh_db = f"DWH_{code}"
     result = {"code": code, "nom": nom, "db_name": client_db,
+              "dwh_db_name": dwh_db, "dwh_db_created": False,
               "db_created": False, "dwh_inserted": False, "users_linked": 0,
               "admin_client_created": False, "admin_client_username": None,
               "sage_source_inserted": False, "sage_societe_code": None,
@@ -1824,15 +1830,39 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
                 result["errors"].append(f"DWH {code} existait deja (id={existing[0]})")
                 dwh_id = existing[0]
             else:
+                # Créer l'entrepôt DWH_<code> vide (les tables sont créées par l'agent ETL),
+                # distinct de la base applicative OptiBoard_<code>.
+                try:
+                    with pyodbc.connect(conn_master, autocommit=True, timeout=30) as conn_m:
+                        cur_m = conn_m.cursor()
+                        cur_m.execute("SELECT DB_ID(?)", (dwh_db,))
+                        if cur_m.fetchone()[0] is None:
+                            cur_m.execute(f"CREATE DATABASE [{dwh_db}]")
+                            result["dwh_db_created"] = True
+                        else:
+                            result["errors"].append(f"Base {dwh_db} existait deja")
+                except Exception as e:
+                    result["errors"].append(f"CREATE DATABASE {dwh_db}: {e}")
+
                 cur.execute("""
                     INSERT INTO APP_DWH
                         (code, nom, raison_sociale, serveur_dwh, base_dwh,
                          user_dwh, password_dwh, actif)
                     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-                """, (code, nom, nom, server, client_db, user, password))
+                """, (code, nom, nom, server, dwh_db, user, password))
                 cur.execute("SELECT @@IDENTITY")
                 dwh_id = int(cur.fetchone()[0])
                 result["dwh_inserted"] = True
+
+                # Base applicative du client (colonne ajoutée par la migration 009 —
+                # best-effort : le fallback OptiBoard_<code> donne le même nom si absente).
+                try:
+                    cur.execute(
+                        "UPDATE APP_DWH SET base_optiboard = ? WHERE id = ?",
+                        (client_db, dwh_id)
+                    )
+                except Exception as e:
+                    result["errors"].append(f"base_optiboard: {e}")
 
             # 3. Lier superadmin et admin a ce DWH
             cur.execute(
@@ -1976,7 +2006,7 @@ def _create_first_local_dwh(code: str, nom: str, server: str, user: str,
                                 f"Agent {societe_nom}",
                                 "Pre-configure par le wizard de setup",
                                 sage_server, sage_database,
-                                sage_username or "", sage_password or "",
+                                sage_username or "", _enc_secret(sage_password) or "",
                                 societe_code, societe_nom
                             ))
                             result["sage_agent_id"] = setup_agent_id

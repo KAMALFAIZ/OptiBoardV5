@@ -11,11 +11,12 @@ import re
 import time
 from datetime import datetime, date
 from decimal import Decimal
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, dwh_cursor
+from ..security import is_superadmin_session
 
 logger = logging.getLogger(__name__)
 
@@ -175,13 +176,15 @@ def get_template_by_code(code: str):
 @router.post("/templates")
 def create_template(
     template: DataSourceTemplateCreate,
-    x_user_role: str = Header(None, alias="X-User-Role"),
+    request: Request,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
     """Cree un nouveau template de datasource"""
     try:
-        # Verification role pour templates systeme
-        if template.is_system and x_user_role != "superadmin":
+        # Verification role pour templates systeme : le role vient de la SESSION
+        # validee, jamais de l'en-tete X-User-Role (fourni par l'appelant donc
+        # falsifiable). Fail-closed.
+        if template.is_system and not is_superadmin_session(request):
             raise HTTPException(status_code=403, detail="Seul un superadmin peut creer des templates systeme")
 
         # Verifier si le code existe deja
@@ -235,7 +238,7 @@ def create_template(
 def update_template(
     template_id: int,
     template: DataSourceTemplateUpdate,
-    x_user_role: str = Header(None, alias="X-User-Role"),
+    request: Request,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
     """Met a jour un template existant"""
@@ -249,8 +252,9 @@ def update_template(
         if not existing:
             raise HTTPException(status_code=404, detail="Template non trouve")
 
-        # Verification role pour templates systeme
-        if existing[0].get('is_system') and x_user_role != "superadmin":
+        # Verification role pour templates systeme (role issu de la session validee)
+        is_superadmin = is_superadmin_session(request)
+        if existing[0].get('is_system') and not is_superadmin:
             raise HTTPException(status_code=403, detail="Seul un superadmin peut modifier les templates systeme")
 
         # Construire la requete de mise a jour
@@ -275,7 +279,7 @@ def update_template(
         if template.parameters is not None:
             updates.append("parameters = ?")
             params.append(template.parameters)
-        if template.is_system is not None and x_user_role == "superadmin":
+        if template.is_system is not None and is_superadmin:
             updates.append("is_system = ?")
             params.append(1 if template.is_system else 0)
         if template.actif is not None:
@@ -307,7 +311,7 @@ def update_template(
 @router.delete("/templates/id/{template_id}")
 def delete_template(
     template_id: int,
-    x_user_role: str = Header(None, alias="X-User-Role")
+    request: Request
 ):
     """Supprime un template"""
     try:
@@ -320,8 +324,8 @@ def delete_template(
         if not existing:
             raise HTTPException(status_code=404, detail="Template non trouve")
 
-        # Verification role pour templates systeme
-        if existing[0].get('is_system') and x_user_role != "superadmin":
+        # Verification role pour templates systeme (role issu de la session validee)
+        if existing[0].get('is_system') and not is_superadmin_session(request):
             raise HTTPException(status_code=403, detail="Seul un superadmin peut supprimer les templates systeme")
 
         with get_db_cursor() as cursor:
@@ -1348,10 +1352,7 @@ def get_dwh_filter_options(
 
 
 @router.post("/execute/test")
-def test_query(
-    body: dict,
-    x_user_role: str = Header(None, alias="X-User-Role")
-):
+def test_query(body: dict):
     """Teste une requete SQL avec des parametres"""
     try:
         query = body.get("query", "")

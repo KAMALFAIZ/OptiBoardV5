@@ -23,10 +23,13 @@ from app.database_unified import (
     execute_central, write_central,
 )
 from app.config_multitenant import get_central_settings as _get_central_settings, reload_central_settings as _reload_central_settings
+from app.security import is_superadmin_session
 from app.services.query_crypto import enc_query, dec_query, dec_rows, migrate_encrypt_existing
 
 # Instance du gestionnaire DWH
 dwh_manager = DWHConnectionManager()
+
+from ..services.secret_crypto import enc_secret, dec_secret, dec_rows as dec_secret_rows
 
 logger = logging.getLogger(__name__)
 
@@ -554,24 +557,64 @@ async def get_agent_auth(
     return x_agent_id
 
 
+def _enforce_agent_auth(agent_id: str, x_api_key: Optional[str], x_dwh_code: Optional[str]) -> None:
+    """
+    Enforce l'authentification d'un agent, SANS possibilité de contournement.
+
+    Remplace le motif historique `if x_api_key and x_dwh_code:` qui laissait
+    passer tout appel omettant un en-tête (faille de bypass) :
+      - si une clé API est fournie, elle DOIT être valide (le DWH est résolu
+        depuis l'en-tête, ou à défaut depuis le monitoring central) ;
+      - sans clé API, seuls les jetons de session Démo sont admis ;
+      - tout le reste → 401.
+
+    Lève HTTPException (401/404) en cas d'échec. Ne retourne rien en cas de succès.
+    """
+    if x_api_key:
+        dwh = _get_dwh_for_agent(agent_id, x_dwh_code)  # résout via monitoring si l'en-tête manque
+        if not verify_agent(agent_id, x_api_key, dwh):
+            raise HTTPException(status_code=401, detail="Agent non autorisé")
+        return
+    # Pas de clé API : seul le mode démo (jeton = agent_id) est toléré.
+    if _get_demo_session(agent_id):
+        return
+    raise HTTPException(status_code=401, detail="Agent non autorisé (clé API requise)")
+
+
 # ============================================================
 # Routes Administration (UI)
 # ============================================================
 
 @router.get("/admin/etl/agents")
 def list_agents(
+    request: Request = None,
     x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
     status: Optional[str] = Query(None, description="Filtrer par statut"),
     dwh_code: Optional[str] = Query(None, description="Filtrer par DWH (vue centrale uniquement)"),
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
     """
     Liste les agents ETL.
-    - Si X-DWH-Code absent ou 'CENTRAL' → superadmin : lit APP_ETL_Agents_Monitoring (toutes bases).
-    - Si X-DWH-Code present → client : lit APP_ETL_Agents de sa base.
+    - Vue centrale (APP_ETL_Agents_Monitoring, tous tenants) : reservee au
+      superadmin CENTRAL, prouve par une session validee.
+    - Sinon vue client : APP_ETL_Agents de la base du DWH demande.
+
+    Isolation multi-tenant : le basculement vers la vue centrale ne depend
+    JAMAIS d'un en-tete fourni par l'appelant (l'ancien `X-User-Role:
+    superadmin` etait falsifiable et permettait a tout utilisateur authentifie
+    d'enumerer les agents de tous les clients). Fail-closed : sans session
+    superadmin centrale, un appel sans X-DWH-Code est refuse (403).
     """
-    # Superadmin = pas de code, ou code 'CENTRAL', ou role superadmin explicite
-    is_central = not x_dwh_code or x_dwh_code.upper() == 'CENTRAL' or x_user_role == 'superadmin'
+    # Vue centrale demandee = pas de code tenant, ou code 'CENTRAL'
+    wants_central = not x_dwh_code or x_dwh_code.upper() == 'CENTRAL'
+    if wants_central:
+        if not is_superadmin_session(request):
+            raise HTTPException(
+                status_code=403,
+                detail="Vue centrale reservee au superadmin — precisez X-DWH-Code pour la vue client"
+            )
+        is_central = True
+    else:
+        is_central = False
 
     # ── Mode Démo : token = DWH code ──────────────────────────────────────────
     if x_dwh_code and not is_central:
@@ -740,6 +783,10 @@ def list_agents(
                 cols = [c[0] for c in cursor.description]
                 agents = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
+            # sage_password est chiffre au repos ($sec1$) : l'agent ETL authentifie
+            # doit recevoir le mot de passe utilisable pour joindre Sage.
+            dec_secret_rows(agents)
+
             # Recuperer les credentials DWH depuis APP_DWH (base centrale)
             dwh_info_rows = execute_central(
                 "SELECT serveur_dwh, base_dwh, user_dwh, password_dwh FROM APP_DWH WHERE code = ?",
@@ -887,7 +934,7 @@ def create_agent(
                     (
                         agent_id, agent.name, agent.description,
                         agent.sage_server, agent.sage_database,
-                        agent.sage_username, agent.sage_password,
+                        agent.sage_username, enc_secret(agent.sage_password),
                         agent.code_societe, agent.nom_societe,
                         api_key_hash, api_key_prefix,
                         agent.sync_interval_seconds,
@@ -1089,7 +1136,9 @@ def get_agent(
                 raise HTTPException(status_code=404, detail="Agent non trouve")
             return {"success": True, "data": monitoring_rows[0], "_source": "monitoring"}
 
-        return {"success": True, "data": dict(zip(cols, row))}
+        data = dict(zip(cols, row))
+        dec_secret_rows([data])
+        return {"success": True, "data": data}
 
     except HTTPException:
         raise
@@ -1135,7 +1184,7 @@ def update_agent(
         if updates.sage_username is not None:
             set_clauses.append("sage_username = ?"); params.append(updates.sage_username)
         if updates.sage_password is not None:
-            set_clauses.append("sage_password = ?"); params.append(updates.sage_password)
+            set_clauses.append("sage_password = ?"); params.append(enc_secret(updates.sage_password))
 
         params.append(agent_id)
 
@@ -2446,8 +2495,7 @@ async def agent_register(
     Dual-write : base client (statut complet) + central monitoring (metriques).
     Authentifie via X-API-Key.
     """
-    if x_api_key and not verify_agent(agent_id, x_api_key, x_dwh_code):
-        raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         data = await request.json()
 
@@ -2504,9 +2552,7 @@ def agent_heartbeat(
     Heartbeat d'un agent. Authentifie via X-API-Key.
     Dual-write : base client + central monitoring.
     """
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     # ── Mode Démo ─────────────────────────────────────────────────────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2648,9 +2694,7 @@ def agent_get_tables(
     if_none_match: Optional[str] = Header(None, alias="If-None-Match")
 ):
     """Recupere la configuration des tables pour un agent. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     # ── Mode Démo ─────────────────────────────────────────────────────────────
     demo = _get_demo_session(agent_id)
     if demo:
@@ -2841,9 +2885,7 @@ async def agent_push_data(
     """Reception des donnees synchronisees. Authentifie via X-API-Key.
     Idempotence opt-in via header X-Request-Id : un batch rejoue avec le meme
     request_id repond succes + duplicate:true sans retraiter les donnees."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
 
     # Valider les identifiants SQL pour prevenir l'injection
     try:
@@ -3330,9 +3372,7 @@ def agent_get_commands(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """Recupere les commandes en attente pour un agent. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         commands = execute_query(
             """
@@ -3368,9 +3408,7 @@ def agent_ack_command(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """Acquitte une commande. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         with get_db_cursor() as cursor:
             cursor.execute(
@@ -3398,9 +3436,7 @@ async def agent_complete_command(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """Marque une commande comme terminee. Authentifie via X-API-Key."""
-    if x_api_key and x_dwh_code:
-        if not verify_agent(agent_id, x_api_key, x_dwh_code):
-            raise HTTPException(status_code=401, detail="Agent non autorise")
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         data = await request.json()
 
@@ -5357,8 +5393,14 @@ async def dwh_admin_create_single_client_db(code: str):
 
 
 @router.post("/agents/{agent_id}/sync-result")
-def agent_sync_result(agent_id: str, result: SyncResultRequest):
+def agent_sync_result(
+    agent_id: str,
+    result: SyncResultRequest,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
     """Rapporte le resultat d'une synchronisation"""
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         with get_db_cursor() as cursor:
             # Inserer le log
@@ -5814,8 +5856,122 @@ def download_agent_package():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Notice d'installation embarquee dans le zip client. Elle vit ICI (et non dans
+# binpublish_new/) pour deux raisons : elle est versionnee avec le code, et elle
+# survit a chaque nouveau publish de l'agent, qui ecrase le dossier de publish.
+# Incrementer _AGENT_README_VERSION force la regeneration du zip en cache.
+_AGENT_README_NAME = "LISEZ-MOI.txt"
+_AGENT_README_VERSION = "2026-09-07"
+
+_AGENT_README = """AGENT ETL SAGE - OPTIBOARD
+Notice d'installation (version """ + _AGENT_README_VERSION + """)
+==========================================================
+
+CE QUE FAIT CET AGENT
+    Il lit votre base Sage sur votre reseau local et envoie les donnees vers
+    votre entrepot OptiBoard. Il ne recoit aucune commande d'ecriture sur Sage :
+    l'acces a Sage est en LECTURE SEULE.
+
+PREREQUIS
+    - Windows 64 bits.
+    - Un acces reseau au serveur SQL qui heberge Sage.
+    - Un acces Internet sortant vers le serveur OptiBoard (port 80).
+    - Aucun runtime a installer : l'executable est autonome.
+
+INSTALLATION
+    1. Decompressez ce dossier a un emplacement definitif, par exemple
+       C:\\SageETLAgent  (evitez le Bureau et le dossier Telechargements :
+       l'agent y ecrit ses journaux et sa configuration).
+    2. Lancez SageETLAgent.exe.
+
+CONFIGURATION (le plus simple)
+    3. Cliquez sur le bouton "Importer config" (icone dossier, en haut a droite)
+       et selectionnez le fichier agent_config_<CODE>.json livre avec ce zip.
+       Il renseigne le code client et, s'il contient un jeton d'enrolement,
+       l'agent recupere tout seul sa cle d'acces au serveur.
+
+       A savoir : l'import ne remplace QUE le code DWH. Le serveur, l'identifiant
+       d'agent et la cle deja saisis a l'ecran sont conserves ; ils ne sont
+       renseignes depuis le fichier que si le champ est vide.
+
+    4. Si vous n'avez pas de fichier de config, saisissez a la main l'adresse du
+       serveur, le code client, l'identifiant d'agent et la cle fournis par
+       votre prestataire.
+
+DEMARRAGE
+    5. Cliquez sur la fleche de rechargement pour charger la liste des agents.
+       Votre agent doit apparaitre dans le tableau.
+    6. Choisissez le mode "Continu" puis cliquez sur le bouton vert.
+       La synchronisation demarre et se repete automatiquement.
+
+VERIFIER QUE TOUT VA BIEN
+    - Onglet "Progression" : avancement de la synchronisation en cours.
+    - Onglet "Logs" : journal detaille, egalement ecrit dans le sous-dossier
+      logs\\ (un fichier par jour).
+    - Cote OptiBoard, l'agent doit apparaitre "En ligne" dans la console.
+
+EN CAS DE PROBLEME
+    "Impossible de se connecter au serveur distant"
+        L'adresse du serveur est injoignable depuis ce poste. Verifiez l'adresse
+        saisie et le pare-feu / proxy de sortie.
+    "Agent non autorise" (401)
+        La cle API n'est plus valide (elle a ete regeneree cote serveur).
+        Demandez un nouveau fichier de configuration a votre prestataire.
+    "Connexion Sage echouee"
+        Le serveur SQL de Sage n'est pas joignable depuis ce poste, ou les
+        identifiants Sage enregistres cote serveur sont errones.
+
+SECURITE - IMPORTANT
+    Le fichier agent_config_<CODE>.json contient un jeton a USAGE UNIQUE et de
+    duree de vie courte. Ne le diffusez pas et supprimez-le apres l'import.
+    Ne partagez jamais le contenu du champ "Cle" : il donne acces a vos donnees.
+"""
+
+
+def _agent_build_signature(publish_dir, exe_path) -> str:
+    """
+    Signature de ce que DOIT contenir le zip : taille et date de l'exe source,
+    nombre de fichiers du publish, version de la notice.
+
+    Remplace la comparaison de dates `mtime(exe) > mtime(zip)`, qui echouait
+    silencieusement : deposer un nouveau publish avec `Copy-Item`, robocopy ou
+    une extraction de zip PRESERVE l'horodatage d'origine du fichier. Un exe
+    plus recent en contenu pouvait donc etre plus ancien en date que le cache
+    -> le serveur continuait de distribuer l'ancienne archive (constate en prod
+    le 2026-09-07 : exe du 26/07 encore servi apres depot du build du 06/09).
+    Comparer taille + date + nombre de fichiers detecte tout remplacement, quel
+    que soit le sens des horodatages.
+    """
+    import os as _os
+    st = exe_path.stat()
+    nb_files = sum(len(files) for _root, _dirs, files in _os.walk(publish_dir))
+    return json.dumps(
+        {
+            "readme": _AGENT_README_VERSION,
+            "exe_size": st.st_size,
+            "exe_mtime": int(st.st_mtime),
+            "files": nb_files,
+        },
+        sort_keys=True,
+    )
+
+
+def _zip_build_signature(zip_path) -> Optional[str]:
+    """Signature enregistree dans le commentaire du zip en cache, ou None."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            return zf.comment.decode("utf-8") or None
+    except Exception:
+        return None  # zip absent, illisible ou tronque -> reconstruire
+
+
 @router.get("/admin/etl/agents/download/sage-agent")
-def download_sage_agent():
+def download_sage_agent(
+    request: Request,
+    agent_id: Optional[str] = None,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+):
     """
     Telecharge l'agent .NET SageETLAgent_MultiAgent (self-contained win-x64).
 
@@ -5823,35 +5979,68 @@ def download_sage_agent():
     `SageETLAgent_MultiAgent/SageETLAgent/SageETLAgent.zip` et le regenere
     a partir de `binpublish_new/` (prefixe d'entree `SageETLAgent/`) lorsque
     l'exe publie est plus recent que le zip (ou que le zip n'existe pas).
+
+    Si `agent_id` est fourni (avec `X-DWH-Code`), le zip est enrichi d'un
+    `agent_config_<CODE>.json` place a cote de l'exe : il embarque un jeton
+    d'enrolement a usage unique que l'agent echange contre sa cle API au premier
+    import. Le client dezippe, lance, importe — aucun identifiant a saisir.
+    Le zip de base en cache n'est jamais modifie : la copie enrichie est
+    construite dans un fichier temporaire, supprime apres envoi.
     """
     import zipfile
     import os
+    import shutil
     import tempfile
     from pathlib import Path
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
 
-    # .../reporting-commercial/backend/app/routes/etl_agents.py -> OptiBoardV5/SageETLAgent_MultiAgent/SageETLAgent
-    agent_dir = (
-        Path(__file__).parent.parent.parent.parent.parent
-        / "SageETLAgent_MultiAgent" / "SageETLAgent"
-    )
-    publish_dir = agent_dir / "binpublish_new"
+    # Le publish de l'agent ne vit pas au meme endroit en dev (arborescence du
+    # depot) et sur une installation (C:\OptiBoard\backend). On essaie les
+    # emplacements connus, du plus explicite au plus historique.
+    _here = Path(__file__).resolve()
+    candidates = []
+    _env_dir = os.environ.get("OPTIBOARD_AGENT_DIR")
+    if _env_dir:
+        candidates.append(Path(_env_dir))
+    candidates += [
+        # Installation : C:\OptiBoard\agent\binpublish_new (a cote de backend\)
+        _here.parent.parent.parent.parent / "agent" / "binpublish_new",
+        # Depot de dev : <repo>/SageETLAgent_MultiAgent/SageETLAgent/binpublish_new
+        _here.parent.parent.parent.parent.parent
+        / "SageETLAgent_MultiAgent" / "SageETLAgent" / "binpublish_new",
+    ]
+
+    publish_dir = next((c for c in candidates if (c / "SageETLAgent.exe").exists()), None)
+    if publish_dir is None:
+        logger.error(
+            "[AGENT-ZIP] Publish agent introuvable. Cherche dans : "
+            + " | ".join(str(c) for c in candidates)
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Agent non construit : SageETLAgent.exe introuvable. Deposez le publish "
+                "de l'agent dans l'un de ces dossiers, ou definissez OPTIBOARD_AGENT_DIR : "
+                + " | ".join(str(c) for c in candidates)
+            ),
+        )
+
+    agent_dir = publish_dir.parent
     exe_path = publish_dir / "SageETLAgent.exe"
     zip_path = agent_dir / "SageETLAgent.zip"
 
-    if not exe_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="Agent non construit (binpublish_new/SageETLAgent.exe introuvable)",
-        )
-
-    # Regenerer le zip si absent ou perime (exe plus recent que le zip)
+    # Regenerer le zip des que le publish source ou la notice ont change.
+    # La signature (taille + date de l'exe, nombre de fichiers, version de la
+    # notice) est stockee dans le commentaire du zip : elle ne depend pas de
+    # l'ordre des horodatages, contrairement a l'ancien `mtime(exe) > mtime(zip)`.
+    build_signature = _agent_build_signature(publish_dir, exe_path)
     needs_build = (
         not zip_path.exists()
-        or exe_path.stat().st_mtime > zip_path.stat().st_mtime
+        or _zip_build_signature(zip_path) != build_signature
     )
     if needs_build:
-        logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir.name}/ ...")
+        logger.info(f"Regeneration de {zip_path.name} depuis {publish_dir} ...")
         tmp_fd, tmp_name = tempfile.mkstemp(suffix=".zip", dir=str(agent_dir))
         os.close(tmp_fd)
         try:
@@ -5860,7 +6049,18 @@ def download_sage_agent():
                     for name in files:
                         fp = Path(root) / name
                         rel = fp.relative_to(publish_dir).as_posix()
+                        if rel == _AGENT_README_NAME:
+                            continue  # la notice versionnee ci-dessous fait foi
                         zf.write(fp, f"SageETLAgent/{rel}")
+                # Notice d'installation (BOM UTF-8 : lisible tel quel dans le
+                # Bloc-notes Windows, accents compris).
+                zf.writestr(
+                    f"SageETLAgent/{_AGENT_README_NAME}",
+                    b"\xef\xbb\xbf" + _AGENT_README.replace("\n", "\r\n").encode("utf-8"),
+                )
+                # Signature de construction : lue au prochain appel pour savoir
+                # si ce cache correspond encore au publish present sur disque.
+                zf.comment = build_signature.encode("utf-8")
             os.replace(tmp_name, zip_path)  # remplacement atomique
         except Exception as e:
             try:
@@ -5871,10 +6071,64 @@ def download_sage_agent():
             raise HTTPException(status_code=500, detail=f"Erreur generation agent: {e}")
         logger.info(f"{zip_path.name} genere ({zip_path.stat().st_size / 1024 / 1024:.1f} MB)")
 
+    # ── Zip nu (comportement historique) ──
+    if not agent_id:
+        return FileResponse(
+            path=str(zip_path),
+            media_type="application/zip",
+            filename="SageETLAgent.zip",
+        )
+
+    # ── Zip pre-configure : exe + fichier de config avec jeton d'enrolement ──
+    if not x_dwh_code:
+        raise HTTPException(
+            status_code=400,
+            detail="X-DWH-Code requis pour un telechargement pre-configure",
+        )
+
+    # L'agent doit exister dans la base client, sinon le jeton serait inechangeable.
+    try:
+        with client_cursor(x_dwh_code) as cur:
+            cur.execute("SELECT agent_id FROM APP_ETL_Agents WHERE agent_id = ?", (agent_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Agent introuvable pour ce DWH")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[AGENT-ZIP] Base client inaccessible pour {x_dwh_code}: {e}")
+        raise HTTPException(status_code=502, detail="Base client inaccessible")
+
+    from .dwh_admin import build_agent_config
+    cfg_name, cfg_content = build_agent_config(x_dwh_code, request, agent_id)
+
+    tmp_fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=str(agent_dir))
+    os.close(tmp_fd)
+    try:
+        shutil.copyfile(zip_path, tmp_zip)
+        # La config doit atterrir a cote de l'exe, donc sous le meme prefixe
+        # d'entree que celui utilise a la generation du zip de base.
+        with zipfile.ZipFile(tmp_zip, "a", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"SageETLAgent/{cfg_name}", cfg_content)
+    except Exception as e:
+        try:
+            os.remove(tmp_zip)
+        except OSError:
+            pass
+        logger.error(f"[AGENT-ZIP] Erreur ajout config au zip: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur preparation agent: {e}")
+
+    def _cleanup(path=tmp_zip):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    logger.info(f"[AGENT-ZIP] Zip pre-configure pour agent={agent_id} dwh={x_dwh_code}")
     return FileResponse(
-        path=str(zip_path),
+        path=tmp_zip,
         media_type="application/zip",
-        filename="SageETLAgent.zip",
+        filename=f"SageETLAgent_{x_dwh_code}.zip",
+        background=BackgroundTask(_cleanup),
     )
 
 
@@ -5893,25 +6147,27 @@ class PushDeletionsRequest(BaseModel):
 
 
 @router.post("/agents/{agent_id}/push-deletions")
-async def agent_push_deletions(agent_id: str, req: PushDeletionsRequest):
+async def agent_push_deletions(
+    agent_id: str,
+    req: PushDeletionsRequest,
+    x_dwh_code: Optional[str] = Header(None, alias="X-DWH-Code"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
     """
     Detecte et supprime les lignes orphelines cote destination.
     Compare les IDs source recus avec ceux en destination.
     Supprime les IDs presents en destination mais absents de la source.
+
+    Endpoint DESTRUCTIF (DELETE sur les tables du DWH) : authentification agent
+    obligatoire. Le DWH ciblé est celui prouvé par la clé (en-tête authentifié),
+    jamais un dwh_code déduit d'une table centrale (résolution divergente historique).
     """
+    _enforce_agent_auth(agent_id, x_api_key, x_dwh_code)
     try:
         start_time = datetime.now()
 
-        # Recuperer le DWH code de l'agent
-        agents = execute_query(
-            "SELECT dwh_code FROM APP_ETL_Agents WHERE agent_id = ?",
-            (agent_id,),
-            use_cache=False
-        )
-        if not agents:
-            raise HTTPException(status_code=404, detail="Agent non trouve")
-
-        dwh_code = agents[0]['dwh_code']
+        # DWH cible = celui authentifié (en-tête), à défaut résolu via le monitoring.
+        dwh_code = _get_dwh_for_agent(agent_id, x_dwh_code)
 
         # Executer la detection et suppression
         result = await _detect_and_delete_orphans(

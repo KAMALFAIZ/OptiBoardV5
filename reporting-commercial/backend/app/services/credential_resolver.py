@@ -23,6 +23,8 @@ import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, NamedTuple
 
+from .secret_crypto import dec_secret
+
 logger = logging.getLogger(__name__)
 
 # Import lazy pour éviter les imports circulaires
@@ -204,7 +206,9 @@ class CredentialResolver:
                             serveur=r["serveur"],
                             base=r["base"],
                             username=r.get("username") or "",
-                            password=r.get("password") or "",
+                            # Secret chiffre au repos depuis 2026-08 (prefix $sec1$) —
+                            # dec_secret laisse passer le plaintext legacy tel quel.
+                            password=dec_secret(r.get("password")) or "",
                             nom_societe=r.get("nom_societe") or "",
                             source="agent",
                         )

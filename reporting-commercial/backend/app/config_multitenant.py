@@ -38,6 +38,12 @@ class CentralDBSettings(BaseSettings):
     DEBUG: bool = True
     SECRET_KEY: str = "optiboard-secret-key-change-in-production"
 
+    # URL publique routable du backend (ex: https://optiboard.kasoft.ma).
+    # Utilisee pour generer le fichier de config des agents ETL : sans elle,
+    # l'URL est derivee du header Host de l'admin qui telecharge le fichier
+    # (produit un http://127.0.0.1:8084 non routable chez le client).
+    SERVER_PUBLIC_URL: str = ""
+
     # Cache settings
     CACHE_TTL: int = 300  # 5 minutes
     CACHE_TTL_DASHBOARD: int = 300
@@ -316,6 +322,7 @@ def save_central_config(config: dict) -> bool:
         f.write(f"APP_NAME={existing_content.get('APP_NAME', 'OptiBoard')}\n")
         f.write(f"DEBUG={existing_content.get('DEBUG', 'True')}\n")
         f.write(f"SECRET_KEY={existing_content.get('SECRET_KEY', 'optiboard-secret-key-change-in-production')}\n")
+        f.write(f"SERVER_PUBLIC_URL={existing_content.get('SERVER_PUBLIC_URL', '')}\n")
 
         f.write("\n# Cache Settings (en secondes)\n")
         f.write(f"CACHE_TTL={existing_content.get('CACHE_TTL', '300')}\n")

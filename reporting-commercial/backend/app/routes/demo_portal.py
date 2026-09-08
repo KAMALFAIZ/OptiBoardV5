@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Header, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Header, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr
 
@@ -42,6 +42,7 @@ from app.database_unified import (
     central_cursor as get_db_cursor,
     write_central,
 )
+from app.security import require_superadmin
 from app.services.email_service import send_email
 
 logger = logging.getLogger(__name__)
@@ -1220,16 +1221,19 @@ async def demo_auto_login(token: str):
 
 
 # ============================================================
-# Route admin
+# Routes admin
 # ============================================================
+# Le prefixe /api/demo est SESSION_OPTIONAL (inscription publique + agent demo
+# authentifie par X-Demo-Token) : le plancher d'auth ne s'applique donc PAS ici.
+# Ces trois routes etaient gardees par le seul en-tete `X-User-Role: superadmin`,
+# fourni par l'appelant donc falsifiable — n'importe qui pouvait lister les
+# sessions demo (jetons, emails) et les revoquer/prolonger sans etre authentifie.
+# Elles exigent desormais une session superadmin CENTRALE validee
+# (`require_superadmin`, fail-closed : 401 sans session, 403 sans le role).
 
-@router.get("/admin/sessions")
-def demo_admin_sessions(
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
-):
+@router.get("/admin/sessions", dependencies=[Depends(require_superadmin)])
+def demo_admin_sessions():
     """Liste toutes les sessions demo (superadmin uniquement)."""
-    if x_user_role != "superadmin":
-        raise HTTPException(status_code=403, detail="Acces refuse")
     rows = execute_query(
         """
         SELECT token, email, nom, prenom, societe, secteur,
@@ -1244,14 +1248,9 @@ def demo_admin_sessions(
     return {"success": True, "data": rows, "count": len(rows)}
 
 
-@router.delete("/admin/sessions/{token}")
-def demo_revoke_session(
-    token: str,
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
-):
+@router.delete("/admin/sessions/{token}", dependencies=[Depends(require_superadmin)])
+def demo_revoke_session(token: str):
     """Revoque une session demo (superadmin uniquement)."""
-    if x_user_role != "superadmin":
-        raise HTTPException(status_code=403, detail="Acces refuse")
     write_central(
         "UPDATE APP_Demo_Sessions SET revoked = 1 WHERE token = ?",
         (token,)
@@ -1259,14 +1258,9 @@ def demo_revoke_session(
     return {"success": True, "message": "Session revoquee"}
 
 
-@router.post("/admin/sessions/{token}/extend")
-def demo_extend_session(
-    token: str,
-    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
-):
+@router.post("/admin/sessions/{token}/extend", dependencies=[Depends(require_superadmin)])
+def demo_extend_session(token: str):
     """Prolonge une session de 7 jours supplementaires (superadmin uniquement)."""
-    if x_user_role != "superadmin":
-        raise HTTPException(status_code=403, detail="Acces refuse")
     write_central(
         "UPDATE APP_Demo_Sessions SET expires_at = DATEADD(DAY, 7, expires_at) WHERE token = ?",
         (token,)
