@@ -58,6 +58,16 @@ export function GlobalFilterProvider({ children }) {
         if (isNaN(finYear) || finYear > currentYear + 1) {
           merged.dateFin = defaults.dateFin
         }
+        // Faire glisser une borne de fin qui valait "aujourd'hui" au moment de
+        // l'enregistrement. Sans cela, un dateFin capture hier reste fige : les
+        // rapports excluent silencieusement les documents du jour, et l'ecart
+        // s'aggrave d'un jour a chaque journee qui passe. On ne touche PAS a une
+        // borne choisie deliberement (elle differe du jour d'enregistrement).
+        if (parsed._savedOn && merged.dateFin === parsed._savedOn
+            && merged.dateFin < defaults.dateFin) {
+          merged.dateFin = defaults.dateFin
+        }
+        delete merged._savedOn
         return merged
       }
     } catch (e) {
@@ -69,7 +79,10 @@ export function GlobalFilterProvider({ children }) {
   // Sauvegarder dans localStorage à chaque changement
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filters))
+      // _savedOn : jour de l'enregistrement, pour distinguer au rechargement une
+      // borne de fin qui valait "aujourd'hui" d'une date choisie volontairement.
+      const savedOn = new Date().toISOString().split('T')[0]
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...filters, _savedOn: savedOn }))
     } catch (e) {
       console.warn('Erreur sauvegarde filtres localStorage:', e)
     }
