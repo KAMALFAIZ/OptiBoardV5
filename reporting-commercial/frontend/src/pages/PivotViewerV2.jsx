@@ -464,7 +464,7 @@ export default function PivotViewerV2() {
       executePivot(pivotConfig)
     }
     prevFiltersRef.current = currentFilters
-  }, [globalFilters?.dateDebut, globalFilters?.dateFin, globalFilters?.societe])
+  }, [globalFilters?.dateDebut, globalFilters?.dateFin, globalFilters?.societe, globalFilters?.catalogue])
 
   // Charger la liste DWH (pour sélecteur superadmin)
   useEffect(() => {
@@ -573,6 +573,7 @@ export default function PivotViewerV2() {
         societe: globalFilters?.societe,
         commercial: globalFilters?.commercial,
         gamme: globalFilters?.gamme,
+        catalogue: globalFilters?.catalogue,
       }
       // Utiliser customLiveConfig si fourni (evite le probleme d'async setState),
       // sinon utiliser liveConfig courant
@@ -833,7 +834,7 @@ export default function PivotViewerV2() {
         {/* Droite: contrôles */}
         <div className="flex items-center gap-1">
           {/* Paramètres (filtres globaux) */}
-          <GlobalFilterBar showSociete={true} openOnMount triggerOpen={openParamsCount} onFilterChange={handleRefresh} />
+          <GlobalFilterBar showSociete={true} showCatalogue={true} openOnMount triggerOpen={openParamsCount} onFilterChange={handleRefresh} />
 
 
           <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-0.5" />

@@ -1336,6 +1336,10 @@ def get_dwh_filter_options(
         "commercial": "[Représentant]",
         "gamme":      "[Catalogue 1]",
         "zone":       "[Souche]",
+        # Sous-catalogue article (CL_No3 dans Sage) : c'est ce niveau que la boite
+        # de dialogue Sage du tonnage vrac propose (CAFE VERT, CAFE TORREFIE VRAC,
+        # CAFE TORREFIE VRAC - MELANGE), et non [Catalogue 1] deja expose en gamme.
+        "catalogue":  "[Catalogue 3]",
     }
     column = field_map.get(field)
     if not column:

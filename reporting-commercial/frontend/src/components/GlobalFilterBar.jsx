@@ -14,7 +14,7 @@ function fmtDate(d) {
  * Bouton compact + Modal de paramètres globaux
  * Même principe que le modal paramètres de GridViewDisplay
  */
-export default function GlobalFilterBar({ showSociete = true, showCommercial = false, showGamme = false, showZone = false, onFilterChange = null, openOnMount = false, triggerOpen = 0 }) {
+export default function GlobalFilterBar({ showSociete = true, showCommercial = false, showGamme = false, showZone = false, showCatalogue = false, onFilterChange = null, openOnMount = false, triggerOpen = 0 }) {
   const {
     filters,
     updateFilter,
@@ -28,6 +28,7 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
 
   const [open, setOpen] = useState(false)
   const [societeOptions, setSocieteOptions] = useState([])
+  const [catalogueOptions, setCatalogueOptions] = useState([])
   const [hasAutoOpened, setHasAutoOpened] = useState(false)
 
   // Ouvrir automatiquement au chargement si demandé
@@ -46,6 +47,21 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
   useEffect(() => {
     if (showSociete) loadSocieteOptions()
   }, [showSociete])
+
+  // Le sous-catalogue article n'est charge que si le rapport l'utilise : la
+  // requete distincte n'a pas a etre payee par les ecrans qui l'ignorent.
+  useEffect(() => {
+    if (showCatalogue) loadCatalogueOptions()
+  }, [showCatalogue])
+
+  const loadCatalogueOptions = async () => {
+    try {
+      const res = await getDwhFilterOptions('catalogue')
+      if (res.data?.success && res.data?.data) setCatalogueOptions(res.data.data)
+    } catch (e) {
+      console.warn('Erreur chargement catalogues:', e)
+    }
+  }
 
   const loadSocieteOptions = async () => {
     try {
@@ -84,7 +100,7 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
     : null
 
   // Compteur filtres actifs (hors dates)
-  const extraFiltersCount = [filters.societe, filters.commercial, filters.gamme, filters.zone].filter(Boolean).length
+  const extraFiltersCount = [filters.societe, filters.commercial, filters.gamme, filters.zone, filters.catalogue].filter(Boolean).length
 
   const periodPresets = [
     { label: "Année en cours", action: setCurrentYear },
@@ -213,6 +229,24 @@ export default function GlobalFilterBar({ showSociete = true, showCommercial = f
                     className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
                   >
                     <option value="">Toutes les gammes</option>
+                  </select>
+                </div>
+              )}
+
+              {showCatalogue && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Catalogue
+                  </label>
+                  <select
+                    value={filters.catalogue || ''}
+                    onChange={(e) => handleFilterChange('catalogue', e.target.value || null)}
+                    className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Tous les catalogues</option>
+                    {catalogueOptions.map((opt, i) => (
+                      <option key={i} value={opt.value}>{opt.label}</option>
+                    ))}
                   </select>
                 </div>
               )}

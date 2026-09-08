@@ -22,7 +22,8 @@ const getDefaultFilters = () => {
     commercial: null,
     gamme: null,
     zone: null,
-    client: null
+    client: null,
+    catalogue: null
   }
 }
 
