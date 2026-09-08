@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_client, client_manager, dwh_cursor
+from ..database_unified import execute_central as execute_query, central_cursor as get_db_cursor, DWHConnectionManager, execute_client, client_manager, client_cursor
 from ..services.datasource_resolver import resolve_datasource
 from ..services.parameter_resolver import inject_params, extract_parameters_from_query
 
@@ -53,6 +53,38 @@ def _client_match(central_row: dict) -> Optional[tuple]:
     if central_row.get("nom"):
         return ("nom = ?", central_row["nom"])
     return None
+
+
+_client_pivot_cols_cache: Dict[str, set] = {}
+
+
+def _client_pivot_columns(dwh_code: str) -> set:
+    """Colonnes reellement presentes dans APP_Pivots_V2 de la base client.
+
+    Les bases clientes n'ont pas suivi toutes les evolutions de la centrale : il leur
+    manque 8 colonnes (application, sage_application, drilldown_data_source_code,
+    drilldown_field_mapping, doc_description, doc_fields, doc_formula, doc_advantage).
+    Or le builder envoie systematiquement `application` ('' par defaut) et
+    `drilldown_field_mapping` ({} par defaut), qui ne sont donc jamais None : sans
+    filtrage, l'UPDATE client reference une colonne inexistante, echoue, et l'exception
+    est avalee par le `except` du bloc appelant. Resultat : la centrale est a jour, la
+    base client reste figee, et le viewer (qui lit la base client) n'affiche jamais la
+    modification — sans le moindre message a l'utilisateur.
+    """
+    if dwh_code in _client_pivot_cols_cache:
+        return _client_pivot_cols_cache[dwh_code]
+    try:
+        rows = execute_client(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'APP_Pivots_V2'",
+            (), dwh_code=dwh_code, use_cache=False
+        ) or []
+        cols = {r["COLUMN_NAME"] for r in rows}
+    except Exception as e:
+        logger.warning(f"_client_pivot_columns {dwh_code}: {e}")
+        cols = set()
+    _client_pivot_cols_cache[dwh_code] = cols
+    return cols
 
 
 def _pv_read(query: str, params: tuple = (), dwh_code: str = None) -> list:
@@ -1751,14 +1783,44 @@ def update_pivot(
                                 f"client pour {clause[:4]}={value!r} — base client NON mise a jour"
                             )
                         else:
-                            # Reconstruire sans le dernier element (pivot_id) et remplacer par la cle
-                            client_updates = list(updates[:-1])
-                            client_params = list(params_list[:-1])
-                            client_updates.append("updated_at = GETDATE()")
-                            client_params.append(value)
-                            client_query = f"UPDATE APP_Pivots_V2 SET {', '.join(client_updates)} WHERE {clause}"
-                            with dwh_cursor(dwh_code) as c:
-                                c.execute(client_query, tuple(client_params))
+                            # Reconstruire sans le dernier element (updates : "updated_at
+                            # = GETDATE()" sans placeholder ; params_list : pivot_id).
+                            # Les deux listes restantes sont alors paralleles 1 pour 1.
+                            # Ne garder que les colonnes existant en base client, sinon
+                            # l'UPDATE echoue en silence (voir _client_pivot_columns).
+                            known = _client_pivot_columns(dwh_code)
+                            client_updates, client_params, ignorees = [], [], []
+                            for assignment, param in zip(updates[:-1], params_list[:-1]):
+                                col = assignment.split("=")[0].strip()
+                                if known and col not in known:
+                                    ignorees.append(col)
+                                    continue
+                                client_updates.append(assignment)
+                                client_params.append(param)
+                            if ignorees:
+                                logger.info(
+                                    f"Update client DWH {dwh_code} pivot {pivot_id}: colonnes "
+                                    f"absentes en base client, ignorees — {', '.join(ignorees)}"
+                                )
+                            if not client_updates:
+                                logger.warning(
+                                    f"Update client DWH {dwh_code} pivot {pivot_id}: aucune "
+                                    f"colonne commune — base client NON mise a jour"
+                                )
+                            else:
+                                client_updates.append("updated_at = GETDATE()")
+                                client_params.append(value)
+                                client_query = (
+                                    f"UPDATE APP_Pivots_V2 SET {', '.join(client_updates)} "
+                                    f"WHERE {clause}"
+                                )
+                                # client_cursor (base applicative OptiBoard_clt<CODE>)
+                                # et NON dwh_cursor, qui ouvre l'entrepot de donnees
+                                # (DWH_<CODE>) ou APP_Pivots_V2 n'existe pas : l'UPDATE
+                                # y echouait sur "Invalid object name". Les lectures de
+                                # ce module passent deja par execute_client.
+                                with client_cursor(dwh_code) as c:
+                                    c.execute(client_query, tuple(client_params))
             except Exception as e:
                 logger.warning(f"Update client DWH {dwh_code} pivot {pivot_id}: {e}")
 

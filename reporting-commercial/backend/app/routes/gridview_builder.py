@@ -17,8 +17,27 @@ import json
 import re
 import hashlib
 import time
+from decimal import Decimal
 
 logger = logging.getLogger("GridViewBuilder")
+
+
+def _sum_column(rows: list, col: str) -> float:
+    """Somme une colonne numerique d'un jeu de lignes.
+
+    pyodbc renvoie les colonnes SQL DECIMAL/MONEY/NUMERIC en Decimal, qui n'est
+    ni int ni float : un test isinstance(v, (int, float)) les ecarte toutes et
+    renvoie 0. Tous les totaux monetaires des grilles paginees cote Python
+    (<= 500 lignes) tombaient ainsi a 0.
+    """
+    total = 0.0
+    for row in rows:
+        value = row.get(col)
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, (int, float, Decimal)):
+            total += float(value)
+    return total
 
 # Guard : les DDL de init_gridview_tables ne s'exécutent qu'une seule fois
 _gridview_tables_initialized = False
@@ -652,7 +671,7 @@ def get_grid_data(
                 if show_totals and total_columns:
                     for col in total_columns:
                         try:
-                            totals[col] = sum(r.get(col, 0) or 0 for r in all_data if isinstance(r.get(col), (int, float)))
+                            totals[col] = _sum_column(all_data, col)
                         except Exception:
                             totals[col] = 0
         else:
@@ -666,7 +685,7 @@ def get_grid_data(
             if show_totals and total_columns:
                 for col in total_columns:
                     try:
-                        totals[col] = sum(r.get(col, 0) or 0 for r in all_data if isinstance(r.get(col), (int, float)))
+                        totals[col] = _sum_column(all_data, col)
                     except Exception:
                         totals[col] = 0
 
