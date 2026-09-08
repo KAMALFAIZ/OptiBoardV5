@@ -55,6 +55,7 @@ QUERY_TEMPLATE = u"""SELECT
     YEAR(li.[Date])                                    AS [Annee],
     MONTH(li.[Date])                                   AS [Mois],
     COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                    AS [Representant],
+    ISNULL(co.[Fonction collaborateur], N'(non renseignée)')     AS [Fonction],
     li.[Code article]                                  AS [Code Article],
     MIN(li.[Désignation ligne])                        AS [Designation],
     li.[Catalogue 1]                                   AS [Catalogue],
@@ -89,7 +90,8 @@ WHERE li.[Date] BETWEEN @dateDebut AND @dateFin
   AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
     FORMAT(li.[Date], 'yyyy-MM'), YEAR(li.[Date]), MONTH(li.[Date]),
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Code article], li.[Catalogue 1], li.societe"""
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))),
+    ISNULL(co.[Fonction collaborateur], N'(non renseignée)'), li.[Code article], li.[Catalogue 1], li.societe"""
 # NB : pas d'ORDER BY final. Le endpoint /grids/{id}/data encapsule la requete dans
 # des sous-requetes (COUNT + OFFSET/FETCH) ou SQL Server interdit ORDER BY ; l'ordre
 # d'affichage est porte par default_sort.

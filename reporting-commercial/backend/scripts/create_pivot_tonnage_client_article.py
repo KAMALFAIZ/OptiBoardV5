@@ -56,6 +56,7 @@ MENU_PARENT_FALLBACK = 2  # dossier "Chiffre d'Affaires"
 
 QUERY_TEMPLATE = u"""SELECT
     COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                        AS [Representant],
+    ISNULL(co.[Fonction collaborateur], N'(non renseignée)')     AS [Fonction],
     CONVERT(CHAR(7), li.[Date BL], 126)                    AS [Periode],
     CASE MONTH(li.[Date BL])
         WHEN  1 THEN N'janvier'   WHEN  2 THEN N'février' WHEN  3 THEN N'mars'
@@ -93,6 +94,7 @@ WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
     COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))),
+    ISNULL(co.[Fonction collaborateur], N'(non renseignée)'),
     CONVERT(CHAR(7), li.[Date BL], 126),
     CASE MONTH(li.[Date BL])
         WHEN  1 THEN N'janvier'   WHEN  2 THEN N'février' WHEN  3 THEN N'mars'

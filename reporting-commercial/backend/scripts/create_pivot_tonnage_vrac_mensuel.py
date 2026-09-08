@@ -66,6 +66,7 @@ MENU_PARENT_FALLBACK = 2  # dossier "Chiffre d'Affaires"
 
 QUERY_TEMPLATE = u"""SELECT
     COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                        AS [Representant],
+    ISNULL(co.[Fonction collaborateur], N'(non renseignée)')     AS [Fonction],
     li.[Intitulé client]                                   AS [Client],
     ar.[Désignation Article]                               AS [Designation],
     DATEFROMPARTS(YEAR(li.[Date document]),
@@ -96,7 +97,8 @@ WHERE li.[Date document] BETWEEN @dateDebut AND @dateFin
   AND (@societe      IS NULL OR li.societe = @societe)
   AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Intitulé client], ar.[Désignation Article],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))),
+    ISNULL(co.[Fonction collaborateur], N'(non renseignée)'), li.[Intitulé client], ar.[Désignation Article],
     DATEFROMPARTS(YEAR(li.[Date document]), MONTH(li.[Date document]), 1),
     li.[Catalogue 3], li.societe"""
 
