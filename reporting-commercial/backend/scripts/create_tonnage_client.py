@@ -107,6 +107,13 @@ WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
   AND li.[Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
   AND li.[Remise 1] = N'0,00 %'
   AND (@catalogue    IS NULL OR li.[Catalogue 1] = @catalogue)
+  AND (
+        (@fonction IS NULL
+         AND co.[Fonction collaborateur] IN (N'Vendeur', N'V-Traditionnel', N'V-traditionnel'))
+     OR @fonction = N'TOUTES'
+     OR (@fonction IS NOT NULL AND @fonction <> N'TOUTES'
+         AND co.[Fonction collaborateur] = @fonction)
+      )
   AND (@societe      IS NULL OR li.societe = @societe)
   AND (@client       IS NULL OR li.[Code client] = @client)
   AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
@@ -135,6 +142,17 @@ PARAMETERS = [
     {"name": "catalogue", "type": "string", "label": u"Catalogue", "required": False},
     {"name": "client", "type": "string", "label": u"Code client", "required": False},
     {"name": "representant", "type": "string", "label": u"Représentant", "required": False},
+    {"name": "fonction", "type": "select", "label": u"Fonction du représentant",
+     "required": False,
+     "options": [{"value": "TOUTES", "label": u"(Toutes fonctions)"},
+                 {"value": "Vendeur", "label": u"Vendeur"},
+                 {"value": "V-Traditionnel", "label": u"V-Traditionnel"},
+                 {"value": "Distributeur", "label": u"Distributeur"},
+                 {"value": "Revendeur", "label": u"Revendeur"},
+                 {"value": "Comptoir", "label": u"Comptoir"},
+                 {"value": "Vrac", "label": u"Vrac"},
+                 {"value": "Litige", "label": u"Litige"}],
+     "allow_null": True, "null_label": u"(Commerciaux seuls)"},
     {"name": "societe", "type": "select", "label": u"Société", "required": False,
      "source": "query",
      "query": "SELECT code as value, nom + ' (' + code + ')' as label "
