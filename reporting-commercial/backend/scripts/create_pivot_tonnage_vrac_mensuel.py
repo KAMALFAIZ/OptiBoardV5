@@ -39,8 +39,10 @@ Portage des parametres de la boite de dialogue Sage
   (exprime en NOT IN) et DL_Remise01REM_Valeur = 0 -> [Remise 1] = '0,00 %',
   colonne stockee en texte formate dans le DWH.
 * /!\\ [Souche] = 'Vente' n'est toujours pas portable : DO_Souche n'existe que
-  dans [Entête_des_ventes], table incomplete sur ALEAFOOD. Voir
-  create_tonnage_vrac.py.
+  dans [Entête_des_ventes], table dont l'agent ETL ne
+  synchronise pas l'historique (689 lignes sur ALEAFOOD pour ~228 000
+  documents). Les lignes d'echantillon et de consignation ne sont donc pas
+  exclues. Voir force_full_resync.py.
 
 Mise en forme des colonnes
 --------------------------

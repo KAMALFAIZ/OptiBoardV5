@@ -36,9 +36,11 @@ Points de portage specifiques a cette forme
 * Nb documents n'est volontairement PAS expose : un COUNT DISTINCT n'est pas
   additif, le pivot le sommerait et afficherait un total faux.
 
-Pour les filtres communs (date BL, DO_Type >= 3, remise nulle, [Géré en Tonnage],
-absence de filtre catalogue) et les pieges associes, voir l'en-tete de
-create_tonnage_client.py.
+Filtres communs, repris de la procedure : date BL, DO_Type >= 3 (exprime en
+NOT IN), remise nulle ([Remise 1] = '0,00 %', colonne stockee en texte formate
+dans le DWH), et [Géré en Tonnage] via l'information libre article. La procedure
+ne filtre sur aucun catalogue, et sa boite de dialogue Sage ne propose que
+Du, Au et Type article.
 """
 import argparse
 import json
