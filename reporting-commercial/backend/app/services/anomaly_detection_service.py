@@ -16,22 +16,35 @@ ZSCORE_WARNING  = 2.5     # > 2.5σ → attention
 IQR_MULTIPLIER  = 2.0     # valeurs hors [Q1 - 2*IQR, Q3 + 2*IQR] → suspectes
 MIN_ROWS_FOR_STATS = 5    # min de lignes pour calculer des stats fiables
 
+# Au-dela de cette magnitude, une valeur n'est plus une donnee de gestion : c'est
+# un identifiant, un code numerique ou une donnee corrompue. Les retenir faisait
+# deborder le calcul de variance — (v - mean) ** 2 leve OverflowError des que
+# l'ecart depasse ~1,3e154 — et /anomalies/detect repondait alors 500.
+MAX_ABS_VALUE = 1e15
+
 
 def _to_float(val) -> Optional[float]:
     """Convertit une valeur en float, retourne None si impossible."""
     if val is None:
         return None
     if isinstance(val, decimal.Decimal):
-        return float(val)
+        return _sane(float(val))
     if isinstance(val, (int, float)):
-        return float(val)
+        return _sane(float(val))
     if isinstance(val, str):
         clean = val.replace(' ', '').replace('\xa0', '').replace(',', '.')
         try:
-            return float(clean)
-        except ValueError:
+            return _sane(float(clean))
+        except (ValueError, OverflowError):
             return None
     return None
+
+
+def _sane(f: float) -> Optional[float]:
+    """Ecarte les valeurs inexploitables : NaN, infinis et magnitudes absurdes."""
+    if not math.isfinite(f) or abs(f) > MAX_ABS_VALUE:
+        return None
+    return f
 
 
 def _stats(values: List[float]) -> Dict:
@@ -40,8 +53,17 @@ def _stats(values: List[float]) -> Dict:
     if n < MIN_ROWS_FOR_STATS:
         return None
 
-    mean = sum(values) / n
-    variance = sum((v - mean) ** 2 for v in values) / n
+    try:
+        mean = sum(values) / n
+        variance = sum((v - mean) ** 2 for v in values) / n
+    except (OverflowError, ValueError):
+        # Filet de securite : _to_float ecarte deja les valeurs demesurees, mais
+        # une colonne entiere de tres grands nombres peut encore faire deborder
+        # la somme. Mieux vaut renoncer aux statistiques que renvoyer une 500.
+        logger.warning("Statistiques abandonnees : depassement de capacite sur %d valeurs", n)
+        return None
+    if not math.isfinite(mean) or not math.isfinite(variance):
+        return None
     std = math.sqrt(variance) if variance > 0 else 0.0
 
     sorted_vals = sorted(values)
