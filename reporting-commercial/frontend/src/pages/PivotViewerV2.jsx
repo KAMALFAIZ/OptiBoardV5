@@ -7,7 +7,7 @@ import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   getPivotV2, executePivotV2, drilldownPivotV2, exportPivotV2,
   getPivotV2Fields, getPivotV2UserPrefs, savePivotV2UserPrefs, resetPivotV2UserPrefs,
-  getUnifiedDataSourceFields, updatePivotV2, isRequestCanceled
+  getUnifiedDataSourceFields, updatePivotV2, isRequestCanceled, getUnifiedDataSource
 } from '../services/api'
 import api from '../services/api'
 import { PivotTable, PivotChart, DrillDownModal } from '../components/PivotV2'
@@ -405,6 +405,7 @@ export default function PivotViewerV2() {
   const [chartType, setChartType] = useState('bar')
   const [maxChartRows, setMaxChartRows] = useState(50)
   const [chartValueIndex, setChartValueIndex] = useState(null)
+  const [hasCatalogueParam, setHasCatalogueParam] = useState(false)
   const [fieldChooserOpen, setFieldChooserOpen] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [openParamsCount, setOpenParamsCount] = useState(0)
@@ -530,6 +531,14 @@ export default function PivotViewerV2() {
         // Charger les champs
         const dsIdentifier = data.data_source_code || data.data_source_id
         if (dsIdentifier) {
+          try {
+            const dsRes = await getUnifiedDataSource(dsIdentifier)
+            const dsParams = dsRes.data?.data?.parameters
+            setHasCatalogueParam(Array.isArray(dsParams)
+              && dsParams.some(p => (p?.name || '').toLowerCase() === 'catalogue'))
+          } catch (e) {
+            setHasCatalogueParam(false)
+          }
           try {
             const fieldsRes = await getUnifiedDataSourceFields(dsIdentifier)
             setAvailableFields(fieldsRes.data?.fields || [])
@@ -834,7 +843,7 @@ export default function PivotViewerV2() {
         {/* Droite: contrôles */}
         <div className="flex items-center gap-1">
           {/* Paramètres (filtres globaux) */}
-          <GlobalFilterBar showSociete={true} showCatalogue={true} openOnMount triggerOpen={openParamsCount} onFilterChange={handleRefresh} />
+          <GlobalFilterBar showSociete={true} showCatalogue={hasCatalogueParam} openOnMount triggerOpen={openParamsCount} onFilterChange={handleRefresh} />
 
 
           <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-0.5" />
