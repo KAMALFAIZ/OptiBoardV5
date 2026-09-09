@@ -83,7 +83,6 @@ FROM (
     WHERE [Date BL] BETWEEN @dateDebut AND @dateFin
       AND [Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
       AND [Remise 1] = N'0,00 %'
-      AND (@catalogue IS NULL OR [Catalogue 3] = @catalogue)
       AND (@societe   IS NULL OR societe = @societe)
       AND (@client    IS NULL OR [Code client] = @client)
 ) li
@@ -145,7 +144,6 @@ PARAMETERS = [
                  {"value": "", "label": u"(non renseigné)"},
                  {"value": "Non", "label": u"Non"}],
      "default": "Oui"},
-    {"name": "catalogue", "type": "string", "label": u"Catalogue", "required": False},
     {"name": "client", "type": "string", "label": u"Code client", "required": False},
     {"name": "representant", "type": "string", "label": u"Représentant", "required": False},
     {"name": "fonction", "type": "select", "label": u"Fonction du représentant",

@@ -33,7 +33,8 @@ Portage des filtres de la procedure
   Le defaut 'Non' de la procedure ne renverrait donc rien : le parametre est
   expose avec 'Oui' par defaut, et 'Non' / '' restent selectionnables.
 * PAS de filtre catalogue, contrairement a _PS_TONNAGE : la procedure porte sur
-  tous les catalogues. Un parametre @catalogue optionnel est expose (vide = tous).
+  tous les catalogues, et n'expose aucun parametre de catalogue : sa boite de
+  dialogue Sage ne comporte que Du, Au et Type article.
 * PAS de filtre de souche dans cette procedure : contrairement aux etats
   DS_VTE_TONNAGE_MENSUEL et DS_VTE_TONNAGE_VRAC, il n'y a donc ici aucun ecart
   du a l'absence de DO_Souche dans le DWH. Le portage est complet sur ce volet.
@@ -101,7 +102,6 @@ FROM (
     WHERE [Date BL] BETWEEN @dateDebut AND @dateFin
       AND [Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
       AND [Remise 1] = N'0,00 %'
-      AND (@catalogue IS NULL OR [Catalogue 3] = @catalogue)
       AND (@societe   IS NULL OR societe = @societe)
       AND (@client    IS NULL OR [Code client] = @client)
 ) li
@@ -151,7 +151,6 @@ PARAMETERS = [
                  {"value": "", "label": u"(non renseigné)"},
                  {"value": "Non", "label": u"Non"}],
      "default": "Oui"},
-    {"name": "catalogue", "type": "string", "label": u"Catalogue", "required": False},
     {"name": "client", "type": "string", "label": u"Code client", "required": False},
     {"name": "representant", "type": "string", "label": u"Représentant", "required": False},
     {"name": "fonction", "type": "select", "label": u"Fonction du représentant",
