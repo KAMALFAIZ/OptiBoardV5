@@ -69,8 +69,8 @@ QUERY_TEMPLATE = u"""SELECT
     FORMAT(li.[Date], 'yyyy-MM')                       AS [Periode],
     YEAR(li.[Date])                                    AS [Annee],
     MONTH(li.[Date])                                   AS [Mois],
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                    AS [Representant],
-    ISNULL(co.[Fonction collaborateur], N'(non renseignée)')     AS [Fonction],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant])))                    AS [Representant],
+    ISNULL(co.[fonction], N'(non renseignée)')     AS [Fonction],
     li.[Code article]                                  AS [Code Article],
     MIN(li.[Désignation ligne])                        AS [Designation],
     li.[Catalogue 1]                                   AS [Catalogue],
@@ -81,7 +81,7 @@ QUERY_TEMPLATE = u"""SELECT
     li.societe                                         AS [Societe],
     ROW_NUMBER() OVER (
         ORDER BY FORMAT(li.[Date], 'yyyy-MM') DESC,
-                 COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Code article]
+                 COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))), li.[Code article]
     )                                                  AS [Ordre Ligne]
 FROM [Lignes_des_ventes] li
 JOIN [Articles] ar
@@ -93,9 +93,11 @@ LEFT JOIN [IL_Articles] il
 LEFT JOIN [Clients] cl
       ON cl.[Code client] = li.[Code client]
      AND cl.societe = li.societe
-LEFT JOIN [Collaborateurs] co
-      ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
-     AND co.societe = li.societe
+LEFT JOIN (
+    SELECT TRY_CAST([Code collaborateur] AS INT) AS [code], societe,
+           [Nom collaborateur] AS [nom], [Fonction collaborateur] AS [fonction]
+    FROM [Collaborateurs]
+) co ON co.[code] = cl.[Code représentant] AND co.societe = li.societe
 WHERE li.[Date] BETWEEN @dateDebut AND @dateFin
   AND ISNULL(il.[Géré en Tonnage], N'Non') <> N'Oui'
   AND li.[Catalogue 1] = N'CAFE'
@@ -105,16 +107,16 @@ WHERE li.[Date] BETWEEN @dateDebut AND @dateFin
   AND (
         @fonction IS NULL OR @fonction = N'TOUTES'
      OR (@fonction = N'COMMERCIAUX'
-         AND co.[Fonction collaborateur] IN (N'Vendeur', N'V-Traditionnel', N'V-traditionnel'))
+         AND co.[fonction] IN (N'Vendeur', N'V-Traditionnel', N'V-traditionnel'))
      OR (@fonction NOT IN (N'TOUTES', N'COMMERCIAUX')
-         AND co.[Fonction collaborateur] = @fonction)
+         AND co.[fonction] = @fonction)
       )
   AND (@societe      IS NULL OR li.societe = @societe)
-  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
+  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
     FORMAT(li.[Date], 'yyyy-MM'), YEAR(li.[Date]), MONTH(li.[Date]),
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))),
-    ISNULL(co.[Fonction collaborateur], N'(non renseignée)'), li.[Code article], li.[Catalogue 1], li.societe"""
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))),
+    ISNULL(co.[fonction], N'(non renseignée)'), li.[Code article], li.[Catalogue 1], li.societe"""
 # NB : pas d'ORDER BY final. Le endpoint /grids/{id}/data encapsule la requete dans
 # des sous-requetes (COUNT + OFFSET/FETCH) ou SQL Server interdit ORDER BY ; l'ordre
 # d'affichage est porte par default_sort.

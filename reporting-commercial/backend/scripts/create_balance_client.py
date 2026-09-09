@@ -46,7 +46,7 @@ QUERY_TEMPLATE = u"""SELECT
     ISNULL(NULLIF(cl.[Code payeur], ''), cl.[Code client]) AS [Code Tiers Payeur],
     cl.[Code client]                                       AS [Code Client],
     cl.[Ville]                                             AS [Ville],
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) AS [Representant],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))) AS [Representant],
     cl.[Intitulé]                                          AS [Intitule],
     ISNULL(mv.[Total CA], 0)                               AS [Total CA],
     ISNULL(rg.[Total Reglement], 0)                        AS [Total Reglement],
@@ -57,9 +57,11 @@ QUERY_TEMPLATE = u"""SELECT
     cl.societe                                             AS [Societe],
     ROW_NUMBER() OVER (ORDER BY cl.societe, cl.[Code client]) AS [Ordre Ligne]
 FROM [Clients] cl
-LEFT JOIN [Collaborateurs] co
-      ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
-     AND co.societe = cl.societe
+LEFT JOIN (
+    SELECT TRY_CAST([Code collaborateur] AS INT) AS [code], societe,
+           [Nom collaborateur] AS [nom], [Fonction collaborateur] AS [fonction]
+    FROM [Collaborateurs]
+) co ON co.[code] = cl.[Code représentant] AND co.societe = cl.societe
 LEFT JOIN (
     SELECT
         li.societe                          AS societe,

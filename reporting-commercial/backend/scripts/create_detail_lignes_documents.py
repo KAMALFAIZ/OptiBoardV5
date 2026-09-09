@@ -54,7 +54,7 @@ MENU_PARENT_FALLBACK = 3  # dossier "Documents Commerciaux"
 
 QUERY_TEMPLATE = u"""SELECT
     li.[Type Document]                                     AS [Type Document],
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                        AS [Representant],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant])))                        AS [Representant],
     li.[Intitulé client]                                   AS [Intitule],
     li.[N° Pièce]                                          AS [Piece Document],
     ISNULL(li.[Date document], li.[Date])                  AS [Date Document],
@@ -68,7 +68,7 @@ QUERY_TEMPLATE = u"""SELECT
     li.[Montant HT Net]                                    AS [Montant HT],
     li.[Montant TTC Net]                                   AS [Montant TTC],
     CAST(NULL AS NVARCHAR(200))                            AS [Utilisateur],
-    co.[Fonction collaborateur]                            AS [Categorie],
+    co.[fonction]                            AS [Categorie],
     li.[Code client]                                       AS [Code Client],
     li.societe                                             AS [Societe],
     ROW_NUMBER() OVER (
@@ -79,9 +79,11 @@ FROM [Lignes_des_ventes] li
 LEFT JOIN [Clients] cl
        ON cl.[Code client] = li.[Code client]
       AND cl.societe = li.societe
-LEFT JOIN [Collaborateurs] co
-       ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
-      AND co.societe = li.societe
+LEFT JOIN (
+    SELECT TRY_CAST([Code collaborateur] AS INT) AS [code], societe,
+           [Nom collaborateur] AS [nom], [Fonction collaborateur] AS [fonction]
+    FROM [Collaborateurs]
+) co ON co.[code] = cl.[Code représentant] AND co.societe = li.societe
 WHERE ISNULL(li.[Date document], li.[Date]) BETWEEN @dateDebut AND @dateFin
   AND (@societe      IS NULL OR li.societe = @societe)
   AND (@client       IS NULL OR li.[Code client] = @client)

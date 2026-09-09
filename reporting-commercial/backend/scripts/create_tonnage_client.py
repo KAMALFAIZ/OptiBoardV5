@@ -75,11 +75,11 @@ GV_CODE = "GV_TONNAGE_CLIENT"
 MENU_PARENT_FALLBACK = 2  # dossier "Chiffre d'Affaires"
 
 QUERY_TEMPLATE = u"""SELECT
-    FORMAT(li.[Date BL], 'yyyy-MM')                    AS [Periode],
+    CONVERT(CHAR(7), li.[Date BL], 126)                AS [Periode],
     YEAR(li.[Date BL])                                 AS [Annee],
     MONTH(li.[Date BL])                                AS [Mois],
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant])))                    AS [Representant],
-    ISNULL(co.[Fonction collaborateur], N'(non renseignée)')     AS [Fonction],
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant])))        AS [Representant],
+    ISNULL(co.[fonction], N'(non renseignée)')         AS [Fonction],
     li.[Code client]                                   AS [Code Client],
     MIN(li.[Intitulé client])                          AS [Client],
     MIN(cl.[Ville])                                    AS [Ville],
@@ -89,7 +89,22 @@ QUERY_TEMPLATE = u"""SELECT
     SUM(li.[Montant TTC Net])                          AS [Montant TTC],
     COUNT(DISTINCT li.[N° Pièce])                      AS [Nb Documents],
     li.societe                                         AS [Societe]
-FROM [Lignes_des_ventes] li
+FROM (
+    -- Pre-filtrage des lignes AVANT toute jointure. Sans cela, le predicat
+    -- sur [Géré en Tonnage] (information libre, jointure LEFT sur IL_Articles)
+    -- est evalue avant la selection des dates : mesure sur ALEAFOOD, 24,3 s
+    -- pour une seule journee contre 1,5 s avec ce pre-filtrage.
+    SELECT [Date BL], [Code article], [Code client], [Intitulé client],
+           [Quantité], [Montant HT Net], [Montant TTC Net], [N° Pièce],
+           [Catalogue 3], societe
+    FROM [Lignes_des_ventes]
+    WHERE [Date BL] BETWEEN @dateDebut AND @dateFin
+      AND [Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
+      AND [Remise 1] = N'0,00 %'
+      AND (@catalogue IS NULL OR [Catalogue 3] = @catalogue)
+      AND (@societe   IS NULL OR societe = @societe)
+      AND (@client    IS NULL OR [Code client] = @client)
+) li
 JOIN [Articles] ar
       ON ar.[Code Article] = li.[Code article]
      AND ar.societe = li.societe
@@ -99,28 +114,25 @@ LEFT JOIN [IL_Articles] il
 LEFT JOIN [Clients] cl
       ON cl.[Code client] = li.[Code client]
      AND cl.societe = li.societe
-LEFT JOIN [Collaborateurs] co
-      ON CAST(co.[Code collaborateur] AS INT) = cl.[Code représentant]
-     AND co.societe = li.societe
-WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
-  AND ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
-  AND li.[Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
-  AND li.[Remise 1] = N'0,00 %'
-  AND (@catalogue    IS NULL OR li.[Catalogue 3] = @catalogue)
+LEFT JOIN (
+    SELECT TRY_CAST([Code collaborateur] AS INT) AS [code], societe,
+           [Nom collaborateur] AS [nom], [Fonction collaborateur] AS [fonction]
+    FROM [Collaborateurs]
+) co ON co.[code] = cl.[Code représentant] AND co.societe = li.societe
+WHERE ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
   AND (
         @fonction IS NULL OR @fonction = N'TOUTES'
      OR (@fonction = N'COMMERCIAUX'
-         AND co.[Fonction collaborateur] IN (N'Vendeur', N'V-Traditionnel', N'V-traditionnel'))
+         AND co.[fonction] IN (N'Vendeur', N'V-Traditionnel', N'V-traditionnel'))
      OR (@fonction NOT IN (N'TOUTES', N'COMMERCIAUX')
-         AND co.[Fonction collaborateur] = @fonction)
+         AND co.[fonction] = @fonction)
       )
-  AND (@societe      IS NULL OR li.societe = @societe)
-  AND (@client       IS NULL OR li.[Code client] = @client)
-  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
+  AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
-    FORMAT(li.[Date BL], 'yyyy-MM'), YEAR(li.[Date BL]), MONTH(li.[Date BL]),
-    COALESCE(NULLIF(LTRIM(RTRIM(co.[Nom collaborateur])), N''), LTRIM(RTRIM(cl.[Représentant]))),
-    ISNULL(co.[Fonction collaborateur], N'(non renseignée)'), li.[Code client], li.societe"""
+    CONVERT(CHAR(7), li.[Date BL], 126), YEAR(li.[Date BL]), MONTH(li.[Date BL]),
+    COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))),
+    ISNULL(co.[fonction], N'(non renseignée)'),
+    li.[Code client], li.societe"""
 # NB : pas d'ORDER BY final. Le endpoint /grids/{id}/data encapsule la requete dans
 # des sous-requetes (COUNT + OFFSET/FETCH) ou SQL Server interdit ORDER BY ; l'ordre
 # d'affichage est porte par default_sort.
@@ -134,7 +146,7 @@ PARAMETERS = [
      "source": "global", "global_key": "dateDebut", "default": "FIRST_DAY_YEAR"},
     {"name": "dateFin", "type": "date", "label": u"Date fin (date BL)", "required": True,
      "source": "global", "global_key": "dateFin", "default": "TODAY"},
-    {"name": "gereTonnage", "type": "select", "label": u"Géré en tonnage", "required": False,
+    {"name": "gereTonnage", "type": "select", "label": u"Type article", "required": False,
      "options": [{"value": "Oui", "label": u"Oui (articles en tonnage)"},
                  {"value": "", "label": u"(non renseigné)"},
                  {"value": "Non", "label": u"Non"}],
