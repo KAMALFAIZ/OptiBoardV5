@@ -91,26 +91,20 @@ QUERY_TEMPLATE = u"""SELECT
     COUNT(DISTINCT li.[N° Pièce])                      AS [Nb Documents],
     li.societe                                         AS [Societe]
 FROM (
-    -- Pre-filtrage des lignes AVANT toute jointure. Sans cela, le predicat
-    -- sur [Géré en Tonnage] (information libre, jointure LEFT sur IL_Articles)
-    -- est evalue avant la selection des dates : mesure sur ALEAFOOD, 24,3 s
-    -- pour une seule journee contre 1,5 s avec ce pre-filtrage.
-    SELECT [Date BL], [Code article], [Code client], [Intitulé client],
-           [Quantité], [Montant HT Net], [Montant TTC Net], [N° Pièce],
-           [Catalogue 3], societe
-    FROM [Lignes_des_ventes]
-    WHERE [Date BL] BETWEEN @dateDebut AND @dateFin
-      AND [Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
-      AND [Remise 1] = N'0,00 %'
-      AND (@societe   IS NULL OR societe = @societe)
-      AND (@client    IS NULL OR [Code client] = @client)
-) li
-JOIN [Articles] ar
-      ON ar.[Code Article] = li.[Code article]
-     AND ar.societe = li.societe
-LEFT JOIN [IL_Articles] il
-      ON il.entity_key = CAST(ar.[Code interne] AS NVARCHAR(50))
-     AND il.societe = li.societe
+    -- Partir des ARTICLES geres en tonnage (une soixantaine) et non des lignes
+    -- de vente (573 000) : c'est le seul ordre de jointure qui tienne sans index
+    -- sur le DWH. Mesure ALEAFOOD, septembre : 1,6 s contre une expiration.
+    SELECT ar.[Code Article] AS [code_art], ar.[Désignation Article] AS [designation],
+           ar.societe
+    FROM [Articles] ar
+    JOIN [IL_Articles] il
+          ON il.entity_key = CAST(ar.[Code interne] AS NVARCHAR(50))
+         AND il.societe = ar.societe
+    WHERE ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
+) ar
+JOIN [Lignes_des_ventes] li
+      ON li.[Code article] = ar.[code_art]
+     AND li.societe = ar.societe
 LEFT JOIN [Clients] cl
       ON cl.[Code client] = li.[Code client]
      AND cl.societe = li.societe
@@ -119,7 +113,9 @@ LEFT JOIN (
            [Nom collaborateur] AS [nom], [Fonction collaborateur] AS [fonction]
     FROM [Collaborateurs]
 ) co ON co.[code] = cl.[Code représentant] AND co.societe = li.societe
-WHERE ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
+WHERE li.[Date BL] BETWEEN @dateDebut AND @dateFin
+  AND li.[Type Document] NOT IN (N'Devis', N'Bon de commande', N'Préparation de livraison')
+  AND li.[Remise 1] = N'0,00 %'
   AND (
         @fonction IS NULL OR @fonction = N'TOUTES'
      OR (@fonction = N'COMMERCIAUX'
@@ -127,6 +123,8 @@ WHERE ISNULL(il.[Géré en Tonnage], N'') = ISNULL(@gereTonnage, N'Oui')
      OR (@fonction NOT IN (N'TOUTES', N'COMMERCIAUX')
          AND co.[fonction] = @fonction)
       )
+  AND (@societe      IS NULL OR li.societe = @societe)
+  AND (@client       IS NULL OR li.[Code client] = @client)
   AND (@representant IS NULL OR COALESCE(NULLIF(LTRIM(RTRIM(co.[nom])), N''), LTRIM(RTRIM(cl.[Représentant]))) = @representant)
 GROUP BY
     CONVERT(CHAR(7), li.[Date BL], 126), YEAR(li.[Date BL]), MONTH(li.[Date BL]),
