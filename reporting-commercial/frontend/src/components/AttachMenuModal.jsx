@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Link as LinkIcon, X, Loader2, Plus, Search, ChevronRight, Rows3,
   AlertTriangle, ShieldCheck,
@@ -63,6 +64,148 @@ function errText(err, fallback) {
   return err?.response?.data?.detail || err?.message || fallback
 }
 
+/**
+ * Liste déroulante rendue dans un PORTAIL, en position fixe.
+ *
+ * La modale est `max-h-[85vh] overflow-y-auto` : une liste en `absolute`
+ * à l'intérieur se faisait rogner par ce conteneur — on ne voyait que 3-4
+ * entrées coupées au bord de la modale. Le portail sort du flux de scroll,
+ * et la hauteur est calculée sur l'espace réellement disponible à l'écran
+ * (ouverture vers le haut si l'espace est plus grand au-dessus).
+ */
+function PortalDropdown({ anchorRef, onClose, children }) {
+  const [pos, setPos] = useState(null)
+
+  useLayoutEffect(() => {
+    const compute = () => {
+      const el = anchorRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const below = window.innerHeight - r.bottom - 12
+      const above = r.top - 12
+      const openUp = below < 220 && above > below
+      setPos({
+        left: r.left,
+        width: r.width,
+        top: openUp ? undefined : r.bottom + 4,
+        bottom: openUp ? window.innerHeight - r.top + 4 : undefined,
+        maxHeight: Math.max(160, Math.min(360, openUp ? above : below)),
+      })
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    window.addEventListener('scroll', compute, true)
+    return () => {
+      window.removeEventListener('resize', compute)
+      window.removeEventListener('scroll', compute, true)
+    }
+  }, [anchorRef])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!pos) return null
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[60]" onClick={onClose} />
+      <div
+        style={{
+          position: 'fixed',
+          left: pos.left, width: pos.width,
+          top: pos.top, bottom: pos.bottom,
+          maxHeight: pos.maxHeight,
+        }}
+        className="z-[61] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl flex flex-col overflow-hidden"
+      >
+        {children}
+      </div>
+    </>,
+    document.body
+  )
+}
+
+/** Sélecteur recherchable : bouton + liste portée. Sert au parent et au réattachement. */
+function SearchSelect({
+  value, onChange, options, labelFn, placeholder,
+  searchPlaceholder, emptyText, rootOption, className = '',
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const btnRef = useRef(null)
+
+  const q = query.trim().toLowerCase()
+  const filtered = useMemo(
+    () => options.filter(o => !q || [o.nom, o.parent_name, o.code]
+      .some(v => (v || '').toLowerCase().includes(q))),
+    [options, q]
+  )
+
+  const selected = options.find(o => String(o.id) === String(value))
+  const close = useCallback(() => { setOpen(false); setQuery('') }, [])
+
+  const optionCls = (isSel) => `w-full text-left px-3 py-1.5 text-sm truncate ${isSel
+    ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium'
+    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`
+
+  return (
+    <div className={`relative ${className}`}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
+      >
+        <span className="truncate">{selected ? labelFn(selected) : placeholder}</span>
+        <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+
+      {open && (
+        <PortalDropdown anchorRef={btnRef} onClose={close}>
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto py-1">
+            {rootOption && (
+              <button type="button" onClick={() => { onChange(''); close() }} className={optionCls(!value)}>
+                {rootOption}
+              </button>
+            )}
+            {filtered.map(o => (
+              <button
+                key={o.uid || o.id}
+                type="button"
+                onClick={() => { onChange(String(o.id)); close() }}
+                className={optionCls(String(value) === String(o.id))}
+              >
+                {labelFn(o)}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-400">{emptyText}</p>
+            )}
+          </div>
+          <div className="px-3 py-1.5 border-t border-gray-100 dark:border-gray-700 text-[11px] text-gray-400 flex-shrink-0">
+            {filtered.length} / {options.length}
+          </div>
+        </PortalDropdown>
+      )}
+    </div>
+  )
+}
+
 export default function AttachMenuModal({
   open, onClose, menuType, reportId, reportName, icon = 'Rows3', notify,
 }) {
@@ -80,12 +223,7 @@ export default function AttachMenuModal({
   const [newMenuNom, setNewMenuNom] = useState('')
   const [newMenuCode, setNewMenuCode] = useState('')
   const [newMenuParentId, setNewMenuParentId] = useState('')
-  const [parentPickerOpen, setParentPickerOpen] = useState(false)
-  const [parentSearch, setParentSearch] = useState('')
-
   const [attachExistingId, setAttachExistingId] = useState('')
-  const [existingPickerOpen, setExistingPickerOpen] = useState(false)
-  const [existingSearch, setExistingSearch] = useState('')
 
   const [grantAccess, setGrantAccess] = useState(true)
   const [access, setAccess] = useState(null)
@@ -113,8 +251,7 @@ export default function AttachMenuModal({
   const loadAccess = useCallback(async () => {
     if (!reportId) return
     try {
-      const data = unwrap(await getReportAccess(reportType, reportId))
-      setAccess(data)
+      setAccess(unwrap(await getReportAccess(reportType, reportId)))
     } catch (err) {
       console.warn('Droits rapport indisponibles:', err)
       setAccess(null)
@@ -127,10 +264,6 @@ export default function AttachMenuModal({
     setNewMenuCode(normalizeMenuCode(reportName || ''))
     setNewMenuParentId('')
     setAttachExistingId('')
-    setParentPickerOpen(false)
-    setParentSearch('')
-    setExistingPickerOpen(false)
-    setExistingSearch('')
     setGrantAccess(true)
     setAccess(null)
     loadMenus()
@@ -167,8 +300,6 @@ export default function AttachMenuModal({
   const canCreate = !!newMenuNom.trim() && !!newMenuCode.trim() && !codeTaken && !saving
 
   const menuLabel = (m) => `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}`
-  const matches = (m, q) => !q || [m.nom, m.parent_name, m.code]
-    .some(v => (v || '').toLowerCase().includes(q))
 
   // ── Actions ───────────────────────────────────────────────────────────
   const createAndAttach = async () => {
@@ -252,9 +383,6 @@ export default function AttachMenuModal({
   if (!open) return null
 
   const inputCls = 'w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white'
-  const optionCls = (selected) => `w-full text-left px-3 py-1.5 text-sm truncate ${selected
-    ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium'
-    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -352,64 +480,20 @@ export default function AttachMenuModal({
                 </p>
               )}
 
-              <div className="mt-3 relative">
-                <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Emplacement (parent)</label>
-                <button
-                  type="button"
-                  onClick={() => setParentPickerOpen(o => !o)}
-                  className={`${inputCls} flex items-center justify-between gap-2 text-left`}
-                >
-                  <span className="truncate">
-                    {(() => {
-                      const m = folders.find(x => String(x.id) === String(newMenuParentId))
-                      return m ? menuLabel(m) : '-- Racine --'
-                    })()}
-                  </span>
-                  <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${parentPickerOpen ? 'rotate-90' : ''}`} />
-                </button>
-                {parentPickerOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setParentPickerOpen(false)} />
-                    <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
-                      <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-                        <div className="relative">
-                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                          <input
-                            autoFocus
-                            value={parentSearch}
-                            onChange={e => setParentSearch(e.target.value)}
-                            placeholder="Rechercher un dossier..."
-                            className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex-1 overflow-y-auto py-1">
-                        <button
-                          type="button"
-                          onClick={() => { setNewMenuParentId(''); setParentPickerOpen(false); setParentSearch('') }}
-                          className={optionCls(!newMenuParentId)}
-                        >
-                          -- Racine --
-                        </button>
-                        {folders
-                          .filter(m => matches(m, parentSearch.trim().toLowerCase()))
-                          .map(m => (
-                            <button
-                              key={m.uid || m.id}
-                              type="button"
-                              onClick={() => { setNewMenuParentId(String(m.id)); setParentPickerOpen(false); setParentSearch('') }}
-                              className={optionCls(String(newMenuParentId) === String(m.id))}
-                            >
-                              {menuLabel(m)}
-                            </button>
-                          ))}
-                        {folders.filter(m => matches(m, parentSearch.trim().toLowerCase())).length === 0 && (
-                          <p className="px-3 py-2 text-xs text-gray-400">Aucun dossier</p>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
+              <div className="mt-3">
+                <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">
+                  Emplacement (parent) — dossiers uniquement
+                </label>
+                <SearchSelect
+                  value={newMenuParentId}
+                  onChange={setNewMenuParentId}
+                  options={folders}
+                  labelFn={menuLabel}
+                  placeholder="-- Racine --"
+                  searchPlaceholder="Rechercher un dossier..."
+                  emptyText="Aucun dossier"
+                  rootOption="-- Racine --"
+                />
               </div>
 
               <label className="flex items-start gap-2 mt-3 cursor-pointer">
@@ -442,75 +526,33 @@ export default function AttachMenuModal({
               </label>
               {attachableMenus.length === 0 ? (
                 <p className="text-sm text-gray-400">
-                  Aucun autre menu de type « {typeLabel} » n'est modifiable ici.
-                  Créez-en un ci-dessus.
+                  Aucun autre menu de type « {typeLabel} » n'est modifiable ici. Créez-en un ci-dessus.
                 </p>
               ) : (
                 <>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <SearchSelect
+                      className="flex-1 min-w-0"
+                      value={attachExistingId}
+                      onChange={setAttachExistingId}
+                      options={attachableMenus}
+                      labelFn={menuLabel}
+                      placeholder={`-- Sélectionner un menu ${typeLabel} --`}
+                      searchPlaceholder="Rechercher un menu..."
+                      emptyText="Aucun résultat"
+                    />
                     <button
-                      type="button"
-                      onClick={() => setExistingPickerOpen(o => !o)}
-                      className={`${inputCls} flex items-center justify-between gap-2 text-left`}
+                      onClick={attachToExisting}
+                      disabled={saving || !attachExistingId}
+                      className="btn-primary whitespace-nowrap flex-shrink-0"
                     >
-                      <span className="truncate">
-                        {(() => {
-                          const m = attachableMenus.find(x => String(x.id) === String(attachExistingId))
-                          return m ? menuLabel(m) : `-- Sélectionner un menu ${typeLabel} --`
-                        })()}
-                      </span>
-                      <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${existingPickerOpen ? 'rotate-90' : ''}`} />
+                      Attacher
                     </button>
-                    {existingPickerOpen && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setExistingPickerOpen(false)} />
-                        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
-                          <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-                            <div className="relative">
-                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                              <input
-                                autoFocus
-                                value={existingSearch}
-                                onChange={e => setExistingSearch(e.target.value)}
-                                placeholder="Rechercher un menu..."
-                                className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex-1 overflow-y-auto py-1">
-                            {attachableMenus
-                              .filter(m => matches(m, existingSearch.trim().toLowerCase()))
-                              .map(m => (
-                                <button
-                                  key={m.uid || m.id}
-                                  type="button"
-                                  onClick={() => { setAttachExistingId(String(m.id)); setExistingPickerOpen(false); setExistingSearch('') }}
-                                  className={optionCls(String(attachExistingId) === String(m.id))}
-                                >
-                                  {menuLabel(m)}
-                                </button>
-                              ))}
-                            {attachableMenus.filter(m => matches(m, existingSearch.trim().toLowerCase())).length === 0 && (
-                              <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
-                            )}
-                          </div>
-                        </div>
-                      </>
-                    )}
                   </div>
-                  <button
-                    onClick={attachToExisting}
-                    disabled={saving || !attachExistingId}
-                    className="btn-primary whitespace-nowrap flex-shrink-0"
-                  >
-                    Attacher
-                  </button>
-                </div>
-                <p className="text-xs text-gray-400 mt-1.5">
-                  Le menu sélectionné pointera désormais vers ce rapport à la place du sien.
-                  {' '}({attachableMenus.length} menu{attachableMenus.length > 1 ? 'x' : ''} disponible{attachableMenus.length > 1 ? 's' : ''})
-                </p>
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    Le menu sélectionné pointera désormais vers ce rapport à la place du sien.
+                    {' '}({attachableMenus.length} menu{attachableMenus.length > 1 ? 'x' : ''} disponible{attachableMenus.length > 1 ? 's' : ''})
+                  </p>
                 </>
               )}
             </div>
