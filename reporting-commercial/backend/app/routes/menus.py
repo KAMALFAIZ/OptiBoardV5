@@ -9,9 +9,12 @@ from ..database_unified import (
     central_cursor as get_central_cursor,
     execute_client,
     client_manager,
+    current_dwh_code,
 )
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -25,7 +28,93 @@ _MENU_TO_REPORT_TYPE = {
 }
 _STRUCTURAL_TYPES = {'folder', 'url', 'page', 'separator', None, ''}
 
+# Table portant la cible, par type de menu (pour detecter les menus orphelins)
+_MENU_TARGET_TABLE = {
+    'pivot':     'APP_Pivots',
+    'pivot-v2':  'APP_Pivots_V2',
+    'gridview':  'APP_GridViews',
+    'dashboard': 'APP_Dashboards',
+}
+
 router = APIRouter(prefix="/api/menus", tags=["menus"])
+
+
+# =====================================================
+# SCHEMA APP_Menus — normalisation idempotente
+# =====================================================
+# Le schema d'APP_Menus differe selon le script qui a cree la base
+# (setup.py, dwh_admin.py, 002_client_schema.sql, init_all_tables.sql) :
+# certaines bases n'ont ni `is_custom`, ni `parent_id`, ni `code`.
+# Les INSERT/UPDATE etaient donc rejetes ("Invalid column name") en silence.
+# On aligne le schema une fois par base, et on construit malgre tout les
+# requetes a partir des colonnes REELLEMENT presentes (cas ou l'ALTER echoue
+# faute de droits).
+
+_MENU_COLUMNS_DDL = [
+    ("code",          "VARCHAR(100) NULL"),
+    ("parent_id",     "INT NULL"),
+    ("parent_code",   "VARCHAR(100) NULL"),
+    ("icon",          "VARCHAR(50) NULL"),
+    ("url",           "VARCHAR(500) NULL"),
+    ("type",          "VARCHAR(50) NULL"),
+    ("target_id",     "INT NULL"),
+    ("ordre",         "INT NULL"),
+    ("actif",         "BIT NOT NULL DEFAULT 1"),
+    ("is_custom",     "BIT NOT NULL DEFAULT 0"),
+    ("is_customized", "BIT NOT NULL DEFAULT 0"),
+]
+
+_schema_checked: set = set()
+
+
+def _db_name(cursor) -> str:
+    try:
+        cursor.execute("SELECT DB_NAME()")
+        row = cursor.fetchone()
+        return row[0] if row else "?"
+    except Exception:
+        return "?"
+
+
+def _menu_columns(cursor) -> set:
+    """Colonnes reellement presentes dans APP_Menus (base courante)."""
+    cursor.execute(
+        "SELECT LOWER(COLUMN_NAME) FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME = 'APP_Menus'"
+    )
+    return {r[0] for r in cursor.fetchall()}
+
+
+def _ensure_menu_schema(cursor) -> set:
+    """Ajoute les colonnes manquantes d'APP_Menus. Retourne les colonnes finales."""
+    db = _db_name(cursor)
+    cols = _menu_columns(cursor)
+    if db in _schema_checked:
+        return cols
+
+    for name, ddl in _MENU_COLUMNS_DDL:
+        if name in cols:
+            continue
+        try:
+            cursor.execute(f"ALTER TABLE APP_Menus ADD {name} {ddl}")
+            cols.add(name)
+            logger.info(f"[MENUS] {db}.APP_Menus : colonne '{name}' ajoutee")
+        except Exception as e:
+            logger.warning(f"[MENUS] {db}.APP_Menus : ajout '{name}' impossible ({e})")
+
+    _schema_checked.add(db)
+    return cols
+
+
+def normalize_menu_code(raw: str) -> str:
+    """Code de menu canonique : sans accent, minuscule, [a-z0-9-]."""
+    if not raw:
+        return ""
+    txt = unicodedata.normalize("NFD", str(raw))
+    txt = "".join(c for c in txt if unicodedata.category(c) != "Mn")
+    txt = txt.lower()
+    txt = re.sub(r"[^a-z0-9]+", "-", txt)
+    return txt.strip("-")[:100]
 
 
 # Schemas Pydantic
@@ -39,6 +128,10 @@ class MenuCreate(BaseModel):
     url: Optional[str] = None
     ordre: int = 0
     is_active: bool = True
+    # Donne l'acces au rapport cible a tous les roles non-admin + aux
+    # utilisateurs "legacy" (sans role). Sans cela, un menu fraichement
+    # attache n'est visible que des administrateurs.
+    grant_all_roles: bool = False
 
 
 class MenuUpdate(BaseModel):
@@ -64,6 +157,198 @@ class BulkUserMenuAccess(BaseModel):
     user_id: int
     menu_ids: List[int]
     can_export: bool = False
+
+
+class ReportAccessGrant(BaseModel):
+    report_type: str                      # gridview | pivot | dashboard
+    report_id: int
+    role_ids: Optional[List[int]] = None  # None + all_roles=True → tous les roles
+    all_roles: bool = False
+    can_export: bool = False
+    menu_id: Optional[int] = None         # pour les utilisateurs "legacy" (APP_UserMenus)
+
+
+# =====================================================
+# DROITS SUR UN RAPPORT (APP_Role_Reports / APP_UserMenus)
+# =====================================================
+
+def _client_ctx(dwh_code: Optional[str] = None) -> Optional[str]:
+    """Code DWH courant si une base client existe reellement."""
+    code = dwh_code or current_dwh_code.get()
+    if code and client_manager.has_client_db(code):
+        return code
+    return None
+
+
+def grant_report_access(
+    report_type: str,
+    report_id: int,
+    role_ids: Optional[List[int]] = None,
+    all_roles: bool = False,
+    can_export: bool = False,
+    menu_id: Optional[int] = None,
+    dwh_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Rend un rapport visible hors administrateurs.
+
+    - Mode roles    : upsert dans APP_Role_Reports (can_view=1).
+    - Mode 'legacy' : APP_UserMenus pour les utilisateurs sans aucun role.
+    Best effort : une base sans table de roles ne fait pas echouer l'appel.
+    """
+    result = {"roles_granted": 0, "users_granted": 0}
+    rtype = _MENU_TO_REPORT_TYPE.get(report_type, report_type)
+    if not rtype or not report_id:
+        return result
+
+    with get_db_cursor() as cursor:
+        # ── 1. APP_Role_Reports ──────────────────────────────────────────
+        try:
+            if all_roles or not role_ids:
+                cursor.execute(
+                    "SELECT id FROM APP_Roles WHERE actif = 1 AND ISNULL(is_admin, 0) = 0"
+                )
+                targets = [r[0] for r in cursor.fetchall()]
+            else:
+                targets = list(role_ids)
+
+            for rid in targets:
+                cursor.execute(
+                    """IF NOT EXISTS (SELECT 1 FROM APP_Role_Reports
+                                      WHERE role_id = ? AND report_type = ? AND report_id = ?)
+                           INSERT INTO APP_Role_Reports (role_id, report_type, report_id, can_view, can_export)
+                           VALUES (?, ?, ?, 1, ?)
+                       ELSE
+                           UPDATE APP_Role_Reports SET can_view = 1,
+                                  can_export = CASE WHEN ? = 1 THEN 1 ELSE can_export END
+                           WHERE role_id = ? AND report_type = ? AND report_id = ?""",
+                    (rid, rtype, report_id,
+                     rid, rtype, report_id, 1 if can_export else 0,
+                     1 if can_export else 0, rid, rtype, report_id)
+                )
+                result["roles_granted"] += 1
+        except Exception as e:
+            logger.warning(f"[MENUS] grant_report_access roles: {e}")
+
+        # ── 2. APP_UserMenus (utilisateurs sans role = ancien systeme) ───
+        if menu_id:
+            try:
+                cursor.execute(
+                    """SELECT u.id FROM APP_Users u
+                       WHERE NOT EXISTS (SELECT 1 FROM APP_User_Roles ur WHERE ur.user_id = u.id)"""
+                )
+                legacy_users = [r[0] for r in cursor.fetchall()]
+            except Exception:
+                # Pas de table de roles → tous les utilisateurs sont "legacy"
+                try:
+                    cursor.execute("SELECT id FROM APP_Users")
+                    legacy_users = [r[0] for r in cursor.fetchall()]
+                except Exception as e:
+                    logger.warning(f"[MENUS] grant_report_access users: {e}")
+                    legacy_users = []
+
+            for uid in legacy_users:
+                try:
+                    cursor.execute(
+                        """IF NOT EXISTS (SELECT 1 FROM APP_UserMenus WHERE user_id = ? AND menu_id = ?)
+                               INSERT INTO APP_UserMenus (user_id, menu_id, can_view, can_export)
+                               VALUES (?, ?, 1, ?)
+                           ELSE
+                               UPDATE APP_UserMenus SET can_view = 1 WHERE user_id = ? AND menu_id = ?""",
+                        (uid, menu_id, uid, menu_id, 1 if can_export else 0, uid, menu_id)
+                    )
+                    result["users_granted"] += 1
+                except Exception as e:
+                    logger.warning(f"[MENUS] grant_report_access user {uid}: {e}")
+
+    return result
+
+
+def _existing_target_ids(menu_type: str) -> Optional[set]:
+    """
+    Ids valides pour un type de menu, base client ET base centrale reunies.
+
+    ATTENTION : les ids de rapports DIFFERENT entre la centrale et la base
+    client (re-insertion avec IDENTITY propre), et `_pv_read` resout un id
+    central vers la ligne client par code/nom. Un menu dont le target_id
+    n'existe pas cote client n'est donc PAS orphelin s'il existe cote central.
+    Retourne None si l'inventaire n'a pas pu etre etabli (→ ne rien nettoyer).
+    """
+    table = _MENU_TARGET_TABLE.get(menu_type)
+    if not table:
+        return None
+
+    ids, seen_any = set(), False
+    for reader in (lambda q: execute_query(q, use_cache=False),
+                   lambda q: execute_central(q, use_cache=False)):
+        try:
+            rows = reader(f"SELECT id FROM {table}")
+            ids.update(r['id'] for r in (rows or []))
+            seen_any = True
+        except Exception as e:
+            logger.debug(f"[MENUS] _existing_target_ids({menu_type}): {e}")
+
+    return ids if seen_any else None
+
+
+def cleanup_menus_for_report(menu_type: str, report_id: int) -> Dict[str, Any]:
+    """
+    Nettoie les menus qui pointaient vers un rapport supprime.
+
+    `menu_type` est le type de MENU exact ('pivot-v2', 'gridview', 'dashboard',
+    'pivot') : les ids se recoupent d'une table de rapports a l'autre, on ne
+    doit donc jamais elargir aux types voisins.
+
+    - menu sans enfant  → supprime (+ droits APP_UserMenus)
+    - menu avec enfants → conserve, transforme en dossier (target_id = NULL)
+    Appele par les routes de suppression de pivot / gridview / dashboard.
+    """
+    stats = {"deleted": 0, "converted": 0, "skipped": False}
+    if not report_id or not menu_type:
+        return stats
+
+    # Garde-fou : ne toucher aux menus que si la cible a REELLEMENT disparu
+    # des deux bases. Une suppression qui n'a rien supprime (id central
+    # applique a la base client) ne doit pas emporter les menus.
+    existing = _existing_target_ids(menu_type)
+    if existing is None or report_id in existing:
+        stats["skipped"] = True
+        return stats
+
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM APP_Menus WHERE target_id = ? AND type = ?",
+                (report_id, menu_type)
+            )
+            menu_ids = [r[0] for r in cursor.fetchall()]
+
+            for mid in menu_ids:
+                cursor.execute("SELECT COUNT(*) FROM APP_Menus WHERE parent_id = ?", (mid,))
+                has_children = (cursor.fetchone()[0] or 0) > 0
+                if has_children:
+                    cursor.execute(
+                        "UPDATE APP_Menus SET target_id = NULL, type = 'folder' WHERE id = ?",
+                        (mid,)
+                    )
+                    stats["converted"] += 1
+                else:
+                    try:
+                        cursor.execute("DELETE FROM APP_UserMenus WHERE menu_id = ?", (mid,))
+                    except Exception:
+                        pass
+                    cursor.execute("DELETE FROM APP_Menus WHERE id = ?", (mid,))
+                    stats["deleted"] += 1
+
+        if stats["deleted"] or stats["converted"]:
+            logger.info(
+                f"[MENUS] Nettoyage {menu_type}#{report_id} : "
+                f"{stats['deleted']} menu(s) supprime(s), {stats['converted']} converti(s) en dossier"
+            )
+    except Exception as e:
+        logger.error(f"[MENUS] cleanup_menus_for_report({menu_type},{report_id}): {e}")
+
+    return stats
 
 
 # ==================== MENUS CRUD ====================
@@ -104,12 +389,7 @@ def get_all_menus():
         return {"success": False, "error": str(e), "data": []}
 
 
-@router.get("/flat")
-def get_menus_flat():
-    """Recupere tous les menus en liste plate"""
-    try:
-        results = execute_query(
-            """SELECT m.*, m.actif as is_active,
+_FLAT_QUERY = """SELECT m.*, m.actif as is_active,
                       p.nom as parent_name,
                       CASE
                         WHEN m.type = 'pivot' THEN (SELECT nom FROM APP_Pivots WHERE id = m.target_id)
@@ -120,9 +400,44 @@ def get_menus_flat():
                       END as target_name
                FROM APP_Menus m
                LEFT JOIN APP_Menus p ON m.parent_id = p.id
-               ORDER BY m.ordre, m.nom""",
-            use_cache=False
-        )
+               ORDER BY m.ordre, m.nom"""
+
+
+@router.get("/flat")
+def get_menus_flat(include_central: bool = False):
+    """
+    Recupere tous les menus en liste plate.
+
+    include_central=1 ajoute les menus de la base CENTRALE non redefinis
+    cote client (marques source='central', editable=False). Le menu reellement
+    affiche a l'utilisateur (/menus/user/{id}) fusionne les deux bases : sans
+    cette option, un rapport deja attache via un menu central apparait comme
+    "non attache" et l'utilisateur cree un doublon.
+    """
+    try:
+        results = execute_query(_FLAT_QUERY, use_cache=False)
+        for m in results:
+            m['source'] = 'client'
+            m['editable'] = True
+            m['uid'] = f"client:{m.get('id')}"
+
+        # Sans base client, execute_app a DEJA lu la centrale → ne pas doubler
+        if include_central and _client_ctx():
+            client_codes = {m.get('code') for m in results if m.get('code')}
+            try:
+                central_rows = execute_central(_FLAT_QUERY, use_cache=False)
+            except Exception as e:
+                logger.warning(f"[MENUS] /flat include_central: {e}")
+                central_rows = []
+            for m in central_rows:
+                if m.get('code') and m.get('code') in client_codes:
+                    continue  # redefini cote client → deja dans la liste
+                m = dict(m)
+                m['source'] = 'central'
+                m['editable'] = False
+                m['uid'] = f"central:{m.get('id')}"
+                results.append(m)
+
         return {"success": True, "data": results}
     except Exception as e:
         return {"success": False, "error": str(e), "data": []}
@@ -388,67 +703,175 @@ def get_user_menus(user_id: int, x_dwh_code: Optional[str] = Header(None)):
 def create_menu(menu: MenuCreate):
     """Cree un nouveau menu (cote client : is_custom=1, is_customized=1)"""
     try:
+        code = normalize_menu_code(menu.code)
+        if not code:
+            raise HTTPException(status_code=400, detail="Code de menu invalide ou vide")
+        nom = (menu.nom or "").strip()
+        if not nom:
+            raise HTTPException(status_code=400, detail="Le nom du menu est obligatoire")
+
         with get_db_cursor() as cursor:
+            cols = _ensure_menu_schema(cursor)
+
+            # ── Unicite du code ──────────────────────────────────────────
+            # `code` est UNIQUE sur certains schemas : un doublon faisait
+            # echouer l'INSERT en silence. Ailleurs il creait un doublon qui
+            # masquait le menu central de meme code lors du merge.
+            if "code" in cols:
+                cursor.execute(
+                    "SELECT TOP 1 id, nom, type, target_id FROM APP_Menus WHERE code = ?",
+                    (code,)
+                )
+                clash = cursor.fetchone()
+                if clash:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Le code '{code}' est deja utilise par le menu \"{clash[1]}\". "
+                               f"Choisissez un autre code."
+                    )
+
+            # ── Ordre : derniere position dans la fratrie ────────────────
+            ordre = menu.ordre
+            if "ordre" in cols and not ordre:
+                if menu.parent_id:
+                    cursor.execute(
+                        "SELECT ISNULL(MAX(ordre), 0) + 1 FROM APP_Menus WHERE parent_id = ?",
+                        (menu.parent_id,)
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT ISNULL(MAX(ordre), 0) + 1 FROM APP_Menus WHERE parent_id IS NULL"
+                    )
+                row = cursor.fetchone()
+                ordre = row[0] if row else 0
+
+            # ── INSERT construit sur les colonnes REELLES ───────────────
+            values = {
+                "nom":           nom,
+                "code":          code,
+                "icon":          menu.icon,
+                "type":          menu.type,
+                "target_id":     menu.target_id,
+                "url":           menu.url,
+                "parent_id":     menu.parent_id,
+                "ordre":         ordre,
+                "actif":         menu.is_active,
+                "is_custom":     1,
+                "is_customized": 1,
+            }
+            usable = {k: v for k, v in values.items() if k in cols}
+            if "nom" not in usable:
+                raise HTTPException(status_code=500,
+                                    detail="Table APP_Menus incompatible (colonne 'nom' absente)")
+
+            names = ", ".join(usable.keys())
+            marks = ", ".join("?" * len(usable))
             cursor.execute(
-                """INSERT INTO APP_Menus (parent_id, nom, code, icon, type, target_id, url, ordre, actif, is_custom)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
-                (menu.parent_id, menu.nom, menu.code, menu.icon, menu.type,
-                 menu.target_id, menu.url, menu.ordre, menu.is_active)
+                f"INSERT INTO APP_Menus ({names}) VALUES ({marks})",
+                tuple(usable.values())
             )
 
             cursor.execute("SELECT @@IDENTITY AS id")
             new_id = cursor.fetchone()[0]
+            new_id = int(new_id) if new_id is not None else None
 
-        return {"success": True, "id": new_id, "message": "Menu cree avec succes"}
+            ignored = [k for k in values if k not in cols]
+
+        # ── Droits : sans cela le menu n'est visible que des admins ─────
+        access = None
+        report_type = _MENU_TO_REPORT_TYPE.get(menu.type)
+        if menu.grant_all_roles and report_type and menu.target_id:
+            access = grant_report_access(
+                report_type, menu.target_id, all_roles=True, menu_id=new_id
+            )
+
+        return {
+            "success": True,
+            "id": new_id,
+            "code": code,
+            "ignored_columns": ignored,
+            "access": access,
+            "message": "Menu cree avec succes",
+        }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"[MENUS] create_menu: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
 @router.put("/{menu_id}")
 def update_menu(menu_id: int, menu: MenuUpdate):
-    """Met a jour un menu"""
+    """
+    Met a jour un menu.
+
+    Seuls les champs REELLEMENT transmis sont appliques (model_fields_set) :
+    `parent_id: null` remonte donc le menu a la racine, et `target_id: null`
+    le detache — ce qui etait impossible auparavant (tout None etait ignore).
+    """
     try:
-        updates = []
-        params = []
-
-        if menu.parent_id is not None:
-            updates.append("parent_id = ?")
-            params.append(menu.parent_id if menu.parent_id > 0 else None)
-        if menu.nom is not None:
-            updates.append("nom = ?")
-            params.append(menu.nom)
-        if menu.code is not None:
-            updates.append("code = ?")
-            params.append(menu.code)
-        if menu.icon is not None:
-            updates.append("icon = ?")
-            params.append(menu.icon)
-        if menu.type is not None:
-            updates.append("type = ?")
-            params.append(menu.type)
-        if menu.target_id is not None:
-            updates.append("target_id = ?")
-            params.append(menu.target_id if menu.target_id > 0 else None)
-        if menu.url is not None:
-            updates.append("url = ?")
-            params.append(menu.url)
-        if menu.ordre is not None:
-            updates.append("ordre = ?")
-            params.append(menu.ordre)
-        if menu.is_active is not None:
-            updates.append("actif = ?")
-            params.append(menu.is_active)
-
-        if not updates:
+        sent = menu.model_dump(exclude_unset=True)
+        if not sent:
             return {"success": False, "error": "Aucune modification"}
 
-        params.append(menu_id)
+        # nom du champ payload → colonne SQL
+        field_to_col = {
+            "parent_id": "parent_id", "nom": "nom", "code": "code", "icon": "icon",
+            "type": "type", "target_id": "target_id", "url": "url",
+            "ordre": "ordre", "is_active": "actif",
+        }
 
         with get_db_cursor() as cursor:
-            cursor.execute(f"UPDATE APP_Menus SET {', '.join(updates)} WHERE id = ?", params)
+            cols = _ensure_menu_schema(cursor)
+
+            updates, params = [], []
+            for field, value in sent.items():
+                col = field_to_col.get(field)
+                if not col or col not in cols:
+                    continue
+                if field == "code":
+                    value = normalize_menu_code(value) or None
+                    if value:
+                        cursor.execute(
+                            "SELECT TOP 1 nom FROM APP_Menus WHERE code = ? AND id <> ?",
+                            (value, menu_id)
+                        )
+                        clash = cursor.fetchone()
+                        if clash:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=f"Le code '{value}' est deja utilise par le menu \"{clash[0]}\"."
+                            )
+                elif field in ("parent_id", "target_id") and value is not None:
+                    # 0 a toujours servi de sentinelle "aucun"
+                    value = value if value > 0 else None
+                if field == "parent_id" and value == menu_id:
+                    raise HTTPException(status_code=400,
+                                        detail="Un menu ne peut pas etre son propre parent")
+                updates.append(f"{col} = ?")
+                params.append(value)
+
+            if not updates:
+                return {"success": False, "error": "Aucune modification applicable"}
+
+            # Un menu modifie cote client ne doit plus etre ecrase par le master
+            if "is_customized" in cols:
+                updates.append("is_customized = 1")
+
+            params.append(menu_id)
+            cursor.execute(
+                f"UPDATE APP_Menus SET {', '.join(updates)} WHERE id = ?", params
+            )
+            affected = cursor.rowcount
+
+        if affected == 0:
+            raise HTTPException(status_code=404, detail=f"Menu {menu_id} introuvable")
 
         return {"success": True, "message": "Menu mis a jour"}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"[MENUS] update_menu({menu_id}): {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
@@ -493,9 +916,195 @@ def delete_menu(menu_id: int):
 
             # Supprimer le menu
             cursor.execute("DELETE FROM APP_Menus WHERE id = ?", (menu_id,))
+            affected = cursor.rowcount
+
+        if affected == 0:
+            return {"success": False, "error": f"Menu {menu_id} introuvable"}
 
         return {"success": True, "message": "Menu supprime"}
     except Exception as e:
+        logger.error(f"[MENUS] delete_menu({menu_id}): {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/{menu_id}/detach")
+def detach_menu(menu_id: int):
+    """
+    Detache un rapport de son menu SANS perdre l'entree de menu quand elle
+    porte des sous-menus.
+
+    - menu avec sous-menus → conserve, converti en dossier (target_id = NULL)
+    - menu feuille         → supprime avec ses droits APP_UserMenus
+    """
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT nom, type, target_id FROM APP_Menus WHERE id = ?", (menu_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Menu {menu_id} introuvable")
+            nom = row[0]
+
+            cursor.execute("SELECT COUNT(*) FROM APP_Menus WHERE parent_id = ?", (menu_id,))
+            has_children = (cursor.fetchone()[0] or 0) > 0
+
+            if has_children:
+                cursor.execute(
+                    "UPDATE APP_Menus SET target_id = NULL, type = 'folder' WHERE id = ?",
+                    (menu_id,)
+                )
+                return {
+                    "success": True, "mode": "converted",
+                    "message": f"\"{nom}\" contient des sous-menus : conserve comme dossier, rapport detache",
+                }
+
+            try:
+                cursor.execute("DELETE FROM APP_UserMenus WHERE menu_id = ?", (menu_id,))
+            except Exception:
+                pass
+            cursor.execute("DELETE FROM APP_Menus WHERE id = ?", (menu_id,))
+            return {
+                "success": True, "mode": "deleted",
+                "message": f"\"{nom}\" a ete retire du menu",
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[MENUS] detach_menu({menu_id}): {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+# ==================== MENUS ORPHELINS ====================
+
+@router.get("/orphans")
+def list_orphan_menus():
+    """
+    Menus pointant vers un rapport qui n'existe plus (supprime sans nettoyage).
+    Au clic, ces entrees ouvrent un ecran vide.
+
+    Un menu dont la cible existe cote CENTRAL mais pas cote client n'est pas
+    orphelin : les ids different d'une base a l'autre et sont resolus par
+    code/nom a la lecture.
+    """
+    try:
+        orphans = []
+        for mtype in _MENU_TARGET_TABLE:
+            existing = _existing_target_ids(mtype)
+            if existing is None:
+                continue  # inventaire indisponible → on ne conclut rien
+            try:
+                rows = execute_query(
+                    """SELECT m.id, m.nom, m.code, m.type, m.target_id, m.actif as is_active
+                       FROM APP_Menus m
+                       WHERE m.type = ? AND m.target_id IS NOT NULL""",
+                    (mtype,), use_cache=False
+                )
+            except Exception as e:
+                logger.warning(f"[MENUS] orphans {mtype}: {e}")
+                continue
+            orphans.extend(r for r in (rows or []) if r['target_id'] not in existing)
+        return {"success": True, "data": orphans, "count": len(orphans)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": []}
+
+
+@router.post("/orphans/cleanup")
+def cleanup_orphan_menus():
+    """Supprime (ou convertit en dossier) tous les menus orphelins."""
+    try:
+        listing = list_orphan_menus()
+        if not listing.get("success"):
+            return listing
+
+        stats = {"deleted": 0, "converted": 0, "menus": []}
+        with get_db_cursor() as cursor:
+            for m in listing.get("data", []):
+                mid = m["id"]
+                cursor.execute("SELECT COUNT(*) FROM APP_Menus WHERE parent_id = ?", (mid,))
+                if (cursor.fetchone()[0] or 0) > 0:
+                    cursor.execute(
+                        "UPDATE APP_Menus SET target_id = NULL, type = 'folder' WHERE id = ?",
+                        (mid,)
+                    )
+                    stats["converted"] += 1
+                else:
+                    try:
+                        cursor.execute("DELETE FROM APP_UserMenus WHERE menu_id = ?", (mid,))
+                    except Exception:
+                        pass
+                    cursor.execute("DELETE FROM APP_Menus WHERE id = ?", (mid,))
+                    stats["deleted"] += 1
+                stats["menus"].append(m.get("nom"))
+
+        return {
+            "success": True, **stats,
+            "message": f"{stats['deleted']} menu(s) orphelin(s) supprime(s), "
+                       f"{stats['converted']} converti(s) en dossier",
+        }
+    except Exception as e:
+        logger.error(f"[MENUS] cleanup_orphan_menus: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+# ==================== DROITS SUR UN RAPPORT ====================
+
+@router.get("/report-access/{report_type}/{report_id}")
+def get_report_access(report_type: str, report_id: int):
+    """
+    Qui voit ce rapport ? Permet d'avertir l'admin qu'un rapport fraichement
+    attache a un menu reste invisible pour les utilisateurs non-admin.
+    """
+    try:
+        rtype = _MENU_TO_REPORT_TYPE.get(report_type, report_type)
+        roles, granted = [], []
+        try:
+            roles = execute_query(
+                "SELECT id, nom, is_admin FROM APP_Roles WHERE actif = 1",
+                use_cache=False
+            ) or []
+            granted = execute_query(
+                """SELECT role_id FROM APP_Role_Reports
+                   WHERE report_type = ? AND report_id = ? AND can_view = 1""",
+                (rtype, report_id), use_cache=False
+            ) or []
+        except Exception as e:
+            logger.warning(f"[MENUS] get_report_access: {e}")
+
+        granted_ids = {r['role_id'] for r in granted}
+        data = [
+            {
+                "id": r['id'], "nom": r['nom'],
+                "is_admin": bool(r.get('is_admin')),
+                "can_view": bool(r.get('is_admin')) or r['id'] in granted_ids,
+            }
+            for r in roles
+        ]
+        non_admin = [r for r in data if not r["is_admin"]]
+        return {
+            "success": True,
+            "data": data,
+            "roles_total": len(non_admin),
+            "roles_granted": len([r for r in non_admin if r["can_view"]]),
+            "admin_only": len(non_admin) > 0 and not any(r["can_view"] for r in non_admin),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": []}
+
+
+@router.post("/report-access")
+def set_report_access(grant: ReportAccessGrant):
+    """Donne l'acces en lecture a un rapport (roles + utilisateurs sans role)."""
+    try:
+        res = grant_report_access(
+            grant.report_type, grant.report_id,
+            role_ids=grant.role_ids, all_roles=grant.all_roles,
+            can_export=grant.can_export, menu_id=grant.menu_id,
+        )
+        return {
+            "success": True, **res,
+            "message": f"{res['roles_granted']} role(s) et {res['users_granted']} utilisateur(s) autorises",
+        }
+    except Exception as e:
+        logger.error(f"[MENUS] set_report_access: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 

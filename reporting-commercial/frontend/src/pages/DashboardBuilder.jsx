@@ -37,12 +37,9 @@ import {
   previewDataSource,
   previewUnifiedDataSource,
   getUnifiedDataSourceFields,
-  extractErrorMessage,
-  getMenusFlat,
-  createMenu,
-  updateMenu,
-  deleteMenu
+  extractErrorMessage
 } from '../services/api'
+import AttachMenuModal from '../components/AttachMenuModal'
 import { useTheme } from '../context/ThemeContext'
 import { APP_DOT, APP_TEXT, APP_BG } from '../utils/applicationThemes'
 
@@ -282,19 +279,8 @@ export default function DashboardBuilder() {
   const { sidebarWidth, handleSidebarResizeStart } = useSidebarResize(192, 140, 480)
   const [dashboardApplication, setDashboardApplication] = useState('')
 
-  // Attacher ce dashboard au menu dynamique
+  // Attacher ce dashboard au menu dynamique (modale partagee AttachMenuModal)
   const [showMenuModal, setShowMenuModal] = useState(false)
-  const [menuFlat, setMenuFlat] = useState([])
-  const [menuLoading, setMenuLoading] = useState(false)
-  const [menuSaving, setMenuSaving] = useState(false)
-  const [newMenuNom, setNewMenuNom] = useState('')
-  const [newMenuCode, setNewMenuCode] = useState('')
-  const [newMenuParentId, setNewMenuParentId] = useState('')
-  const [attachExistingId, setAttachExistingId] = useState('')
-  const [parentPickerOpen, setParentPickerOpen] = useState(false)
-  const [parentSearch, setParentSearch] = useState('')
-  const [existingPickerOpen, setExistingPickerOpen] = useState(false)
-  const [existingSearch, setExistingSearch] = useState('')
 
   const APPLICATION_OPTIONS = [
     { value: '', label: '-- Aucune --' },
@@ -493,122 +479,9 @@ export default function DashboardBuilder() {
   }
 
   // Attacher/detacher ce dashboard au menu dynamique
-  const openMenuModal = async () => {
+  const openMenuModal = () => {
     if (!currentDashboard) return
     setShowMenuModal(true)
-    setNewMenuNom(currentDashboard.nom || '')
-    setNewMenuCode(
-      (currentDashboard.nom || '')
-        .toLowerCase()
-        .normalize('NFD').replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '')
-    )
-    setNewMenuParentId('')
-    setAttachExistingId('')
-    setParentPickerOpen(false)
-    setParentSearch('')
-    setExistingPickerOpen(false)
-    setExistingSearch('')
-    setMenuLoading(true)
-    try {
-      const res = await getMenusFlat()
-      if (res.data.success === false) {
-        console.error('Erreur backend /menus/flat:', res.data.error)
-        showToast(res.data.error || 'Erreur lors du chargement des menus', 'error')
-        setMenuFlat([])
-      } else {
-        setMenuFlat(res.data.data || [])
-      }
-    } catch (err) {
-      console.error('Erreur chargement menus:', err)
-      showToast(err.response?.data?.detail || err.message || 'Erreur lors du chargement des menus', 'error')
-      setMenuFlat([])
-    } finally {
-      setMenuLoading(false)
-    }
-  }
-
-  const refreshMenuFlat = async () => {
-    try {
-      const res = await getMenusFlat()
-      if (res.data.success === false) {
-        console.error('Erreur backend /menus/flat:', res.data.error)
-        showToast(res.data.error || 'Erreur lors du rechargement des menus', 'error')
-        return
-      }
-      setMenuFlat(res.data.data || [])
-    } catch (err) {
-      console.error('Erreur rechargement menus:', err)
-    }
-  }
-
-  const createAndAttachMenu = async () => {
-    if (!currentDashboard || !newMenuNom.trim() || !newMenuCode.trim()) return
-    setMenuSaving(true)
-    try {
-      await createMenu({
-        parent_id: newMenuParentId ? parseInt(newMenuParentId, 10) : null,
-        nom: newMenuNom.trim(),
-        code: newMenuCode.trim(),
-        icon: 'LayoutDashboard',
-        type: 'dashboard',
-        target_id: currentDashboard.id,
-        url: '',
-        ordre: 0,
-        is_active: true
-      })
-      showToast('Menu créé et dashboard attaché')
-      await refreshMenuFlat()
-      setNewMenuNom('')
-      setNewMenuCode('')
-      setNewMenuParentId('')
-    } catch (err) {
-      console.error('Erreur création menu:', err)
-      showToast(err.response?.data?.detail || 'Erreur lors de la création du menu', 'error')
-    } finally {
-      setMenuSaving(false)
-    }
-  }
-
-  const attachToExistingMenu = async () => {
-    if (!currentDashboard || !attachExistingId) return
-    const menu = menuFlat.find(m => m.id === parseInt(attachExistingId, 10))
-    if (!menu) return
-    setMenuSaving(true)
-    try {
-      await updateMenu(menu.id, {
-        parent_id: menu.parent_id,
-        nom: menu.nom,
-        code: menu.code,
-        icon: menu.icon || 'LayoutDashboard',
-        type: 'dashboard',
-        target_id: currentDashboard.id,
-        url: menu.url || '',
-        ordre: menu.ordre,
-        is_active: menu.is_active
-      })
-      showToast(`"${menu.nom}" pointe maintenant vers ce dashboard`)
-      await refreshMenuFlat()
-      setAttachExistingId('')
-    } catch (err) {
-      console.error('Erreur attachement menu:', err)
-      showToast(err.response?.data?.detail || 'Erreur lors de l\'attachement', 'error')
-    } finally {
-      setMenuSaving(false)
-    }
-  }
-
-  const detachMenu = async (menu) => {
-    if (!confirm(`Détacher "${menu.nom}" du menu ?`)) return
-    try {
-      await deleteMenu(menu.id)
-      showToast('Menu détaché')
-      await refreshMenuFlat()
-    } catch (err) {
-      console.error('Erreur détachement menu:', err)
-      showToast('Erreur lors du détachement', 'error')
-    }
   }
 
   // ── Widget CRUD ──
@@ -1002,231 +875,16 @@ export default function DashboardBuilder() {
         </div>
       )}
 
-      {/* Modal Attacher au menu dynamique */}
-      {showMenuModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMenuModal(false)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Link className="w-5 h-5 text-primary-500" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Attacher au menu dynamique</h2>
-              </div>
-              <button onClick={() => setShowMenuModal(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {menuLoading ? (
-              <div className="py-10 text-center text-gray-400">
-                <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-                Chargement des menus...
-              </div>
-            ) : (() => {
-              const linkedMenus = menuFlat.filter(m => m.type === 'dashboard' && m.target_id === currentDashboard?.id)
-              const attachableMenus = menuFlat.filter(m => m.type === 'dashboard' && m.target_id !== currentDashboard?.id && m.is_custom === true)
-              return (
-                <div className="space-y-5">
-                  {/* Menus actuellement liés */}
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                      Menus liés à ce dashboard
-                    </label>
-                    {linkedMenus.length === 0 ? (
-                      <p className="text-sm text-gray-400">Ce dashboard n'est encore attaché à aucun menu.</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {linkedMenus.map(m => (
-                          <div key={m.id} className="flex items-center justify-between px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm">
-                            <span className="flex items-center gap-2 text-gray-700 dark:text-gray-200 min-w-0 truncate">
-                              <LayoutGrid className="w-3.5 h-3.5 text-primary-500 flex-shrink-0" />
-                              <span className="truncate">{m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}</span>
-                              {!m.is_active && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">masqué</span>}
-                            </span>
-                            {m.is_custom === true ? (
-                              <button onClick={() => detachMenu(m)} className="text-red-500 hover:text-red-700 text-xs font-medium flex-shrink-0 ml-2">
-                                Détacher
-                              </button>
-                            ) : (
-                              <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">standard</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Créer un nouveau menu */}
-                  <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                      Créer un nouveau menu pour ce dashboard
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Nom</label>
-                        <input
-                          value={newMenuNom}
-                          onChange={e => setNewMenuNom(e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Code</label>
-                        <input
-                          value={newMenuCode}
-                          onChange={e => setNewMenuCode(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
-                          className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-3 relative">
-                      <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Emplacement (parent)</label>
-                      <button
-                        type="button"
-                        onClick={() => setParentPickerOpen(o => !o)}
-                        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
-                      >
-                        <span className="truncate">
-                          {newMenuParentId ? (() => {
-                            const m = menuFlat.find(x => String(x.id) === String(newMenuParentId))
-                            return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Racine --'
-                          })() : '-- Racine --'}
-                        </span>
-                        <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${parentPickerOpen ? 'rotate-90' : ''}`} />
-                      </button>
-                      {parentPickerOpen && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setParentPickerOpen(false)} />
-                          <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
-                            <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-                              <div className="relative">
-                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                                <input
-                                  autoFocus
-                                  value={parentSearch}
-                                  onChange={e => setParentSearch(e.target.value)}
-                                  placeholder="Rechercher un dossier..."
-                                  className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
-                                />
-                              </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto py-1">
-                              <button
-                                type="button"
-                                onClick={() => { setNewMenuParentId(''); setParentPickerOpen(false); setParentSearch('') }}
-                                className={`w-full text-left px-3 py-1.5 text-sm ${!newMenuParentId ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                              >
-                                -- Racine --
-                              </button>
-                              {menuFlat
-                                .filter(m => {
-                                  const q = parentSearch.trim().toLowerCase()
-                                  if (!q) return true
-                                  return (m.nom || '').toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
-                                })
-                                .map(m => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    onClick={() => { setNewMenuParentId(String(m.id)); setParentPickerOpen(false); setParentSearch('') }}
-                                    className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(newMenuParentId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                                  >
-                                    {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
-                                  </button>
-                                ))}
-                              {parentSearch.trim() && menuFlat.filter(m => (m.nom || '').toLowerCase().includes(parentSearch.trim().toLowerCase())).length === 0 && (
-                                <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    <button
-                      onClick={createAndAttachMenu}
-                      disabled={menuSaving || !newMenuNom.trim() || !newMenuCode.trim()}
-                      className="btn-primary mt-3 flex items-center gap-2"
-                    >
-                      {menuSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                      Créer et attacher
-                    </button>
-                  </div>
-
-                  {/* Attacher à un menu existant */}
-                  {attachableMenus.length > 0 && (
-                    <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-                      <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                        Ou réattacher un menu existant
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => setExistingPickerOpen(o => !o)}
-                            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
-                          >
-                            <span className="truncate">
-                              {attachExistingId ? (() => {
-                                const m = attachableMenus.find(x => String(x.id) === String(attachExistingId))
-                                return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Sélectionner un menu Dashboard --'
-                              })() : '-- Sélectionner un menu Dashboard --'}
-                            </span>
-                            <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${existingPickerOpen ? 'rotate-90' : ''}`} />
-                          </button>
-                          {existingPickerOpen && (
-                            <>
-                              <div className="fixed inset-0 z-40" onClick={() => setExistingPickerOpen(false)} />
-                              <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
-                                <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-                                  <div className="relative">
-                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                                    <input
-                                      autoFocus
-                                      value={existingSearch}
-                                      onChange={e => setExistingSearch(e.target.value)}
-                                      placeholder="Rechercher un menu..."
-                                      className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
-                                    />
-                                  </div>
-                                </div>
-                                <div className="flex-1 overflow-y-auto py-1">
-                                  {attachableMenus
-                                    .filter(m => {
-                                      const q = existingSearch.trim().toLowerCase()
-                                      if (!q) return true
-                                      return (m.nom || '').toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
-                                    })
-                                    .map(m => (
-                                      <button
-                                        key={m.id}
-                                        type="button"
-                                        onClick={() => { setAttachExistingId(String(m.id)); setExistingPickerOpen(false); setExistingSearch('') }}
-                                        className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(attachExistingId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                                      >
-                                        {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
-                                      </button>
-                                    ))}
-                                  {existingSearch.trim() && attachableMenus.filter(m => (m.nom || '').toLowerCase().includes(existingSearch.trim().toLowerCase())).length === 0 && (
-                                    <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
-                                  )}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        <button onClick={attachToExistingMenu} disabled={menuSaving || !attachExistingId} className="btn-primary whitespace-nowrap flex-shrink-0">
-                          Attacher
-                        </button>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-1.5">Le menu sélectionné pointera désormais vers ce dashboard à la place du sien.</p>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-          </div>
-        </div>
-      )}
+      {/* Modal Attacher au menu dynamique (composant partage) */}
+      <AttachMenuModal
+        open={showMenuModal}
+        onClose={() => setShowMenuModal(false)}
+        menuType="dashboard"
+        reportId={currentDashboard?.id}
+        reportName={currentDashboard?.nom}
+        icon="LayoutDashboard"
+        notify={(msg, type) => showToast(msg, type)}
+      />
 
       {/* Toast */}
       {toast && (

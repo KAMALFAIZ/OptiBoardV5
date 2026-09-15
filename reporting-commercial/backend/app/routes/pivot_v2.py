@@ -1757,7 +1757,11 @@ def update_pivot(
                             client_updates.append("updated_at = GETDATE()")
                             client_params.append(value)
                             client_query = f"UPDATE APP_Pivots_V2 SET {', '.join(client_updates)} WHERE {clause}"
-                            with dwh_cursor(dwh_code) as c:
+                            # client_cursor (OptiBoard_clt<CODE>) et NON dwh_cursor
+                            # (DWH_<CODE>) : APP_Pivots_V2 n'existe pas dans l'entrepot,
+                            # l'ecriture cliente echouait en silence (avalee par l'except).
+                            from ..database_unified import client_cursor
+                            with client_cursor(dwh_code) as c:
                                 c.execute(client_query, tuple(client_params))
             except Exception as e:
                 logger.warning(f"Update client DWH {dwh_code} pivot {pivot_id}: {e}")
@@ -1768,13 +1772,93 @@ def update_pivot(
         return {"success": False, "error": str(e)}
 
 
-@router.delete("/{pivot_id}")
-def delete_pivot(pivot_id: int):
-    """Supprime un pivot"""
+def _delete_client_pivot(dwh_code: Optional[str], match: Optional[tuple], pivot_id: int) -> Dict[str, Any]:
+    """
+    Supprime la copie CLIENTE d'un pivot, appariee par code (ou nom).
+
+    Les ids different entre centrale et base client : un DELETE par id central
+    sur la base client ne supprime rien. Sans cet appariement, la copie cliente
+    survivait a la suppression et restait visible cote utilisateur.
+    """
+    if not dwh_code or not match:
+        if dwh_code and not match:
+            logger.warning(
+                f"Delete client DWH {dwh_code} pivot {pivot_id}: aucune cle d'appariement "
+                f"(code et nom vides) — copie cliente NON supprimee"
+            )
+        return {"deleted": 0, "reason": "no-match" if dwh_code else "no-dwh"}
+
     try:
+        if not client_manager.has_client_db(dwh_code):
+            return {"deleted": 0, "reason": "no-client-db"}
+
+        clause, value = match
+        rows = execute_client(
+            f"SELECT id FROM APP_Pivots_V2 WHERE {clause}",
+            (value,), dwh_code=dwh_code, use_cache=False
+        ) or []
+        if len(rows) != 1:
+            # Cle ambigue : ne pas supprimer au hasard.
+            logger.warning(
+                f"Delete client DWH {dwh_code} pivot {pivot_id}: {len(rows)} ligne(s) client "
+                f"pour {clause[:4]}={value!r} — copie cliente NON supprimee"
+            )
+            return {"deleted": 0, "reason": "ambiguous", "matches": len(rows)}
+
+        client_id = rows[0]["id"]
+        # client_cursor (OptiBoard_clt<CODE>) et NON dwh_cursor (DWH_<CODE>) :
+        # les tables APP_* vivent dans la base applicative, pas dans l'entrepot.
+        from ..database_unified import client_cursor
+        with client_cursor(dwh_code) as c:
+            try:
+                c.execute("DELETE FROM APP_Pivot_User_Prefs WHERE pivot_id = ?", (client_id,))
+            except Exception:
+                pass
+            c.execute("DELETE FROM APP_Pivots_V2 WHERE id = ?", (client_id,))
+        return {"deleted": 1, "client_id": client_id}
+    except Exception as e:
+        logger.warning(f"Delete client DWH {dwh_code} pivot {pivot_id}: {e}")
+        return {"deleted": 0, "reason": str(e)}
+
+
+@router.delete("/{pivot_id}")
+def delete_pivot(
+    pivot_id: int,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Supprime un pivot : base centrale + copie cliente + menus associes"""
+    try:
+        # Lire la cle d'appariement AVANT la suppression centrale : apres, plus
+        # rien ne permet de retrouver la copie cliente (ids differents).
+        central_row = execute_query(
+            "SELECT code, nom FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,), use_cache=False
+        )
+        if not central_row:
+            raise HTTPException(status_code=404, detail=f"Pivot {pivot_id} non trouve")
+        match = _client_match(central_row[0])
+
         with get_db_cursor() as cursor:
             cursor.execute("DELETE FROM APP_Pivots_V2 WHERE id = ?", (pivot_id,))
-        return {"success": True, "message": "Pivot supprime avec succes"}
+
+        # Prefs utilisateurs centrales (table optionnelle)
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("DELETE FROM APP_Pivot_User_Prefs WHERE pivot_id = ?", (pivot_id,))
+        except Exception as e:
+            logger.debug(f"Prefs pivot {pivot_id}: {e}")
+
+        client = _delete_client_pivot(dwh_code, match, pivot_id)
+
+        # Sans ce nettoyage, les menus restaient et ouvraient un ecran vide
+        from .menus import cleanup_menus_for_report
+        menus = cleanup_menus_for_report('pivot-v2', pivot_id)
+
+        return {
+            "success": True, "client": client, "menus": menus,
+            "message": "Pivot supprime avec succes",
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erreur suppression pivot V2 {pivot_id}: {e}")
         return {"success": False, "error": str(e)}
