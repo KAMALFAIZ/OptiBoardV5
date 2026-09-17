@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   Database, Plus, Save, Trash2, Play, RefreshCw, X, Search,
   Code, FileText, Tag, CheckCircle, XCircle, AlertCircle,
-  Eye, EyeOff, Copy, Settings2, Loader2, Filter, ChevronDown, ChevronRight,
+  Eye, EyeOff, Copy, Settings2, Loader2, Filter, ChevronDown,
   Shield, Wand2, AlignLeft
 } from 'lucide-react'
 import { format as formatSql } from 'sql-formatter'
@@ -364,10 +364,13 @@ export default function DataSourceTemplates() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
             <Database className="w-4 h-4 text-primary-600 dark:text-primary-400" />
           </div>
-          <h1 className="text-sm font-bold text-gray-900 dark:text-white">DataSources Templates</h1>
+          <div>
+            <h1 className="text-[15px] font-semibold text-gray-900 dark:text-white leading-tight">DataSources Templates</h1>
+            <p className="text-[11px] text-gray-400 leading-tight">Sources de données réutilisables par tous les builders</p>
+          </div>
           {categoryFilter && (
             <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 capitalize">
               {CATEGORIES.find(c => c.value === categoryFilter)?.label || categoryFilter}
@@ -376,11 +379,11 @@ export default function DataSourceTemplates() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={loadData}
-            className="p-1.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Actualiser">
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 transition-colors" title="Actualiser">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           <button onClick={handleNewTemplate}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-primary-600 text-white hover:bg-primary-700 transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-sm transition-colors">
             <Plus className="w-3.5 h-3.5" />
             Nouveau Template
           </button>
@@ -389,8 +392,8 @@ export default function DataSourceTemplates() {
 
       {/* Messages */}
       {error && (
-        <div className="mx-4 mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-400">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+        <div className="mx-4 mt-3 px-3 py-2.5 text-sm bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-red-700 dark:text-red-300">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
             <X className="w-4 h-4" />
@@ -399,8 +402,8 @@ export default function DataSourceTemplates() {
       )}
 
       {success && (
-        <div className="mx-4 mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-2 text-green-600 dark:text-green-400">
-          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+        <div className="mx-4 mt-3 px-3 py-2.5 text-sm bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+          <CheckCircle className="w-4 h-4 flex-shrink-0" />
           <span>{success}</span>
           <button onClick={() => setSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">
             <X className="w-4 h-4" />
@@ -410,11 +413,14 @@ export default function DataSourceTemplates() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar - Liste des templates */}
-        <div className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex flex-col">
+        <div className="w-72 bg-gray-50/60 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
           {/* Filtres */}
-          <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
+          <div className="px-4 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Templates</h2>
+              <h2 className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100">
+                Templates
+                <span className="px-2 py-0.5 rounded-full bg-primary-50 dark:bg-primary-900/30 text-[11px] font-semibold text-primary-600 dark:text-primary-300">{templates.length}</span>
+              </h2>
               <button
                 onClick={() => setShowSystemOnly(!showSystemOnly)}
                 className={`p-1.5 rounded-lg transition-colors ${showSystemOnly ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-gray-200'}`}
@@ -430,7 +436,7 @@ export default function DataSourceTemplates() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Rechercher..."
-                className="w-full pl-8 pr-7 py-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white placeholder-gray-400 outline-none transition-all"
+                className="w-full pl-8 pr-7 py-2 text-xs h-8 bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-md focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 dark:text-white placeholder-gray-400 outline-none transition-all"
               />
               {searchTerm && (
                 <button onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -441,7 +447,7 @@ export default function DataSourceTemplates() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full px-2.5 py-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl dark:text-white focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all"
+              className="w-full px-2.5 py-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-all"
             >
               {CATEGORIES.map(c => (
                 <option key={c.value} value={c.value}>{c.label}</option>
@@ -452,44 +458,42 @@ export default function DataSourceTemplates() {
           {/* Liste groupee */}
           <div className="flex-1 overflow-y-auto">
             {Object.keys(groupedTemplates).length === 0 ? (
-              <div className="p-4 text-center text-gray-500">
-                <Database className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Aucun template trouve</p>
+              <div className="m-3 px-4 py-8 flex flex-col items-center text-center rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-xs text-gray-400">
+                <Database className="w-6 h-6 mb-2 text-gray-300 dark:text-gray-600" />
+                Aucun template trouvé
               </div>
             ) : (
               Object.entries(groupedTemplates).map(([category, items]) => (
                 <div key={category}>
                   <button
                     onClick={() => toggleCategory(category)}
-                    className="w-full px-3 py-2 flex items-center justify-between text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
+                    className="w-full px-3 py-2 flex items-center justify-between text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
                   >
                     <span className="flex items-center gap-2">
-                      {expandedCategories[category] ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      )}
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedCategories[category] ? '' : '-rotate-90'}`} />
                       {CATEGORIES.find(c => c.value === category)?.label || category}
                     </span>
-                    <span className="text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                    <span className="min-w-[20px] text-center text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-300 px-1.5 py-0.5 rounded-full font-semibold">
                       {items.length}
                     </span>
                   </button>
 
                   {expandedCategories[category] && (
-                    <div className="pb-1">
+                    <div className="px-2 pb-2 space-y-1">
                       {items.map(template => (
                         <div
                           key={template.id}
                           onClick={() => handleSelectTemplate(template)}
                           className={`
-                            mx-1 px-3 py-2.5 rounded-xl cursor-pointer text-xs transition-all mb-0.5
+                            relative overflow-hidden pl-3.5 pr-3 py-2 rounded-lg cursor-pointer text-xs transition-all border bg-white dark:bg-gray-800
                             ${selectedTemplate?.id === template.id
-                              ? 'bg-primary-50 dark:bg-primary-900/20 shadow-sm ring-1 ring-primary-200 dark:ring-primary-800'
-                              : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                              ? 'border-primary-300 dark:border-primary-600 shadow-sm'
+                              : 'border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600'
                             }
+                            ${template.actif ? '' : 'opacity-60'}
                           `}
                         >
+                          <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${selectedTemplate?.id === template.id ? 'bg-primary-500' : template.is_system ? 'bg-amber-400' : 'bg-transparent'}`} />
                           <div className="flex items-center justify-between">
                             <span className={`font-semibold truncate ${selectedTemplate?.id === template.id ? 'text-primary-700 dark:text-primary-400' : 'text-gray-800 dark:text-gray-200'}`}>{template.nom}</span>
                             {template.is_system && (
@@ -501,7 +505,7 @@ export default function DataSourceTemplates() {
                               {template.code}
                             </code>
                             {!template.actif && (
-                              <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 px-1 rounded">
+                              <span className="flex-shrink-0 px-1.5 py-px rounded text-[10px] font-semibold uppercase tracking-wide bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300">
                                 Inactif
                               </span>
                             )}
@@ -516,7 +520,7 @@ export default function DataSourceTemplates() {
           </div>
 
           {/* Stats */}
-          <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-800 text-[11px] text-gray-400 dark:text-gray-500">
+          <div className="px-4 py-2.5 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-[11px] text-gray-400 dark:text-gray-500">
             <div className="flex justify-between">
               <span>{templates.length} templates</span>
               <span>{overrides.length} overrides</span>
@@ -531,11 +535,14 @@ export default function DataSourceTemplates() {
               {/* Toolbar */}
               <div className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
                 <div className="flex items-center gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-white">
-                    {editMode ? (selectedTemplate ? 'Modifier Template' : 'Nouveau Template') : 'Details'}
-                  </h2>
+                  <div className="min-w-0">
+                    <h2 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight truncate">
+                      {editMode ? (selectedTemplate ? 'Modifier le template' : 'Nouveau template') : (selectedTemplate?.nom || 'Détails')}
+                    </h2>
+                    {selectedTemplate?.code && <code className="text-[11px] text-gray-400 font-mono leading-tight">{selectedTemplate.code}</code>}
+                  </div>
                   {selectedTemplate?.is_system && !editMode && (
-                    <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="text-[11px] font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full flex items-center gap-1">
                       <Shield className="w-3 h-3" />
                       Template Systeme
                       {isSuperAdmin && <span className="text-green-600">(modifiable)</span>}
@@ -547,14 +554,14 @@ export default function DataSourceTemplates() {
                     <>
                       <button
                         onClick={handleDuplicate}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition-colors"
+                        className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 rounded-lg transition-colors disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:text-gray-600"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         Dupliquer
                       </button>
                       <button
                         onClick={() => setEditMode(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 rounded-lg transition-colors disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:text-gray-600"
                         disabled={selectedTemplate?.is_system && !isSuperAdmin}
                         title={selectedTemplate?.is_system && !isSuperAdmin ? "Seuls les superadmin peuvent modifier les templates systeme" : ""}
                       >
@@ -564,7 +571,7 @@ export default function DataSourceTemplates() {
                       </button>
                       <button
                         onClick={handleDelete}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 rounded-xl transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-red-600 dark:text-red-400 hover:border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
                         disabled={selectedTemplate?.is_system && !isSuperAdmin}
                         title={selectedTemplate?.is_system && !isSuperAdmin ? "Seuls les superadmin peuvent supprimer les templates systeme" : ""}
                       >
@@ -577,7 +584,7 @@ export default function DataSourceTemplates() {
                       <button
                         onClick={handleTest}
                         disabled={testing || !formData.query_template}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 rounded-lg transition-colors disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:text-gray-600"
                       >
                         {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                         Tester
@@ -593,7 +600,7 @@ export default function DataSourceTemplates() {
                             })
                           }
                         }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl transition-colors"
+                        className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 rounded-lg transition-colors disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:text-gray-600"
                       >
                         Annuler
                       </button>
@@ -601,7 +608,7 @@ export default function DataSourceTemplates() {
                         onClick={handleSave}
                         disabled={saving || !paramsValid}
                         title={!paramsValid ? "Corrigez le JSON des paramètres avant d'enregistrer" : ''}
-                        className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 rounded-xl transition-colors shadow-sm disabled:opacity-50"
+                        className="flex items-center gap-1.5 h-8 px-4 text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 rounded-lg transition-colors shadow-sm disabled:opacity-50"
                       >
                         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                         Sauvegarder
@@ -613,17 +620,23 @@ export default function DataSourceTemplates() {
 
               {/* Formulaire */}
               <div className="flex-1 overflow-auto p-4">
-                <div className="max-w-4xl mx-auto space-y-6">
+                <div className="max-w-4xl mx-auto space-y-4">
                   {/* Infos de base */}
-                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                      <FileText className="w-5 h-5" />
-                      Informations
-                    </h3>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+                    <div className="mb-5"><div className="flex items-center gap-2.5">
+                      <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+                        <FileText className="w-4 h-4" />
+                      </span>
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Informations</h3>
+                        <p className="text-[11px] text-gray-400 leading-tight">Identification, type et catégorie</p>
+                      </div>
+                    </div>
+                    </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Code <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -632,12 +645,12 @@ export default function DataSourceTemplates() {
                           onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })}
                           disabled={!editMode || (selectedTemplate && selectedTemplate.is_system)}
                           placeholder="DS_VENTES_GLOBAL"
-                          className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 disabled:opacity-50"
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors disabled:bg-gray-50 dark:disabled:bg-gray-900/40 disabled:text-gray-500"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Nom <span className="text-red-500">*</span>
                         </label>
                         <input
@@ -646,19 +659,19 @@ export default function DataSourceTemplates() {
                           onChange={(e) => setFormData({ ...formData, nom: e.target.value })}
                           disabled={!editMode}
                           placeholder="Ventes Globales"
-                          className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 disabled:opacity-50"
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors disabled:bg-gray-50 dark:disabled:bg-gray-900/40 disabled:text-gray-500"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Type
                         </label>
                         <select
                           value={formData.type}
                           onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                           disabled={!editMode}
-                          className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 disabled:opacity-50"
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors disabled:bg-gray-50 dark:disabled:bg-gray-900/40 disabled:text-gray-500"
                         >
                           {TYPES.map(t => (
                             <option key={t.value} value={t.value}>{t.label}</option>
@@ -667,14 +680,14 @@ export default function DataSourceTemplates() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Categorie
                         </label>
                         <select
                           value={formData.category}
                           onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                           disabled={!editMode}
-                          className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 disabled:opacity-50"
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors disabled:bg-gray-50 dark:disabled:bg-gray-900/40 disabled:text-gray-500"
                         >
                           {CATEGORIES.filter(c => c.value).map(c => (
                             <option key={c.value} value={c.value}>{c.label}</option>
@@ -683,7 +696,7 @@ export default function DataSourceTemplates() {
                       </div>
 
                       <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                           Description
                         </label>
                         <textarea
@@ -692,53 +705,61 @@ export default function DataSourceTemplates() {
                           disabled={!editMode}
                           rows={2}
                           placeholder="Description du template..."
-                          className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 disabled:opacity-50"
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors disabled:bg-gray-50 dark:disabled:bg-gray-900/40 disabled:text-gray-500"
                         />
                       </div>
 
-                      <div className="col-span-2 flex items-center gap-6">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={formData.actif}
-                            onChange={(e) => setFormData({ ...formData, actif: e.target.checked })}
-                            disabled={!editMode}
-                            className="rounded border-primary-300 text-primary-600 focus:ring-primary-500"
-                          />
-                          <span className="text-sm text-gray-700 dark:text-gray-300">Actif</span>
-                        </label>
-
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={formData.is_system}
-                            onChange={(e) => setFormData({ ...formData, is_system: e.target.checked })}
-                            disabled={!editMode || (selectedTemplate && selectedTemplate.is_system)}
-                            className="rounded border-primary-300 text-amber-600 focus:ring-amber-500"
-                          />
-                          <span className="text-sm text-gray-700 dark:text-gray-300">Template Systeme (protege)</span>
-                        </label>
+                      <div className="col-span-2 grid grid-cols-2 gap-3 pt-1">
+                        {[
+                          { key: 'actif', label: 'Actif', hint: 'Disponible dans les builders', disabled: !editMode, on: 'bg-primary-500' },
+                          { key: 'is_system', label: 'Template système', hint: 'Protégé contre la modification', disabled: !editMode || (selectedTemplate && selectedTemplate.is_system), on: 'bg-amber-500' },
+                        ].map(opt => {
+                          const checked = !!formData[opt.key]
+                          return (
+                            <label key={opt.key} className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 ${opt.disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:border-primary-300'}`}>
+                              <span>
+                                <span className="block text-[13px] text-gray-700 dark:text-gray-300 leading-tight">{opt.label}</span>
+                                <span className="block text-[11px] text-gray-400 leading-tight">{opt.hint}</span>
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => setFormData({ ...formData, [opt.key]: e.target.checked })}
+                                disabled={opt.disabled}
+                                className="sr-only peer"
+                              />
+                              <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40 ${checked ? opt.on : 'bg-gray-200 dark:bg-gray-600'}`}>
+                                <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : ''}`} />
+                              </span>
+                            </label>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>
 
                   {/* Requete SQL */}
-                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Code className="w-5 h-5" />
-                        Requete SQL
-                      </h3>
+<div className="flex items-center gap-2.5">
+                      <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300">
+                        <Code className="w-4 h-4" />
+                      </span>
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Requête SQL</h3>
+                        <p className="text-[11px] text-gray-400 leading-tight">Utilisez @parametre pour les valeurs dynamiques</p>
+                      </div>
+                      </div>
                       <div className="flex items-center gap-2">
                         {editMode && (
                           <button
                             type="button"
                             onClick={handleFormatSql}
                             disabled={!formData.query_template}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                            className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 rounded-lg transition-colors disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:text-gray-600"
                             title="Formater / indenter la requête SQL"
                           >
-                            <AlignLeft className="w-4 h-4" />
+                            <AlignLeft className="w-3.5 h-3.5" />
                             Formater
                           </button>
                         )}
@@ -746,10 +767,10 @@ export default function DataSourceTemplates() {
                           <button
                             type="button"
                             onClick={() => setShowQueryBuilder(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-primary-300 dark:border-primary-600 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                            className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/50 transition-colors"
                             title="Construire la requête visuellement (tables, colonnes, jointures, filtres)"
                           >
-                            <Wand2 className="w-4 h-4" />
+                            <Wand2 className="w-3.5 h-3.5" />
                             Assistant visuel
                           </button>
                         )}
@@ -771,16 +792,22 @@ export default function DataSourceTemplates() {
                   </div>
 
                   {/* Parametres */}
-                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                      <Tag className="w-5 h-5" />
-                      Parametres (JSON)
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+                    <div className="flex items-center justify-between mb-4"><div className="flex items-center gap-2.5">
+                      <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
+                        <Tag className="w-4 h-4" />
+                      </span>
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Paramètres (JSON)</h3>
+                        <p className="text-[11px] text-gray-400 leading-tight">Définition des filtres exposés aux utilisateurs</p>
+                      </div>
+                      </div>
                       {!paramsValid && (
-                        <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
-                          <XCircle className="w-4 h-4" /> JSON invalide
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-900/30 text-[11px] font-semibold text-red-600 dark:text-red-400">
+                          <XCircle className="w-3.5 h-3.5" /> JSON invalide
                         </span>
                       )}
-                    </h3>
+                    </div>
 
                     <JsonEditor
                       value={formData.parameters}
@@ -793,7 +820,7 @@ export default function DataSourceTemplates() {
 
                     <div className="text-xs text-gray-500 mt-2 space-y-1">
                       <p>Format: Liste de parametres avec les proprietes:</p>
-                      <code className="block bg-gray-100 dark:bg-gray-900 p-2 rounded">
+                      <code className="block bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-2 rounded-md font-mono text-[11px]">
                         {`{"name": "@param", "type": "date|text|number|select", "label": "Label", "required": true, "default": "valeur"}`}
                       </code>
                     </div>
@@ -801,12 +828,9 @@ export default function DataSourceTemplates() {
 
                   {/* Resultat du test */}
                   {testResult && (
-                    <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border ${
-                      testResult.success
-                        ? 'border-green-200 dark:border-green-800'
-                        : 'border-red-200 dark:border-red-800'
-                    } p-6`}>
-                      <h3 className={`text-lg font-semibold mb-4 flex items-center gap-2 ${
+                    <div className={`relative overflow-hidden bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5`}>
+                      <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${testResult.success ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      <h3 className={`text-[13px] font-semibold mb-4 flex items-center gap-2 ${
                         testResult.success
                           ? 'text-green-700 dark:text-green-400'
                           : 'text-red-700 dark:text-red-400'
@@ -825,12 +849,12 @@ export default function DataSourceTemplates() {
                       </h3>
 
                       {testResult.success ? (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-gray-50 dark:bg-gray-700">
+                        <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
                               <tr>
                                 {testResult.data[0] && Object.keys(testResult.data[0]).map(col => (
-                                  <th key={col} className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                                  <th key={col} className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 whitespace-nowrap">
                                     {col}
                                   </th>
                                 ))}
@@ -855,7 +879,7 @@ export default function DataSourceTemplates() {
                           )}
                         </div>
                       ) : (
-                        <p className="text-red-600 dark:text-red-400 font-mono text-sm">
+                        <p className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 font-mono text-xs whitespace-pre-wrap">
                           {testResult.error}
                         </p>
                       )}
@@ -867,10 +891,12 @@ export default function DataSourceTemplates() {
           ) : (
             /* Aucun template selectionne */
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-500">
-                <Database className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                <p className="text-lg font-medium mb-2">Gestion des Templates DataSource</p>
-                <p className="text-sm mb-4">Selectionnez un template ou creez-en un nouveau</p>
+              <div className="flex flex-col items-center text-center px-12 py-10 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/30">
+                <span className="flex items-center justify-center w-14 h-14 rounded-xl bg-primary-50 text-primary-500 dark:bg-primary-900/30 mb-4">
+                  <Database className="w-7 h-7" />
+                </span>
+                <p className="text-base font-semibold text-gray-700 dark:text-gray-200 mb-1">Gestion des templates DataSource</p>
+                <p className="text-sm text-gray-400 mb-6">Sélectionnez un template ou créez-en un nouveau</p>
                 <button onClick={handleNewTemplate} className="btn-primary">
                   <Plus className="w-4 h-4 mr-2" />
                   Creer un Template
