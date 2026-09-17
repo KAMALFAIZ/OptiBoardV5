@@ -1025,10 +1025,17 @@ export default function PivotBuilderV2() {
 
           {/* ONGLET AXES & VALEURS */}
           {activeTab === 'config' && (
-            <div className="flex gap-6" style={{ height: 'calc(100vh - 240px)' }}>
+            <div className="flex gap-5" style={{ height: 'calc(100vh - 240px)' }}>
               {/* Liste des champs */}
-              <div className="w-64 flex-shrink-0 min-w-0 flex flex-col" style={{ maxHeight: '100%' }}>
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex-shrink-0">Champs disponibles</h3>
+              <div className="w-64 flex-shrink-0 min-w-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden" style={{ maxHeight: '100%' }}>
+                <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                  <h3 className="text-[13px] font-semibold text-gray-800 dark:text-gray-100">Champs disponibles</h3>
+                  {availableFields.length > 0 && (
+                    <span className="ml-auto px-2 py-0.5 rounded-full bg-primary-50 dark:bg-primary-900/30 text-[11px] font-semibold text-primary-600 dark:text-primary-300">
+                      {availableFields.length}
+                    </span>
+                  )}
+                </div>
                 {fieldsLoading ? (
                   <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
                 ) : (
@@ -1041,7 +1048,8 @@ export default function PivotBuilderV2() {
               </div>
 
               {/* Zones de drop + Valeurs */}
-              <div className="flex-1 space-y-4 overflow-y-auto pr-2">
+              <div className="flex-1 min-w-0 overflow-y-auto pr-1 pb-4 space-y-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <DropZone
                   zone="rows"
                   title="Lignes"
@@ -1051,7 +1059,7 @@ export default function PivotBuilderV2() {
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('rows', from, to)}
                   onFieldChange={handleFieldChange}
-                  placeholder="Glisser les champs pour les lignes"
+                  placeholder="Glisser les champs de regroupement"
                 />
 
                 <DropZone
@@ -1063,7 +1071,7 @@ export default function PivotBuilderV2() {
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('columns', from, to)}
                   onFieldChange={handleFieldChange}
-                  placeholder="Glisser le champ pour les colonnes (1 max)"
+                  placeholder="Glisser un champ (1 max)"
                   maxFields={1}
                 />
 
@@ -1074,7 +1082,7 @@ export default function PivotBuilderV2() {
                   onDrop={handleFieldDrop}
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('filters', from, to)}
-                  placeholder="Glisser les champs filtres"
+                  placeholder="Glisser les champs de filtre"
                 />
 
                 {/* Section Valeurs / Mesures - DropZone */}
@@ -1087,36 +1095,56 @@ export default function PivotBuilderV2() {
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('values', from, to)}
                   onFieldChange={handleFieldChange}
-                  placeholder="Glisser les champs numeriques pour les mesures"
+                  placeholder="Glisser les champs numériques"
                 />
+                </div>
 
                 {/* Options */}
-                <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Options</h4>
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4 space-y-4">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      <Settings2 size={15} />
+                    </span>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-gray-800 dark:text-gray-100 leading-tight">Options d'affichage</h4>
+                      <p className="text-[11px] text-gray-400 leading-tight">Totaux, pourcentages et statistiques</p>
+                    </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
                   {[
-                    { key: 'show_grand_totals', label: 'Afficher totaux generaux' },
-                    { key: 'show_subtotals', label: 'Afficher sous-totaux (si multi-lignes)' },
-                    { key: 'show_row_percent', label: 'Calculer % du total ligne' },
-                    { key: 'show_col_percent', label: 'Calculer % du total colonne' },
-                    { key: 'show_total_percent', label: 'Calculer % du total general' },
-                    { key: 'show_summary_row', label: 'Afficher ligne de resume (statistiques)' },
-                  ].map(opt => (
-                    <label key={opt.key} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!!config[opt.key]}
-                        onChange={(e) => updateConfig(opt.key, e.target.checked)}
-                        className="w-4 h-4 text-blue-500 rounded border-primary-300 dark:border-primary-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
-                    </label>
-                  ))}
+                    { key: 'show_grand_totals', label: 'Totaux généraux' },
+                    { key: 'show_subtotals', label: 'Sous-totaux', hint: 'si plusieurs lignes' },
+                    { key: 'show_row_percent', label: '% du total ligne' },
+                    { key: 'show_col_percent', label: '% du total colonne' },
+                    { key: 'show_total_percent', label: '% du total général' },
+                    { key: 'show_summary_row', label: 'Ligne de résumé', hint: 'statistiques' },
+                  ].map(opt => {
+                    const on = !!config[opt.key]
+                    return (
+                      <label key={opt.key} className="flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                        <span className="text-[13px] text-gray-700 dark:text-gray-300">
+                          {opt.label}
+                          {opt.hint && <span className="ml-1.5 text-[11px] text-gray-400">({opt.hint})</span>}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) => updateConfig(opt.key, e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40 ${on ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                          <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+                        </span>
+                      </label>
+                    )
+                  })}
+                  </div>
 
                   {/* Fonctions de resume si ligne resume activee */}
                   {config.show_summary_row && (
-                    <div className="ml-6 space-y-1">
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Fonctions de resume</label>
+                    <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/30 space-y-2">
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Fonctions de résumé</label>
                       <div className="flex flex-wrap gap-2">
                         {[
                           { value: 'SUM', label: 'Somme' },
@@ -1152,24 +1180,24 @@ export default function PivotBuilderV2() {
                   )}
 
                   {/* Position des totaux */}
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position totaux generaux</label>
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position des totaux généraux</label>
                       <select
                         value={config.grand_total_position || 'bottom'}
                         onChange={(e) => updateConfig('grand_total_position', e.target.value)}
-                        className="w-full text-sm px-2 py-1.5 bg-white dark:bg-gray-800 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full h-9 text-sm px-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none"
                       >
                         <option value="bottom">En bas</option>
                         <option value="top">En haut</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position sous-totaux</label>
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position des sous-totaux</label>
                       <select
                         value={config.subtotal_position || 'bottom'}
                         onChange={(e) => updateConfig('subtotal_position', e.target.value)}
-                        className="w-full text-sm px-2 py-1.5 bg-white dark:bg-gray-800 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full h-9 text-sm px-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none"
                       >
                         <option value="bottom">En bas du groupe</option>
                         <option value="top">En haut du groupe</option>
@@ -1186,7 +1214,7 @@ export default function PivotBuilderV2() {
                     >
                       <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-gray-300">
                         <ChevronDown size={14} className={`text-gray-400 transition-transform ${showAdvancedCalcs ? '' : '-rotate-90'}`} />
-                        Calculs avances
+                        Calculs avancés
                         {safeArray(config.window_calculations).length > 0 && (
                           <span className="text-[10px] font-bold px-1.5 rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
                             {safeArray(config.window_calculations).length}
