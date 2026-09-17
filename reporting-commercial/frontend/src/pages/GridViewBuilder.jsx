@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { AgGridReact } from 'ag-grid-react'
 import {
   Plus, Save, Trash2, Play, RefreshCw, X, GripVertical, Search,
-  Table, Columns, Settings, Eye, EyeOff, ArrowUpDown, Pin, Layers,
+  Table, Columns, Settings, Eye, ArrowUpDown, Pin, Layers,
   AlignLeft, AlignCenter, AlignRight, ChevronLeft, ChevronRight, Database, Settings2, Pencil, Sparkles,
-  TrendingUp, BookOpen, Users, Landmark, LayoutGrid, Link
+  TrendingUp, BookOpen, Users, Landmark, LayoutGrid, Link, Hash, Calendar, Type, Percent, Coins
 } from 'lucide-react'
 import AIBuilderGenerator from '../components/ai/AIBuilderGenerator'
 import Loading from '../components/common/Loading'
@@ -33,6 +33,15 @@ const FORMATS = [
   { value: 'percent', label: 'Pourcentage' },
   { value: 'date', label: 'Date' }
 ]
+
+// Apparence par format de colonne (meme codes couleur que le Pivot Builder)
+const FORMAT_STYLES = {
+  number: { icon: Hash, accent: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  currency: { icon: Coins, accent: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  percent: { icon: Percent, accent: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  date: { icon: Calendar, accent: 'bg-violet-500', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
+  '': { icon: Type, accent: 'bg-sky-500', badge: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
+}
 
 const ALIGNS = [
   { value: 'left', icon: AlignLeft },
@@ -1267,11 +1276,11 @@ export default function GridViewBuilder() {
 
                 {/* Application */}
                 <div className="flex flex-col flex-shrink-0">
-                  <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5 pl-0.5">Application</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1 pl-0.5">Application</label>
                   <select
                     value={config.application}
                     onChange={(e) => setConfig({ ...config, application: e.target.value })}
-                    className="h-8 px-2 text-xs font-semibold border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none"
+                    className="h-8 px-2.5 text-xs font-medium border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none"
                   >
                     {APPLICATION_OPTIONS.map(a => (
                       <option key={a.value} value={a.value}>{a.label}</option>
@@ -1281,11 +1290,11 @@ export default function GridViewBuilder() {
 
                 {/* Lignes par page */}
                 <div className="flex flex-col flex-shrink-0">
-                  <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-0.5 pl-0.5">Lignes / page</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1 pl-0.5">Lignes / page</label>
                   <select
                     value={config.page_size}
                     onChange={(e) => setConfig({ ...config, page_size: parseInt(e.target.value) })}
-                    className="h-8 px-2 text-xs font-semibold border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none"
+                    className="h-8 px-2.5 text-xs font-medium border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none"
                   >
                     <option value="10">10</option>
                     <option value="25">25</option>
@@ -1383,13 +1392,17 @@ export default function GridViewBuilder() {
             />
             <div className={`absolute top-0 right-0 h-full w-[420px] max-w-[92%] z-30 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${showColumnsDrawer ? 'translate-x-0' : 'translate-x-full'}`}>
               {/* En-tête du tiroir */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <Columns className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">Colonnes</h3>
-                  <span className="text-[11px] font-extrabold text-primary-700 dark:text-primary-300 bg-primary-100 dark:bg-primary-900/40 px-2 py-0.5 rounded-full">
-                    {config.columns.length}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+                    <Columns className="w-4 h-4" />
                   </span>
+                  <div>
+                    <h3 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Colonnes</h3>
+                    <p className="text-[11px] text-gray-400 leading-tight">
+                      {config.columns.filter(c => c.visible).length} visible(s) sur {config.columns.length}
+                    </p>
+                  </div>
                 </div>
                 <button onClick={() => setShowColumnsDrawer(false)} title="Fermer"
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -1406,7 +1419,7 @@ export default function GridViewBuilder() {
                     value={columnSearch}
                     onChange={(e) => setColumnSearch(e.target.value)}
                     placeholder="Filtrer les colonnes..."
-                    className="w-full pl-8 pr-3 h-8 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white outline-none"
+                    className="w-full pl-8 pr-3 h-8 text-xs bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-md focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 dark:text-white outline-none"
                   />
                 </div>
                 <button
@@ -1418,35 +1431,32 @@ export default function GridViewBuilder() {
               </div>
 
               {/* Liste des colonnes — une carte par colonne */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50/60 dark:bg-gray-900/20">
                 {config.columns.map((col, i) => {
                   const q = columnSearch.trim().toLowerCase()
                   if (q && !col.field.toLowerCase().includes(q) && !(col.header || '').toLowerCase().includes(q)) return null
                   const canTotal = col.format === 'number' || col.format === 'currency'
+                  const fs = FORMAT_STYLES[col.format || ''] || FORMAT_STYLES['']
+                  const TypeIcon = fs.icon
                   return (
                     <div key={col.field}
-                      className={`border rounded-xl p-2.5 transition-colors ${col.visible
-                        ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
-                        : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'}`}>
-                      {/* Ligne 1 : visibilité + en-tête + placement */}
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
-                        <button
-                          onClick={() => toggleColumnVisibility(i)}
-                          title={col.visible ? 'Masquer la colonne' : 'Afficher la colonne'}
-                          className={`w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0 ${col.visible
-                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}
-                        >
-                          {col.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                        </button>
+                      className={`group relative overflow-hidden border rounded-xl p-2.5 pl-3.5 shadow-sm transition-all border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600 ${col.visible
+                        ? 'bg-white dark:bg-gray-800'
+                        : 'bg-white/60 dark:bg-gray-800/40'}`}>
+                      <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${col.visible ? fs.accent : 'bg-gray-300 dark:bg-gray-600'}`} />
+                      {/* Ligne 1 : type + en-tête + placement + visibilité */}
+                      <div className={`flex items-center gap-2 ${col.visible ? '' : 'opacity-60'}`}>
+                        <GripVertical className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400 dark:text-gray-600 flex-shrink-0" />
+                        <span className={`flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0 ${fs.badge}`} title={(FORMATS.find(f => f.value === (col.format || '')) || {}).label}>
+                          <TypeIcon className="w-3 h-3" strokeWidth={2.5} />
+                        </span>
                         <input
                           type="text"
                           value={col.header}
                           onChange={(e) => updateColumn(i, { header: e.target.value })}
-                          className="flex-1 min-w-0 h-7 px-2 text-xs font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none"
+                          className="flex-1 min-w-0 h-7 px-2 text-xs font-semibold border border-transparent hover:border-gray-200 dark:hover:border-gray-600 rounded-md bg-transparent text-gray-800 dark:text-white focus:bg-white dark:focus:bg-gray-700 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors"
                         />
-                        <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1 flex-shrink-0 mr-11">
                           <button
                             onClick={() => updateColumn(i, { pinned: col.pinned === 'left' ? null : 'left' })}
                             title="Figer à gauche"
@@ -1467,13 +1477,24 @@ export default function GridViewBuilder() {
                           </button>
                         </div>
                       </div>
+                      {/* Interrupteur de visibilite (hors opacite) */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!!col.visible}
+                        onClick={() => toggleColumnVisibility(i)}
+                        title={col.visible ? 'Masquer la colonne' : 'Afficher la colonne'}
+                        className={`absolute top-3.5 right-2.5 inline-flex h-5 w-9 rounded-full transition-colors ${col.visible ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${col.visible ? 'translate-x-4' : ''}`} />
+                      </button>
                       {/* Ligne 2 : champ + format + alignement + tri + total */}
-                      <div className="flex items-center gap-2 mt-2 pl-[38px]">
+                      <div className={`flex items-center gap-2 mt-2 pl-[46px] ${col.visible ? '' : 'opacity-60'}`}>
                         <span className="font-mono text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[88px] flex-shrink-0" title={col.field}>{col.field}</span>
                         <select
                           value={col.format || ''}
                           onChange={(e) => updateColumn(i, { format: e.target.value })}
-                          className="h-7 px-1.5 text-[11px] font-medium border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 dark:text-gray-200 outline-none focus:ring-2 focus:ring-primary-400"
+                          className="h-7 px-1.5 text-[11px] font-medium border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-gray-200 outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400"
                         >
                           {FORMATS.map(f => (<option key={f.value} value={f.value}>{f.label}</option>))}
                         </select>
@@ -1517,8 +1538,10 @@ export default function GridViewBuilder() {
                   )
                 })}
                 {config.columns.length === 0 && (
-                  <div className="text-center text-gray-400 py-10 text-sm">
-                    <Columns className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <div className="flex flex-col items-center text-center text-gray-400 py-12 text-xs">
+                    <span className="flex items-center justify-center w-11 h-11 rounded-xl bg-gray-100 dark:bg-gray-800 mb-3">
+                      <Database className="w-5 h-5 text-gray-400" />
+                    </span>
                     Sélectionnez une source de données<br />pour configurer les colonnes.
                   </div>
                 )}
@@ -1554,10 +1577,13 @@ export default function GridViewBuilder() {
                 </div>
               )}
               {!previewMode || allPreviewData.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-gray-400">
-                  <div className="text-center">
-                    <Table className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>Configurez la grille et cliquez sur Aperçu</p>
+                <div className="flex items-center justify-center h-full">
+                  <div className="flex flex-col items-center text-center px-10 py-8 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/30">
+                    <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-50 text-primary-500 dark:bg-primary-900/30 mb-3">
+                      <Table className="w-6 h-6" />
+                    </span>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Aucun aperçu</p>
+                    <p className="text-xs text-gray-400 mt-1">Choisissez une source, configurez les colonnes puis cliquez sur Aperçu</p>
                   </div>
                 </div>
               ) : (
