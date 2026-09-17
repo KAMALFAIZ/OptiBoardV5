@@ -705,7 +705,7 @@ export default function DashboardBuilder() {
             {!previewMode && (
               <div className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 overflow-x-auto flex-shrink-0">
                 <button onClick={() => setShowWidgetPicker(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/50 transition-colors flex-shrink-0 border border-primary-200 dark:border-primary-700 font-medium text-xs">
+                  className="flex items-center gap-1.5 h-8 px-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex-shrink-0 font-semibold text-xs shadow-sm">
                   <Plus className="w-3.5 h-3.5" />Ajouter Widget
                 </button>
                 <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
@@ -714,11 +714,11 @@ export default function DashboardBuilder() {
                   const Icon = wt.icon
                   return (
                     <button key={wt.type} onClick={() => addWidget(wt.type)} title={wt.description}
-                      className="flex items-center gap-1 px-2 py-1.5 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex-shrink-0 border border-gray-200 dark:border-primary-600">
-                      <div className={`w-4 h-4 rounded flex items-center justify-center ${wt.color}`}>
-                        <Icon className="w-2.5 h-2.5 text-white" />
+                      className="flex items-center gap-1.5 h-8 pl-1 pr-2.5 bg-white dark:bg-gray-800 rounded-lg hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-sm transition-all flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <div className={`w-6 h-6 rounded-md flex items-center justify-center ${wt.color}`}>
+                        <Icon className="w-3.5 h-3.5 text-white" />
                       </div>
-                      <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">{wt.name}</span>
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap">{wt.name}</span>
                     </button>
                   )
                 })}
@@ -733,11 +733,13 @@ export default function DashboardBuilder() {
             {/* Grid */}
             <div ref={gridContainerRef} className="flex-1 overflow-auto bg-slate-50 dark:bg-gray-950 p-4" style={{ minHeight: 0 }}>
               {widgets.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-gray-400">
-                  <div className="text-center">
-                    <LayoutGrid className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                    <p className="text-sm font-medium">Cliquez sur "Ajouter Widget" pour commencer</p>
-                    <p className="text-xs text-gray-400 mt-1">ou utilisez les raccourcis dans la barre d'outils</p>
+                <div className="flex items-center justify-center h-full">
+                  <div className="flex flex-col items-center text-center px-10 py-8 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/30">
+                    <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-50 text-primary-500 dark:bg-primary-900/30 mb-3">
+                      <LayoutGrid className="w-6 h-6" />
+                    </span>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Dashboard vide</p>
+                    <p className="text-xs text-gray-400 mt-1">Cliquez sur « Ajouter Widget » ou utilisez les raccourcis de la barre d'outils</p>
                   </div>
                 </div>
               ) : (
@@ -776,10 +778,12 @@ export default function DashboardBuilder() {
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-slate-50 dark:bg-gray-950 min-w-0">
-            <div className="text-center">
-              <LayoutGrid className="w-16 h-16 mx-auto mb-4 opacity-20 text-gray-400" />
-              <p className="text-lg font-semibold text-gray-600 dark:text-gray-300 mb-1">Dashboard Builder</p>
-              <p className="text-sm text-gray-400 mb-6">Selectionnez un dashboard ou creez-en un nouveau</p>
+            <div className="flex flex-col items-center text-center px-12 py-10 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/30">
+              <span className="flex items-center justify-center w-14 h-14 rounded-xl bg-primary-50 text-primary-500 dark:bg-primary-900/30 mb-4">
+                <LayoutGrid className="w-7 h-7" />
+              </span>
+              <p className="text-base font-semibold text-gray-700 dark:text-gray-200 mb-1">Dashboard Builder</p>
+              <p className="text-sm text-gray-400 mb-6">Sélectionnez un dashboard ou créez-en un nouveau</p>
               <button onClick={() => setShowNewModal(true)}
                 className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium transition-colors">
                 <Plus className="w-4 h-4" />Creer un Dashboard
@@ -790,11 +794,26 @@ export default function DashboardBuilder() {
 
         {/* ── RIGHT CONFIG PANEL ── */}
         {selectedWidget && !previewMode && (
-          <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Configuration</h3>
-              <button onClick={() => setSelectedWidgetId(null)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-                <X className="w-4 h-4 text-gray-400" />
+          <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0 shadow-sm">
+            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+              {(() => {
+                const swt = WIDGET_TYPE_MAP[selectedWidget.type] || WIDGET_TYPES[0]
+                const SIcon = swt.icon
+                return (
+                  <>
+                    <span className={`flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 ${swt.color}`}>
+                      <SIcon className="w-4 h-4 text-white" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Configuration</h3>
+                      <p className="text-[11px] text-gray-400 leading-tight truncate">{swt.name} — {swt.description}</p>
+                    </div>
+                  </>
+                )
+              })()}
+              <button onClick={() => setSelectedWidgetId(null)} title="Fermer"
+                className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
+                <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
@@ -823,7 +842,7 @@ export default function DashboardBuilder() {
             <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Nouveau Dashboard</h2>
             <input type="text" value={newDashboardName} onChange={e => setNewDashboardName(e.target.value)}
               placeholder="Nom du dashboard" autoFocus onKeyDown={e => e.key === 'Enter' && createNewDashboard()}
-              className="w-full px-3 py-2.5 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white mb-3" />
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors mb-3" />
             <select value={newDashApp} onChange={e => setNewDashApp(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white mb-4 focus:ring-2 focus:ring-primary-400 outline-none">
               <option value="">-- Application (optionnel) --</option>
@@ -1578,9 +1597,9 @@ function WidgetConfigPanel({ widget, onUpdate }) {
 
   const FieldSelect = ({ label, cfgKey, placeholder }) => (
     <div>
-      <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">{label}</label>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>
       <select value={cfg[cfgKey] || ''} onChange={e => updateCfg(cfgKey, e.target.value)}
-        className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white">
+        className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors">
         <option value="">{placeholder || '-- Selectionner --'}</option>
         {availableFields.map(f => <option key={f} value={f}>{f}</option>)}
       </select>
@@ -1589,38 +1608,43 @@ function WidgetConfigPanel({ widget, onUpdate }) {
 
   const ColorInput = ({ label, cfgKey, defaultVal }) => (
     <div>
-      <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">{label}</label>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>
       <div className="flex items-center gap-2">
         <input type="color" value={cfg[cfgKey] || defaultVal || '#3b82f6'} onChange={e => updateCfg(cfgKey, e.target.value)}
-          className="w-8 h-8 rounded cursor-pointer border border-primary-300 dark:border-primary-600" />
+          className="w-9 h-9 p-0.5 rounded-lg cursor-pointer border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800" />
         <input type="text" value={cfg[cfgKey] || defaultVal || '#3b82f6'} onChange={e => updateCfg(cfgKey, e.target.value)}
-          className="flex-1 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white font-mono" />
+          className="flex-1 px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white font-mono focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none" />
       </div>
     </div>
   )
 
   const TextInput = ({ label, cfgKey, placeholder, type = 'text' }) => (
     <div>
-      <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">{label}</label>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>
       <input type={type} value={cfg[cfgKey] || ''} onChange={e => updateCfg(cfgKey, type === 'number' ? Number(e.target.value) : e.target.value)}
         placeholder={placeholder}
-        className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+        className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
     </div>
   )
 
-  const CheckInput = ({ label, cfgKey }) => (
-    <label className="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" checked={!!cfg[cfgKey]} onChange={e => updateCfg(cfgKey, e.target.checked)}
-        className="rounded text-primary-500 focus:ring-primary-500" />
-      <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
-    </label>
-  )
+  const CheckInput = ({ label, cfgKey }) => {
+    const on = !!cfg[cfgKey]
+    return (
+      <label className="flex items-center justify-between gap-3 py-1.5 px-2 -mx-2 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40">
+        <span className="text-[13px] text-gray-700 dark:text-gray-300">{label}</span>
+        <input type="checkbox" checked={on} onChange={e => updateCfg(cfgKey, e.target.checked)} className="sr-only peer" />
+        <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40 ${on ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+          <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+        </span>
+      </label>
+    )
+  }
 
   const SelectInput = ({ label, cfgKey, options, placeholder }) => (
     <div>
-      <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">{label}</label>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>
       <select value={cfg[cfgKey] || ''} onChange={e => updateCfg(cfgKey, e.target.value)}
-        className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white">
+        className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors">
         {placeholder && <option value="">{placeholder}</option>}
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -1640,15 +1664,15 @@ function WidgetConfigPanel({ widget, onUpdate }) {
     <div className="space-y-4">
       {/* Title */}
       <div>
-        <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Titre</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Titre</label>
         <input type="text" value={widget.title} onChange={e => onUpdate({ title: e.target.value })}
-          className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white font-medium" />
+          className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors font-medium" />
       </div>
 
       {/* DataSource */}
       {!['text', 'image'].includes(widget.type) && (
         <div>
-          <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Source de donnees</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source de donnees</label>
           <div className="flex items-stretch gap-1.5">
             <div className="flex-1 min-w-0">
               <DataSourceSelector
@@ -1665,7 +1689,7 @@ function WidgetConfigPanel({ widget, onUpdate }) {
               <button
                 onClick={() => setSourceMenuOpen(o => !o)}
                 title="Actions sur la source"
-                className="w-9 h-full flex items-center justify-center rounded-lg border border-primary-300 dark:border-primary-600 text-gray-500 hover:text-primary-600 hover:border-primary-400 transition-colors"
+                className="w-9 h-full flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-500 hover:text-primary-600 hover:border-primary-400 transition-colors"
               >
                 <Settings2 className="w-4 h-4" />
               </button>
@@ -1726,13 +1750,13 @@ function WidgetConfigPanel({ widget, onUpdate }) {
       {/* Tabs */}
       {showTabs && (
         <>
-          <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-gray-100 dark:bg-gray-900/40">
             {tabs.map(tab => (
               <button key={tab.key} onClick={() => setConfigTab(tab.key)}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                className={`py-1.5 text-xs font-medium rounded-md transition-all ${
                   configTab === tab.key
-                    ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    ? 'bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-300 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
                 }`}>
                 {tab.label}
               </button>
@@ -1784,11 +1808,11 @@ function WidgetConfigPanel({ widget, onUpdate }) {
                   <FieldSelect label="Axe X (categories)" cfgKey="x_field" />
                   <FieldSelect label="Axe Y (valeurs)" cfgKey="y_field" />
                   <TextInput label="Nom serie 1" cfgKey="y_label" placeholder="Label..." />
-                  <hr className="border-gray-200 dark:border-gray-700" />
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">2eme Serie (optionnel)</p>
+                  <hr className="border-gray-100 dark:border-gray-700" />
+                  <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />2eme Serie (optionnel)</p>
                   <FieldSelect label="Axe Y 2" cfgKey="y_field_2" />
                   {cfg.y_field_2 && <TextInput label="Nom serie 2" cfgKey="y_label_2" placeholder="Label 2..." />}
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">3eme Serie (optionnel)</p>
+                  <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />3eme Serie (optionnel)</p>
                   <FieldSelect label="Axe Y 3" cfgKey="y_field_3" />
                   {cfg.y_field_3 && <TextInput label="Nom serie 3" cfgKey="y_label_3" placeholder="Label 3..." />}
                 </>
@@ -1812,21 +1836,21 @@ function WidgetConfigPanel({ widget, onUpdate }) {
           {/* ── DATA TAB ── */}
           {configTab === 'data' && (
             <div className="space-y-4">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Tri des donnees</p>
+              <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />Tri des donnees</p>
               {/* Trier par + direction inline */}
               <div>
-                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Trier par</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Trier par</label>
                 <div className="flex gap-1.5">
                   <select
                     value={cfg.sort_field || ''}
                     onChange={e => updateCfg('sort_field', e.target.value || null)}
-                    className="flex-1 px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+                    className="flex-1 px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors"
                   >
                     <option value="">Pas de tri</option>
                     {availableFields.map(f => <option key={f} value={f}>{f}</option>)}
                   </select>
                   {cfg.sort_field && (
-                    <div className="flex rounded-lg overflow-hidden border border-primary-300 dark:border-primary-600 flex-shrink-0">
+                    <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0">
                       <button
                         type="button"
                         title="Croissant (A→Z, 0→9)"
@@ -1837,7 +1861,7 @@ function WidgetConfigPanel({ widget, onUpdate }) {
                         type="button"
                         title="Decroissant (Z→A, 9→0)"
                         onClick={() => updateCfg('sort_direction', 'desc')}
-                        className={`px-2 py-1 text-sm border-l border-primary-300 dark:border-primary-600 transition-colors ${cfg.sort_direction === 'desc' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'}`}
+                        className={`px-2 py-1 text-sm border-l border-gray-200 dark:border-gray-700 transition-colors ${cfg.sort_direction === 'desc' ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'}`}
                       >↓ Z-A</button>
                     </div>
                   )}
@@ -1853,8 +1877,8 @@ function WidgetConfigPanel({ widget, onUpdate }) {
               </div>
               <TextInput label="Limiter a N lignes" cfgKey="limit_rows" placeholder="Toutes" type="number" />
 
-              <hr className="border-gray-200 dark:border-gray-700" />
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Source drilldown (detail)</p>
+              <hr className="border-gray-100 dark:border-gray-700" />
+              <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />Source drilldown (detail)</p>
               <DataSourceSelector
                 value={cfg.drilldownDsCode || cfg.drilldownDsId}
                 onChange={(ds) => onUpdate({
@@ -1892,8 +1916,8 @@ function WidgetConfigPanel({ widget, onUpdate }) {
                 </p>
               )}
 
-              <hr className="border-gray-200 dark:border-gray-700" />
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Filtre global</p>
+              <hr className="border-gray-100 dark:border-gray-700" />
+              <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />Filtre global</p>
               <FieldSelect label="Champ filtre" cfgKey="filter_field" placeholder="Aucun filtre" />
               <p className="text-[10px] text-gray-400 leading-tight">
                 Ce champ sera expose comme filtre global. Les utilisateurs pourront filtrer par valeur.
@@ -1926,8 +1950,8 @@ function WidgetConfigPanel({ widget, onUpdate }) {
               {/* Chart options */}
               {['chart_bar', 'chart_line', 'chart_area', 'chart_stacked_bar', 'chart_combo', 'chart_pie'].includes(widget.type) && (
                 <>
-                  <hr className="border-gray-200 dark:border-gray-700" />
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Options graphique</p>
+                  <hr className="border-gray-100 dark:border-gray-700" />
+                  <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />Options graphique</p>
                   <CheckInput label="Afficher la legende" cfgKey="show_legend" />
                   <CheckInput label="Afficher les etiquettes" cfgKey="show_labels" />
                   {!['chart_pie'].includes(widget.type) && (
@@ -1960,7 +1984,7 @@ function WidgetConfigPanel({ widget, onUpdate }) {
               {/* Conditional formatting (for KPI / Gauge / Progress) */}
               {['kpi', 'kpi_compare', 'gauge', 'progress'].includes(widget.type) && (
                 <>
-                  <hr className="border-gray-200 dark:border-gray-700" />
+                  <hr className="border-gray-100 dark:border-gray-700" />
                   <ThresholdEditor
                     thresholds={cfg.thresholds || []}
                     onChange={t => updateCfg('thresholds', t)}
@@ -1973,30 +1997,30 @@ function WidgetConfigPanel({ widget, onUpdate }) {
           {/* ── DOC TAB ── */}
           {configTab === 'doc' && (
             <div className="space-y-4">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Documentation du rapport</p>
+              <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />Documentation du rapport</p>
               <div>
-                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Description</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
                 <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={3}
                   placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_description || 'Decrivez ce que ce rapport affiche...'}
-                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Champs utilises</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Champs utilises</label>
                 <textarea value={cfg.doc_fields || ''} onChange={e => updateCfg('doc_fields', e.target.value)} rows={3}
                   placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_fields || 'Ex: CA HT, Marge, Client, Periode...'}
-                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Formule / Calcul</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Formule / Calcul</label>
                 <textarea value={cfg.doc_formula || ''} onChange={e => updateCfg('doc_formula', e.target.value)} rows={2}
                   placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_formula || 'Ex: SUM(CA HT) - SUM(Achats)...'}
-                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Avantage / Utilite</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Avantage / Utilite</label>
                 <textarea value={cfg.doc_advantage || ''} onChange={e => updateCfg('doc_advantage', e.target.value)} rows={2}
                   placeholder={WIDGET_DOC_DEFAULTS[widget.type]?.doc_advantage || 'A quoi sert ce rapport, quel gain pour l\'utilisateur...'}
-                  className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+                  className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
               </div>
               {/* Auto-generate hint */}
               <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -2013,9 +2037,9 @@ function WidgetConfigPanel({ widget, onUpdate }) {
       {widget.type === 'text' && (
         <>
           <div>
-            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Contenu</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Contenu</label>
             <textarea value={cfg.content || ''} onChange={e => updateCfg('content', e.target.value)} rows={5}
-              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
           </div>
           <ColorInput label="Couleur de fond" cfgKey="bg_color" defaultVal="transparent" />
           <ColorInput label="Couleur texte" cfgKey="text_color" defaultVal="#374151" />
@@ -2038,30 +2062,30 @@ function WidgetConfigPanel({ widget, onUpdate }) {
       {['text', 'image'].includes(widget.type) && (
         <>
           <hr className="border-gray-200 dark:border-gray-700 my-3" />
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Documentation</p>
+          <p className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"><span className="w-1 h-3.5 rounded-full bg-primary-500" />Documentation</p>
           <div>
-            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Description</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
             <textarea value={cfg.doc_description || ''} onChange={e => updateCfg('doc_description', e.target.value)} rows={3}
               placeholder="Decrivez ce que ce widget affiche..."
-              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Champs utilisés</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Champs utilisés</label>
             <textarea value={cfg.doc_fields || ''} onChange={e => updateCfg('doc_fields', e.target.value)} rows={2}
               placeholder="Ex: CA HT, Marge, Client, Periode..."
-              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Formule / Calcul</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Formule / Calcul</label>
             <textarea value={cfg.doc_formula || ''} onChange={e => updateCfg('doc_formula', e.target.value)} rows={2}
               placeholder="Ex: SUM(CA HT) - SUM(Achats)..."
-              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Avantage / Utilité</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Avantage / Utilité</label>
             <textarea value={cfg.doc_advantage || ''} onChange={e => updateCfg('doc_advantage', e.target.value)} rows={2}
               placeholder="A quoi sert ce widget, quel gain pour l'utilisateur..."
-              className="w-full px-2.5 py-2 text-sm border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white" />
+              className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
           </div>
           <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-[10px] text-blue-600 dark:text-blue-400">
@@ -2110,9 +2134,9 @@ function ThresholdEditor({ thresholds, onChange }) {
           <div key={i} className="flex items-center gap-2">
             <span className="text-[10px] text-gray-500 w-6">{'>='}</span>
             <input type="number" value={t.value} onChange={e => updateThreshold(i, 'value', e.target.value)}
-              className="w-20 px-2 py-1 text-xs border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700 dark:text-white" />
+              className="w-20 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none" />
             <input type="color" value={t.color} onChange={e => updateThreshold(i, 'color', e.target.value)}
-              className="w-7 h-7 rounded cursor-pointer border border-primary-300 dark:border-primary-600" />
+              className="w-7 h-7 p-0.5 rounded-md cursor-pointer border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800" />
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: t.color }} />
             <button onClick={() => removeThreshold(i)} className="p-0.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded">
               <X className="w-3 h-3 text-red-400" />
