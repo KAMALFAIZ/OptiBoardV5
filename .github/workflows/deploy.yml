@@ -152,7 +152,14 @@ jobs:
                    Select-Object -First 1
               if ($m) { $bundle = $m.Matches[0].Value }
             }
-            "SITE {0,-24} etat={1,-8} chemin={2} bindings=[{3}] bundle={4}" -f $_.name, $_.state, $p, $bindings, $bundle
+            # Les bundles encore presents permettent de savoir ce qui reste
+            # disponible dans un dossier (utile pour remettre un site en etat).
+            $presents = ''
+            if ($p -and (Test-Path (Join-Path $p 'assets'))) {
+              $presents = (Get-ChildItem (Join-Path $p 'assets') -Filter 'index-*' -ErrorAction SilentlyContinue |
+                           Select-Object -ExpandProperty Name) -join ' '
+            }
+            "SITE {0,-24} etat={1,-8} chemin={2} bindings=[{3}] bundle={4} presents=[{5}]" -f $_.name, $_.state, $p, $bindings, $bundle, $presents
           }
           # Applications et repertoires virtuels (un site peut servir la SPA
           # depuis une application enfant, pas depuis la racine du site).
@@ -169,37 +176,18 @@ jobs:
           $targets = New-Object System.Collections.Generic.List[string]
           try {
             Import-Module WebAdministration -ErrorAction Stop
+            # NE JAMAIS elargir cette detection a un heuristique de contenu :
+            # le 22/09/2026, retenir "index.html contenant OptiBoard + assets/"
+            # a fait ecrire la SPA OptiBoard dans C:\inetpub\kasoft-ma et
+            # C:\inetpub\license-kasoft (sites voisins, eux aussi bati avec Vite
+            # et citant OptiBoard). On ne deploie que dans des chemins nommes
+            # explicitement — ci-dessous ou via la variable de depot FRONTEND_DIRS.
             Get-Website | ForEach-Object {
               $p = $_.physicalPath
               if ($p) {
                 $p = [System.Environment]::ExpandEnvironmentVariables($p)
-                $idx = Join-Path $p 'index.html'
-                if (Test-Path $idx) {
-                  # Le nom du dossier ne suffit pas : le site servi peut
-                  # s'appeler autrement (cause du deploiement fantome du 22/09).
-                  # On retient toute racine dont l'index.html EST deja une SPA
-                  # OptiBoard (marqueur dans le HTML + bundle Vite) : un site
-                  # tiers ne remplit pas les deux conditions.
-                  $html = Get-Content $idx -Raw -ErrorAction SilentlyContinue
-                  $estOptiBoard = $html -match 'OptiBoard' -and $html -match 'assets/index-'
-                  if ($p -match 'optiboard' -or $estOptiBoard) {
-                    $targets.Add((Resolve-Path $p).Path)
-                  }
-                }
-              }
-            }
-            # Idem pour les applications IIS enfants (ex : site 'Default Web
-            # Site' avec une application /optiboard montee ailleurs).
-            Get-WebApplication | ForEach-Object {
-              $p = $_.physicalPath
-              if ($p) {
-                $p = [System.Environment]::ExpandEnvironmentVariables($p)
-                $idx = Join-Path $p 'index.html'
-                if ((Test-Path $idx)) {
-                  $html = Get-Content $idx -Raw -ErrorAction SilentlyContinue
-                  if ($html -match 'OptiBoard' -and $html -match 'assets/index-') {
-                    $targets.Add((Resolve-Path $p).Path)
-                  }
+                if ($p -match 'optiboard' -and (Test-Path (Join-Path $p 'index.html'))) {
+                  $targets.Add((Resolve-Path $p).Path)
                 }
               }
             }
@@ -208,7 +196,10 @@ jobs:
           }
 
           # Candidats connus, meme s'ils ne sont pas (ou plus) montes dans IIS.
-          foreach ($c in @("C:\inetpub\optiboard", "C:\inetpub\wwwroot\optiboard")) {
+          $connus = @("C:\inetpub\optiboard", "C:\inetpub\wwwroot\optiboard")
+          $surcharge = "${{ vars.FRONTEND_DIRS }}"
+          if ($surcharge) { $connus = $surcharge -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } }
+          foreach ($c in $connus) {
             if (Test-Path (Join-Path $c 'index.html')) { $targets.Add((Resolve-Path $c).Path) }
           }
 
