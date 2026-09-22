@@ -125,6 +125,42 @@ jobs:
       # robocopy /E (pas /MIR) : ne supprime rien. Le dossier servi contient des
       # fichiers absents du build (web.config des regles de reecriture SPA) que
       # /MIR effacerait. Les anciens assets restent, inoffensifs (noms hashes).
+      # ── Diagnostic : inventaire IIS (lecture seule) ──────────────────────
+      # Le 22/09/2026, un deploiement "success" n'atteignait toujours pas le
+      # site servi : optiboard.kasoft.ma / amm.kasoft.ma renvoyaient encore le
+      # bundle du 09/09 alors que le job copiait dans C:\inetpub\optiboard et
+      # C:\inetpub\wwwroot\optiboard. Sans inventaire dans les logs, ce genre
+      # d'ecart est invisible. Cette etape n'ecrit rien : elle liste les sites,
+      # leurs bindings et leur chemin physique pour identifier la vraie cible.
+      - name: Inventaire IIS (diagnostic)
+        continue-on-error: true
+        run: |
+          try {
+            Import-Module WebAdministration -ErrorAction Stop
+          } catch {
+            Write-Host "WebAdministration indisponible : $($_.Exception.Message)"
+            exit 0
+          }
+          Get-Website | ForEach-Object {
+            $p = $_.physicalPath
+            if ($p) { $p = [System.Environment]::ExpandEnvironmentVariables($p) }
+            $bindings = ($_.bindings.Collection | ForEach-Object { $_.bindingInformation }) -join ' | '
+            $bundle = ''
+            $idx = if ($p) { Join-Path $p 'index.html' } else { $null }
+            if ($idx -and (Test-Path $idx)) {
+              $m = Select-String -Path $idx -Pattern 'assets/index-[^"]+\.js' -AllMatches |
+                   Select-Object -First 1
+              if ($m) { $bundle = $m.Matches[0].Value }
+            }
+            "SITE {0,-24} etat={1,-8} chemin={2} bindings=[{3}] bundle={4}" -f $_.name, $_.state, $p, $bindings, $bundle
+          }
+          # Applications et repertoires virtuels (un site peut servir la SPA
+          # depuis une application enfant, pas depuis la racine du site).
+          Get-WebApplication | ForEach-Object {
+            "APP  {0,-24} site={1} chemin={2}" -f $_.path, $_.GetParentElement().Attributes['name'].Value, $_.physicalPath
+          }
+        shell: powershell
+
       - name: Deploy frontend to IIS
         run: |
           $src = "reporting-commercial\frontend\dist"
@@ -137,8 +173,33 @@ jobs:
               $p = $_.physicalPath
               if ($p) {
                 $p = [System.Environment]::ExpandEnvironmentVariables($p)
-                if ($p -match 'optiboard' -and (Test-Path (Join-Path $p 'index.html'))) {
-                  $targets.Add((Resolve-Path $p).Path)
+                $idx = Join-Path $p 'index.html'
+                if (Test-Path $idx) {
+                  # Le nom du dossier ne suffit pas : le site servi peut
+                  # s'appeler autrement (cause du deploiement fantome du 22/09).
+                  # On retient toute racine dont l'index.html EST deja une SPA
+                  # OptiBoard (marqueur dans le HTML + bundle Vite) : un site
+                  # tiers ne remplit pas les deux conditions.
+                  $html = Get-Content $idx -Raw -ErrorAction SilentlyContinue
+                  $estOptiBoard = $html -match 'OptiBoard' -and $html -match 'assets/index-'
+                  if ($p -match 'optiboard' -or $estOptiBoard) {
+                    $targets.Add((Resolve-Path $p).Path)
+                  }
+                }
+              }
+            }
+            # Idem pour les applications IIS enfants (ex : site 'Default Web
+            # Site' avec une application /optiboard montee ailleurs).
+            Get-WebApplication | ForEach-Object {
+              $p = $_.physicalPath
+              if ($p) {
+                $p = [System.Environment]::ExpandEnvironmentVariables($p)
+                $idx = Join-Path $p 'index.html'
+                if ((Test-Path $idx)) {
+                  $html = Get-Content $idx -Raw -ErrorAction SilentlyContinue
+                  if ($html -match 'OptiBoard' -and $html -match 'assets/index-') {
+                    $targets.Add((Resolve-Path $p).Path)
+                  }
                 }
               }
             }
@@ -170,6 +231,7 @@ jobs:
             }
           }
           Write-Host "Frontend deploye ($newIndex) dans : $($targets -join ', ')"
+          "NEW_INDEX=$newIndex" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           # robocopy laisse un code 1 (fichiers copies) dans $LASTEXITCODE, que
           # le runner interprete comme un echec du step. Meme 'exit 0' final que
           # l'etape backend ci-dessous.
@@ -236,6 +298,36 @@ jobs:
       - name: Reload IIS
         run: iisreset /noforce
         shell: cmd
+
+      # ── Verification PUBLIQUE : le site servi a-t-il vraiment change ? ────
+      # Un job "success" ne prouve rien si la copie atterrit dans un dossier que
+      # personne ne sert (constate le 22/09/2026 : bundle du 09/09 encore en
+      # ligne apres plusieurs deploiements verts). On interroge donc les URL
+      # publiques et on compare le bundle reellement servi a celui deploye.
+      # Hotes surchargeables par la variable de depot PUBLIC_URLS (separes par
+      # des virgules). Diagnostic uniquement : n'echoue pas le deploiement.
+      - name: Verification publique du bundle
+        continue-on-error: true
+        run: |
+          $urls = "${{ vars.PUBLIC_URLS }}"
+          if (-not $urls) { $urls = 'https://optiboard.kasoft.ma,https://amm.kasoft.ma' }
+          $attendu = "$env:NEW_INDEX"
+          foreach ($u in ($urls -split ',' | Where-Object { $_ -and $_.Trim() })) {
+            $u = $u.Trim().TrimEnd('/')
+            try {
+              $html = (Invoke-WebRequest -Uri "$u/?cb=$([guid]::NewGuid())" -UseBasicParsing -TimeoutSec 20).Content
+              $m = [regex]::Match($html, 'assets/index-[^"]+\.js')
+              $servi = if ($m.Success) { $m.Value -replace 'assets/', '' } else { '(introuvable)' }
+              if ($servi -eq $attendu) {
+                Write-Host "OK   $u sert bien $attendu"
+              } else {
+                Write-Host "::warning::$u sert '$servi' au lieu de '$attendu' - la copie n'atteint pas le dossier servi"
+              }
+            } catch {
+              Write-Host "::warning::$u injoignable : $($_.Exception.Message)"
+            }
+          }
+        shell: powershell
 
   # ─────────────────────────────────────────────────────────
   # PR CHECK : validation syntaxe seulement
