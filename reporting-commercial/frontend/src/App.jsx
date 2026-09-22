@@ -15,6 +15,7 @@ import MobileLayout from './components/mobile/MobileLayout'
 import MobileAccessDenied from './components/mobile/MobileAccessDenied'
 import { useIsMobile } from './hooks/useIsMobile'
 import LicenseBanner from './components/common/LicenseBanner'
+import LastSyncNotice from './components/common/LastSyncNotice'
 import api from './services/api'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import PwaPrompts from './components/pwa/PwaPrompts'
@@ -205,7 +206,12 @@ function AppContent() {
     if (user && user.mobile_access === false) {
       return <MobileAccessDenied />
     }
-    return <MobileLayout appName={setupStatus.appName} />
+    return (
+      <>
+        <LastSyncNotice />
+        <MobileLayout appName={setupStatus.appName} />
+      </>
+    )
   }
 
   return (
@@ -220,6 +226,8 @@ function AppContent() {
     >
       {/* Bannières d'avertissement licence (expiration, grâce, mode limité) */}
       <LicenseBanner />
+      {/* Toast "derniere synchronisation" au demarrage (une fois par session/DWH) */}
+      <LastSyncNotice />
       <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />

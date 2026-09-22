@@ -267,6 +267,7 @@ export const resetClientUserPassword = (id) => api.post(`/auth/client-users/${id
 
 // Client Portal : DWH & Licence (admin_client — gestion de leur propre DWH)
 export const getClientDwhInfo = () => api.get('/client/dwh-info')
+export const getClientLastSync = () => api.get('/client/last-sync')
 export const getClientDwhSources = () => api.get('/client/dwh-sources')
 export const createClientDwhSource = (data) => api.post('/client/dwh-sources', data)
 export const updateClientDwhSource = (code, data) => api.put(`/client/dwh-sources/${code}`, data)
