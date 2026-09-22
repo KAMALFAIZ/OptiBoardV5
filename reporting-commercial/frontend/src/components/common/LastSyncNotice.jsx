@@ -2,33 +2,24 @@ import { useEffect, useRef } from 'react'
 import { useDWH } from '../../context/DWHContext'
 import { useToast } from './Toast'
 import { getClientLastSync } from '../../services/api'
+import { describeLastSync } from './lastSyncUtils'
 
 /**
- * Affiche, une seule fois par session et par DWH, un toast rappelant la date
- * de la derniere synchronisation ETL (agent Sage -> DWH).
+ * Toast rappelant la date de la derniere synchronisation ETL, affiche une fois
+ * par CONNEXION et par DWH (la cle inclut le session_token : une deconnexion /
+ * reconnexion rejoue donc le message, contrairement a un simple F5).
  * Silencieux en cas d'erreur : ce message est informatif, jamais bloquant.
  */
 
 const STORAGE_PREFIX = 'optiboard.lastSyncNotice.'
 
-function formatAbsolute(iso) {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return null
-  return d.toLocaleString('fr-FR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
-
-function formatRelative(ageSeconds) {
-  if (ageSeconds == null || ageSeconds < 0) return null
-  const min = Math.floor(ageSeconds / 60)
-  if (min < 1) return "a l'instant"
-  if (min < 60) return `il y a ${min} min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `il y a ${h} h`
-  const j = Math.floor(h / 24)
-  return j === 1 ? 'il y a 1 jour' : `il y a ${j} jours`
+function currentSessionKey() {
+  try {
+    const t = localStorage.getItem('session_token') || sessionStorage.getItem('session_token') || ''
+    return t.slice(-12) || 'anon'
+  } catch {
+    return 'anon'
+  }
 }
 
 export default function LastSyncNotice() {
@@ -39,59 +30,35 @@ export default function LastSyncNotice() {
   useEffect(() => {
     const code = currentDWH?.code
     if (!hasDWH || !code) return
-    if (shownFor.current === code) return
 
-    const storageKey = STORAGE_PREFIX + code
+    const storageKey = `${STORAGE_PREFIX}${currentSessionKey()}.${code}`
+    if (shownFor.current === storageKey) return
     try {
       if (sessionStorage.getItem(storageKey)) {
-        shownFor.current = code
+        shownFor.current = storageKey
         return
       }
     } catch { /* sessionStorage indisponible : on affiche quand meme */ }
 
     let cancelled = false
-    shownFor.current = code
+    shownFor.current = storageKey
 
     ;(async () => {
       try {
         const res = await getClientLastSync()
         if (cancelled) return
-        const data = res?.data?.data
-        if (!data) return
+        const info = describeLastSync(res?.data?.data)
+        if (!info) return
 
         try { sessionStorage.setItem(storageKey, '1') } catch { /* ignore */ }
 
-        if (!data.last_sync) {
-          toast.warning("Aucune synchronisation des donnees n'a encore ete effectuee.", {
-            title: 'Donnees non synchronisees',
-            duration: 7000,
-          })
-          return
-        }
-
-        const absolute = formatAbsolute(data.last_sync)
-        const relative = formatRelative(data.age_seconds)
-        const details = []
-        if (data.tables_synced) details.push(`${data.tables_synced} tables`)
-        if (data.agent_name) details.push(data.agent_name)
-
-        const message = [
-          absolute ? `Le ${absolute}${relative ? ` (${relative})` : ''}` : relative,
-          details.length ? details.join(' - ') : null,
-        ].filter(Boolean).join('\n')
-
-        const stale = data.age_seconds != null && data.age_seconds > 24 * 3600
-        const failed = String(data.status || '').toLowerCase() === 'error'
-        const type = failed || stale ? 'warning' : 'info'
-
-        toast[type](message, {
-          title: failed
-            ? 'Derniere synchronisation en erreur'
-            : 'Derniere synchronisation des donnees',
-          duration: 7000,
-        })
-      } catch {
-        // Endpoint indisponible (ancien backend, ETL non configure) : on ignore.
+        const type = info.severity === 'error' ? 'error'
+          : info.severity === 'warn' ? 'warning' : 'info'
+        toast[type](info.detail, { title: info.title, duration: 8000 })
+      } catch (e) {
+        // Endpoint indisponible (ancien backend) : informatif, on n'alerte pas
+        // l'utilisateur, mais on trace pour le diagnostic.
+        console.warn('[LastSyncNotice] lecture impossible:', e?.message || e)
       }
     })()
 

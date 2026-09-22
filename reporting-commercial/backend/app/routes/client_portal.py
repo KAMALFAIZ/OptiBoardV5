@@ -125,14 +125,18 @@ async def get_client_last_sync(
             "tables_synced": 0,
             "rows_synced": 0,
             "source": None,
+            "last_heartbeat": None,
+            "agent_status": None,
         }
 
         # 1) Agent ETL (base client)
         try:
             rows = execute_client(
-                "SELECT TOP 1 nom, last_sync, last_sync_statut, total_lignes_sync "
-                "FROM APP_ETL_Agents WHERE last_sync IS NOT NULL "
-                "ORDER BY last_sync DESC",
+                "SELECT TOP 1 nom, last_sync, last_sync_statut, total_lignes_sync, "
+                "last_heartbeat, statut "
+                "FROM APP_ETL_Agents "
+                "ORDER BY CASE WHEN last_sync IS NULL THEN 1 ELSE 0 END, "
+                "last_sync DESC, last_heartbeat DESC",
                 dwh_code=code, use_cache=False,
             )
             if rows:
@@ -142,7 +146,9 @@ async def get_client_last_sync(
                     "status": r.get("last_sync_statut"),
                     "agent_name": r.get("nom"),
                     "rows_synced": r.get("total_lignes_sync") or 0,
-                    "source": "agent",
+                    "last_heartbeat": r.get("last_heartbeat"),
+                    "agent_status": r.get("statut"),
+                    "source": "agent" if r.get("last_sync") else None,
                 })
         except Exception as e:
             logger.debug(f"[CLIENT PORTAL] last-sync agents ({code}): {e}")
@@ -191,11 +197,13 @@ async def get_client_last_sync(
     try:
         data = await asyncio.to_thread(_fetch)
         from datetime import datetime, date
-        ls = data.get("last_sync")
-        if isinstance(ls, (datetime, date)):
-            data["last_sync"] = ls.isoformat()
-            if isinstance(ls, datetime):
-                data["age_seconds"] = max(0, int((datetime.now() - ls).total_seconds()))
+        for key in ("last_sync", "last_heartbeat"):
+            v = data.get(key)
+            if isinstance(v, (datetime, date)):
+                data[key] = v.isoformat()
+                if isinstance(v, datetime):
+                    age = max(0, int((datetime.now() - v).total_seconds()))
+                    data["age_seconds" if key == "last_sync" else "heartbeat_age_seconds"] = age
         return {"success": True, "data": data}
     except HTTPException:
         raise

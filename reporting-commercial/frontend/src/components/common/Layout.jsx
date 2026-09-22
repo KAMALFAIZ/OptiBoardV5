@@ -95,6 +95,7 @@ import { useDWH } from '../../context/DWHContext'
 import { useAuth } from '../../context/AuthContext'
 import ChatWidget from '../ai/ChatWidget'
 import AlertBell from './AlertBell'
+import LastSyncIndicator from './LastSyncIndicator'
 import Watermark from './Watermark'
 
 // Navigation statique supprimée - utilise les menus dynamiques maintenant
@@ -987,6 +988,9 @@ export default function Layout({ children, darkMode, setDarkMode, onRefresh, ref
                   )}
                 </div>
               )}
+
+              {/* Indicateur permanent : derniere synchronisation ETL */}
+              <LastSyncIndicator />
 
               {/* Cloche alertes KPI */}
               <AlertBell />
