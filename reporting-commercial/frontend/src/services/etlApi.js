@@ -319,10 +319,17 @@ export const downloadAgentPackage = () => {
 }
 
 /**
- * Telecharge l'agent Sage ETL .NET (SageETLAgent_MultiAgent) pret a installer
+ * Telecharge l'agent Sage ETL .NET (SageETLAgent_MultiAgent) pret a installer.
+ * @param {string} [agentId] - si fourni, le zip embarque agent_config_<CODE>.json
+ *   avec un jeton d'enrolement a usage unique : l'agent recupere sa cle API tout
+ *   seul au premier import, sans copier-coller d'identifiants.
  */
-export const downloadSageAgent = () => {
-  return api.get('/admin/etl/agents/download/sage-agent', { responseType: 'blob', timeout: 300000 })
+export const downloadSageAgent = (agentId) => {
+  return api.get('/admin/etl/agents/download/sage-agent', {
+    responseType: 'blob',
+    timeout: 300000,
+    params: agentId ? { agent_id: agentId } : undefined,
+  })
 }
 
 /**

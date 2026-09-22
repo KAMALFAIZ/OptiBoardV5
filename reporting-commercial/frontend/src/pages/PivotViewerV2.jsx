@@ -20,7 +20,8 @@ import {
   Loader2, RefreshCw, Download, Table2, BarChart3, LayoutGrid,
   RotateCcw, FileSpreadsheet, FileText, Settings2, X,
   GripVertical, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Check,
-  ChevronDown, Presentation, ExternalLink, Info
+  ChevronDown, Presentation, ExternalLink, Info,
+  Rows3, Columns3, Filter, Hash, Type, Calendar
 } from 'lucide-react'
 import ReportDocModal, { hasDoc } from '../components/common/ReportDocModal'
 
@@ -198,40 +199,66 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
     onClose()
   }
 
-  const ZoneBox = ({ zone, title, icon, fields, maxFields, color = 'gray' }) => {
-    const colorClasses = {
-      blue: 'border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10',
-      green: 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10',
-      amber: 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10',
-      purple: 'border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/10',
+  // Memes codes couleur que le Pivot Builder
+  const TYPE_BADGE = {
+    number: { icon: Hash, cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+    date: { icon: Calendar, cls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
+    text: { icon: Type, cls: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
+  }
+  const TypeBadge = ({ type }) => {
+    const t = TYPE_BADGE[type] || TYPE_BADGE.text
+    const I = t.icon
+    return (
+      <span className={`flex items-center justify-center w-5 h-5 rounded flex-shrink-0 ${t.cls}`}>
+        <I size={11} strokeWidth={2.5} />
+      </span>
+    )
+  }
+
+  const ZoneBox = ({ zone, title, hint, icon: ZIcon, fields, maxFields, color = 'gray' }) => {
+    const accents = {
+      blue: { bar: 'bg-sky-500', icon: 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300' },
+      green: { bar: 'bg-emerald-500', icon: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300' },
+      amber: { bar: 'bg-amber-500', icon: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300' },
+      purple: { bar: 'bg-violet-500', icon: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300' },
     }
-    const labelColors = {
-      blue: 'text-blue-700 dark:text-blue-300',
-      green: 'text-green-700 dark:text-green-300',
-      amber: 'text-amber-700 dark:text-amber-300',
-      purple: 'text-purple-700 dark:text-purple-300',
-    }
+    const a = accents[color] || accents.blue
+    const overLimit = maxFields && fields.length > maxFields
     return (
       <div
-        className={`rounded-lg border-2 border-dashed p-2 min-h-[100px] transition-colors ${colorClasses[color]}`}
-        onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('ring-2', 'ring-blue-400') }}
-        onDragLeave={(e) => { e.currentTarget.classList.remove('ring-2', 'ring-blue-400') }}
-        onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('ring-2', 'ring-blue-400'); handleDrop(zone) }}
+        className="relative flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden min-h-[120px] transition-shadow"
+        onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('ring-2', 'ring-primary-400') }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('ring-2', 'ring-primary-400') }}
+        onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('ring-2', 'ring-primary-400'); handleDrop(zone) }}
       >
-        <div className={`text-xs font-bold mb-1.5 ${labelColors[color]} flex items-center gap-1`}>
-          {icon} {title}
-          {maxFields && <span className="text-[10px] font-normal opacity-60">({maxFields} max)</span>}
+        <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${a.bar}`} />
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+          <span className={`flex items-center justify-center w-6 h-6 rounded-md ${a.icon}`}>
+            <ZIcon size={13} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-tight">{title}</div>
+            <div className="text-[10px] text-gray-400 leading-tight truncate">{hint}</div>
+          </div>
+          <span className={`ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${overLimit
+            ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300'
+            : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
+            {maxFields ? `${fields.length}/${maxFields}` : fields.length}
+          </span>
         </div>
+        <div className="flex-1 p-2">
         <div className="space-y-1">
           {fields.map((f, idx) => (
             <div
               key={f.field}
               draggable
               onDragStart={() => handleDragStart(f, zone)}
-              className="flex items-center gap-1 bg-white dark:bg-gray-800 rounded px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 shadow-sm cursor-grab active:cursor-grabbing group hover:border-blue-300"
+              title={f.label || f.field}
+              className="flex items-center gap-1.5 h-8 bg-white dark:bg-gray-800 rounded-md pl-1 pr-1.5 text-xs border border-gray-200 dark:border-gray-700 cursor-grab active:cursor-grabbing group hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-sm transition-all"
             >
-              <GripVertical size={12} className="text-gray-300 flex-shrink-0" />
-              <span className="flex-1 truncate font-medium text-gray-700 dark:text-gray-300">
+              <GripVertical size={12} className="text-gray-300 group-hover:text-gray-400 flex-shrink-0" />
+              <TypeBadge type={f.type} />
+              <span className="flex-1 truncate font-medium text-gray-700 dark:text-gray-200">
                 {f.label || f.field}
               </span>
               {(zone === 'rows' || zone === 'columns') && f.type === 'date' && (
@@ -239,7 +266,7 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
                   value={f.date_grouping || ''}
                   onChange={(e) => handleChangeDateGrouping(zone, idx, e.target.value)}
                   onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 rounded px-1 py-0.5 text-purple-600 dark:text-purple-300 max-w-[100px]"
+                  className="text-[10px] font-semibold bg-gray-100 dark:bg-gray-700 border-0 rounded px-1 py-0.5 text-gray-600 dark:text-gray-300 max-w-[100px] focus:ring-2 focus:ring-primary-500/30 outline-none"
                 >
                   {DATE_GROUPING_OPTIONS.map(dg => (
                     <option key={dg.value} value={dg.value}>{dg.label}</option>
@@ -251,7 +278,7 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
                   value={f.aggregation || 'SUM'}
                   onChange={(e) => handleChangeAgg(idx, e.target.value)}
                   onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] bg-gray-100 dark:bg-gray-700 border-0 rounded px-1 py-0.5 text-gray-500 dark:text-gray-400 max-w-[70px]"
+                  className="text-[10px] font-semibold bg-gray-100 dark:bg-gray-700 border-0 rounded px-1 py-0.5 text-gray-600 dark:text-gray-300 max-w-[80px] focus:ring-2 focus:ring-primary-500/30 outline-none"
                 >
                   {AGGREGATIONS.map(a => (
                     <option key={a.value} value={a.value}>{a.label}</option>
@@ -259,17 +286,18 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
                 </select>
               )}
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleMoveUp(zone, idx)} className="p-0.5 text-gray-400 hover:text-gray-600" title="Monter"><ArrowUp size={10} /></button>
-                <button onClick={() => handleMoveDown(zone, idx)} className="p-0.5 text-gray-400 hover:text-gray-600" title="Descendre"><ArrowDown size={10} /></button>
-                <button onClick={() => handleRemoveFromZone(zone, f.field)} className="p-0.5 text-red-400 hover:text-red-600" title="Retirer"><X size={10} /></button>
+                <button onClick={() => handleMoveUp(zone, idx)} className="p-0.5 rounded text-gray-400 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-700" title="Monter"><ArrowUp size={11} /></button>
+                <button onClick={() => handleMoveDown(zone, idx)} className="p-0.5 rounded text-gray-400 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-700" title="Descendre"><ArrowDown size={11} /></button>
+                <button onClick={() => handleRemoveFromZone(zone, f.field)} className="p-0.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Retirer"><X size={11} /></button>
               </div>
             </div>
           ))}
           {fields.length === 0 && (
-            <div className="text-[10px] text-gray-400 italic text-center py-3">
+            <div className="h-full min-h-[56px] flex items-center justify-center rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20 text-[11px] text-gray-400">
               Glisser des champs ici
             </div>
           )}
+        </div>
         </div>
       </div>
     )
@@ -277,30 +305,38 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-[720px] max-h-[85vh] flex flex-col">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-[780px] max-w-[95vw] max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Settings2 size={16} />
-            Configuration des champs
-          </h2>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+          <div className="flex items-center gap-2.5">
+            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+              <Settings2 size={16} />
+            </span>
+            <div>
+              <h2 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Configuration des champs</h2>
+              <p className="text-[11px] text-gray-400 leading-tight">Glissez les champs vers les zones pour réorganiser le tableau</p>
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-4 bg-gray-50/60 dark:bg-gray-900">
           <div className="flex gap-4">
             {/* Liste des champs disponibles */}
-            <div className="w-48 flex-shrink-0">
-              <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">
-                Champs disponibles
+            <div className="w-52 flex-shrink-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">Champs disponibles</span>
+                <span className="ml-auto px-1.5 py-0.5 rounded-full bg-primary-50 dark:bg-primary-900/30 text-[10px] font-semibold text-primary-600 dark:text-primary-300">
+                  {unusedFields.length}
+                </span>
               </div>
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50 max-h-[400px] overflow-y-auto">
+              <div className="p-2 space-y-1 max-h-[400px] overflow-y-auto">
                 {unusedFields.length === 0 && (
-                  <div className="text-[10px] text-gray-400 italic text-center py-4">
-                    Tous les champs sont utilises
+                  <div className="text-[11px] text-gray-400 text-center py-6">
+                    Tous les champs sont utilisés
                   </div>
                 )}
                 {unusedFields.map(f => (
@@ -308,11 +344,12 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
                     key={f.name}
                     draggable
                     onDragStart={() => handleDragStart(f, 'available')}
-                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-grab active:cursor-grabbing hover:bg-white dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700/50 last:border-b-0 transition-colors"
+                    title={f.label || f.name}
+                    className="group flex items-center gap-1.5 h-7 pl-1 pr-2 text-xs rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 cursor-grab active:cursor-grabbing hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-sm transition-all"
                   >
-                    <GripVertical size={11} className="text-gray-300 flex-shrink-0" />
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${f.type === 'number' ? 'bg-blue-400' : f.type === 'date' ? 'bg-amber-400' : 'bg-gray-400'}`} />
-                    <span className="truncate text-gray-600 dark:text-gray-400">{f.label || f.name}</span>
+                    <GripVertical size={12} className="text-gray-300 group-hover:text-gray-400 flex-shrink-0" />
+                    <TypeBadge type={f.type} />
+                    <span className="truncate font-medium text-gray-700 dark:text-gray-200">{f.label || f.name}</span>
                   </div>
                 ))}
               </div>
@@ -320,10 +357,10 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
 
             {/* Zones de drop */}
             <div className="flex-1 grid grid-cols-2 gap-3">
-              <ZoneBox zone="filters" title="Zone Filtre" icon="🔍" fields={config.filters} color="amber" />
-              <ZoneBox zone="columns" title="Zone Colonne" icon="⬛" fields={config.columns} maxFields={1} color="green" />
-              <ZoneBox zone="rows" title="Zone Ligne" icon="☰" fields={config.rows} color="blue" />
-              <ZoneBox zone="values" title="Zone Donnees" icon="Σ" fields={config.values} color="purple" />
+              <ZoneBox zone="filters" title="Filtres" hint="Restreignent les données" icon={Filter} fields={config.filters} color="amber" />
+              <ZoneBox zone="columns" title="Colonnes" hint="Axe horizontal" icon={Columns3} fields={config.columns} maxFields={1} color="green" />
+              <ZoneBox zone="rows" title="Lignes" hint="Axe vertical" icon={Rows3} fields={config.rows} color="blue" />
+              <ZoneBox zone="values" title="Mesures" hint="Indicateurs agrégés" icon={BarChart3} fields={config.values} color="purple" />
             </div>
           </div>
 
@@ -337,23 +374,23 @@ function FieldChooserDialog({ open, onClose, availableFields, liveConfig, onAppl
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-b-xl">
           {isEmptyConfig && (
             <span className="mr-auto text-[11px] text-amber-600 dark:text-amber-400">
-              Ajoutez au moins un champ en Zone Ligne et en Zone Donnees.
+              Ajoutez au moins un champ en Lignes et en Mesures.
             </span>
           )}
           <button
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-primary-300 dark:border-primary-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="h-8 px-4 text-xs font-semibold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-primary-400 hover:text-primary-600 transition-colors"
           >
             Annuler
           </button>
           <button
             onClick={handleApply}
             disabled={isEmptyConfig}
-            title={isEmptyConfig ? 'Ajoutez au moins un champ en Zone Ligne et en Zone Donnees' : undefined}
-            className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+            title={isEmptyConfig ? 'Ajoutez au moins un champ en Lignes et en Mesures' : undefined}
+            className="h-8 px-4 text-xs font-semibold text-white bg-primary-600 rounded-lg hover:bg-primary-700 shadow-sm transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary-600"
           >
             <Check size={14} />
             Appliquer
@@ -799,7 +836,7 @@ export default function PivotViewerV2() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full -m-3 lg:-m-4">
-        <Loader2 size={32} className="animate-spin text-blue-500" />
+        <Loader2 size={28} className="animate-spin text-primary-500" />
       </div>
     )
   }
@@ -807,8 +844,13 @@ export default function PivotViewerV2() {
   // Error screen
   if (!pivotConfig) {
     return (
-      <div className="flex items-center justify-center h-full -m-3 lg:-m-4 text-gray-500">
-        Pivot non trouve
+      <div className="flex items-center justify-center h-full -m-3 lg:-m-4">
+        <div className="flex flex-col items-center text-center px-10 py-8 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+          <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-gray-100 text-gray-400 dark:bg-gray-800 mb-3">
+            <Table2 className="w-6 h-6" />
+          </span>
+          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Pivot introuvable</p>
+        </div>
       </div>
     )
   }
@@ -820,16 +862,16 @@ export default function PivotViewerV2() {
   return (
     <div className={`flex flex-col overflow-hidden ${isMobile ? 'h-[calc(100dvh-112px)]' : 'h-full -m-3 lg:-m-4'}`}>
       {/* TOOLBAR — compact et unifié */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 gap-2 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 gap-2 flex-shrink-0">
         {/* Gauche: titre + metadata */}
         <div className="flex items-center gap-3 min-w-0">
           {hasDoc(pivotConfig) ? (
-            <button onClick={() => setShowDoc(true)} className="flex items-center gap-1.5 text-base font-bold text-gray-900 dark:text-white truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+            <button onClick={() => setShowDoc(true)} className="flex items-center gap-1.5 text-[15px] font-semibold text-gray-900 dark:text-white truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
               {pivotConfig.nom}
               <Info className="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
             </button>
           ) : (
-            <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{pivotConfig.nom}</h1>
+            <h1 className="text-[15px] font-semibold text-gray-900 dark:text-white truncate">{pivotConfig.nom}</h1>
           )}
           {/* ── DEBUG WHERE : visible uniquement si effective_dwh = null ── */}
           {pivotResult?.debug && !pivotResult.debug.effective_dwh && !executing && (
@@ -852,7 +894,7 @@ export default function PivotViewerV2() {
           {!isMobile && (
             <button
               onClick={() => setFieldChooserOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              className="inline-flex items-center gap-1.5 h-8 px-2.5 text-xs font-semibold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-primary-400 hover:text-primary-600 transition-colors"
             >
               <Settings2 size={14} />
               <span className="hidden sm:inline">Champs</span>
@@ -872,7 +914,7 @@ export default function PivotViewerV2() {
                     onClick={() => setViewMode(mode.id)}
                     className={`p-1.5 rounded-md transition-colors ${
                       viewMode === mode.id
-                        ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                        ? 'bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-300 shadow-sm'
                         : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                     }`}
                     title={mode.label}
@@ -890,7 +932,7 @@ export default function PivotViewerV2() {
               <select
                 value={chartType}
                 onChange={(e) => setChartType(e.target.value)}
-                className="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-400"
+                className="text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg h-8 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none px-2"
               >
                 {CHART_TYPES.map(t => (
                   <option key={t.id} value={t.id}>{t.label}</option>
@@ -901,7 +943,7 @@ export default function PivotViewerV2() {
                 <select
                   value={chartValueIndex ?? ''}
                   onChange={(e) => setChartValueIndex(e.target.value === '' ? null : parseInt(e.target.value))}
-                  className="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-400 max-w-[120px]"
+                  className="text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg h-8 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none px-2 max-w-[120px]"
                 >
                   <option value="">Toutes mesures</option>
                   {pivotResult.valueFields.map((vf, i) => (
@@ -911,14 +953,14 @@ export default function PivotViewerV2() {
               )}
 
               <div className="flex items-center gap-1">
-                <label className="text-[10px] text-gray-400">Max:</label>
+                <label className="text-[11px] font-medium text-gray-400">Max</label>
                 <input
                   type="number"
                   min={5}
                   max={500}
                   value={maxChartRows}
                   onChange={(e) => setMaxChartRows(Math.max(5, Math.min(500, parseInt(e.target.value) || 50)))}
-                  className="w-12 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-1.5 py-1.5 text-gray-600 dark:text-gray-400 text-center"
+                  className="w-14 text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg h-8 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none px-1.5 text-center"
                 />
               </div>
             </>
@@ -930,7 +972,7 @@ export default function PivotViewerV2() {
           <button
             onClick={() => setOpenParamsCount(c => c + 1)}
             disabled={executing}
-            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             title="Rafraichir"
           >
             <RefreshCw size={15} className={executing ? 'animate-spin' : ''} />
@@ -938,7 +980,7 @@ export default function PivotViewerV2() {
 
           <button
             onClick={handleResetConfig}
-            className="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
+            className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             title="Reinitialiser la config"
           >
             <RotateCcw size={15} />
@@ -983,14 +1025,14 @@ export default function PivotViewerV2() {
           {!isMobile && <div className="relative" ref={exportMenuRef}>
             <button
               onClick={() => setExportMenuOpen(!exportMenuOpen)}
-              className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors inline-flex items-center gap-0.5"
+              className="h-8 px-2 text-gray-500 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors inline-flex items-center gap-0.5"
               disabled={exporting}
             >
               {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
               <ChevronDown size={10} />
             </button>
             {exportMenuOpen && !exporting && (
-              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-30 min-w-[140px] py-1">
+              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-30 min-w-[170px] py-1">
                 <button
                   onClick={() => handleExport('csv')}
                   className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
@@ -1052,9 +1094,9 @@ export default function PivotViewerV2() {
       {/* ─────────────────────────────────────────────────────────────────────── */}
 
       {/* CONTENU */}
-      <div className="flex-1 flex flex-col overflow-hidden p-3" style={{ minHeight: 0 }}>
+      <div className="flex-1 flex flex-col overflow-hidden p-3 bg-slate-50 dark:bg-gray-950" style={{ minHeight: 0 }}>
         {error && (
-          <div className="mb-3 px-4 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg text-sm flex-shrink-0 flex items-center justify-between">
+          <div className="mb-3 px-3 py-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm flex-shrink-0 flex items-center justify-between">
             <span>{error}</span>
             <button onClick={() => setError(null)} className="p-0.5 hover:bg-red-100 dark:hover:bg-red-900/40 rounded">
               <X size={14} />
@@ -1065,8 +1107,8 @@ export default function PivotViewerV2() {
         {executing && (
           <div className="flex items-center justify-center flex-1">
             <div className="text-center">
-              <Loader2 size={32} className="animate-spin text-blue-500 mx-auto mb-2" />
-              <p className="text-xs text-gray-400">Chargement des donnees...</p>
+              <Loader2 size={28} className="animate-spin text-primary-500 mx-auto mb-2" />
+              <p className="text-xs text-gray-400">Chargement des données…</p>
             </div>
           </div>
         )}
@@ -1103,15 +1145,21 @@ export default function PivotViewerV2() {
                 maxRows={maxChartRows}
                 selectedValueIndex={chartValueIndex}
                 onCellClick={handleCellClick}
-                className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 ${viewMode === 'both' ? 'mt-3' : ''} flex-shrink-0`}
+                className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-4 ${viewMode === 'both' ? 'mt-3' : ''} flex-shrink-0`}
               />
             )}
           </div>
         )}
 
         {!executing && !pivotResult && !error && (
-          <div className="flex items-center justify-center flex-1 text-gray-400 text-sm">
-            Cliquez sur Rafraichir pour charger les donnees
+          <div className="flex items-center justify-center flex-1">
+            <div className="flex flex-col items-center text-center px-10 py-8 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/30">
+              <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-50 text-primary-500 dark:bg-primary-900/30 mb-3">
+                <Table2 className="w-6 h-6" />
+              </span>
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Aucune donnée affichée</p>
+              <p className="text-xs text-gray-400 mt-1">Cliquez sur Rafraîchir pour charger les données</p>
+            </div>
           </div>
         )}
       </div>
@@ -1148,7 +1196,7 @@ export default function PivotViewerV2() {
         <>
           <div className="fixed inset-0 z-50" onClick={() => setDrillMenu(null)} />
           <div
-            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[220px]"
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[220px]"
             style={{ left: drillMenu.x, top: drillMenu.y }}
           >
             <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-700">
@@ -1162,7 +1210,7 @@ export default function PivotViewerV2() {
                   setDrillMenu(null)
                   navigate(url)
                 }}
-                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-primary-50 dark:hover:bg-primary-900/20 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
               >
                 <span className="text-xs text-gray-400 mr-1.5">{field}:</span>
                 {rule.label || rule.nom}

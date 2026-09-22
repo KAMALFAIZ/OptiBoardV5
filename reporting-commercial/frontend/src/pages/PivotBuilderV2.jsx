@@ -5,8 +5,9 @@ import { useGlobalFilters } from '../context/GlobalFilterContext'
 import {
   getPivotsV2, getPivotV2, createPivotV2, updatePivotV2, deletePivotV2,
   previewPivotV2, getPivotV2Fields, getUnifiedDataSourceFields, resetPivotV2UserPrefs,
-  deleteDataSource, getMenusFlat, createMenu, updateMenu, deleteMenu
+  deleteDataSource
 } from '../services/api'
+import AttachMenuModal from '../components/AttachMenuModal'
 import DataSourceSelector from '../components/DataSourceSelector'
 import QueryBuilder from '../components/QueryBuilder'
 import { FieldList, DropZone, FormatRuleEditor, PivotTable } from '../components/PivotV2'
@@ -90,19 +91,8 @@ export default function PivotBuilderV2() {
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false)
   const [drilldownMenuOpen, setDrilldownMenuOpen] = useState(false)
 
-  // Attacher ce pivot au menu dynamique
+  // Attacher ce pivot au menu dynamique (modale partagee AttachMenuModal)
   const [showMenuModal, setShowMenuModal] = useState(false)
-  const [menuFlat, setMenuFlat] = useState([])
-  const [menuLoading, setMenuLoading] = useState(false)
-  const [menuSaving, setMenuSaving] = useState(false)
-  const [newMenuNom, setNewMenuNom] = useState('')
-  const [newMenuCode, setNewMenuCode] = useState('')
-  const [newMenuParentId, setNewMenuParentId] = useState('')
-  const [attachExistingId, setAttachExistingId] = useState('')
-  const [parentPickerOpen, setParentPickerOpen] = useState(false)
-  const [parentSearch, setParentSearch] = useState('')
-  const [existingPickerOpen, setExistingPickerOpen] = useState(false)
-  const [existingSearch, setExistingSearch] = useState('')
 
   // Config du pivot actif
   const [config, setConfig] = useState({
@@ -308,122 +298,9 @@ export default function PivotBuilderV2() {
   }
 
   // Attacher/detacher ce pivot au menu dynamique
-  const openMenuModal = async () => {
+  const openMenuModal = () => {
     if (!selectedPivotId) return
     setShowMenuModal(true)
-    setNewMenuNom(config.nom || '')
-    setNewMenuCode(
-      (config.nom || '')
-        .toLowerCase()
-        .normalize('NFD').replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '')
-    )
-    setNewMenuParentId('')
-    setAttachExistingId('')
-    setParentPickerOpen(false)
-    setParentSearch('')
-    setExistingPickerOpen(false)
-    setExistingSearch('')
-    setMenuLoading(true)
-    try {
-      const res = await getMenusFlat()
-      if (res.data.success === false) {
-        console.error('Erreur backend /menus/flat:', res.data.error)
-        toast.error(res.data.error || 'Erreur lors du chargement des menus', { title: 'Menus' })
-        setMenuFlat([])
-      } else {
-        setMenuFlat(res.data.data || [])
-      }
-    } catch (err) {
-      console.error('Erreur chargement menus:', err)
-      toast.error(err.response?.data?.detail || err.message || 'Erreur lors du chargement des menus')
-      setMenuFlat([])
-    } finally {
-      setMenuLoading(false)
-    }
-  }
-
-  const refreshMenuFlat = async () => {
-    try {
-      const res = await getMenusFlat()
-      if (res.data.success === false) {
-        console.error('Erreur backend /menus/flat:', res.data.error)
-        toast.error(res.data.error || 'Erreur lors du rechargement des menus', { title: 'Menus' })
-        return
-      }
-      setMenuFlat(res.data.data || [])
-    } catch (err) {
-      console.error('Erreur rechargement menus:', err)
-    }
-  }
-
-  const createAndAttachMenu = async () => {
-    if (!selectedPivotId || !newMenuNom.trim() || !newMenuCode.trim()) return
-    setMenuSaving(true)
-    try {
-      await createMenu({
-        parent_id: newMenuParentId ? parseInt(newMenuParentId, 10) : null,
-        nom: newMenuNom.trim(),
-        code: newMenuCode.trim(),
-        icon: 'Sigma',
-        type: 'pivot-v2',
-        target_id: selectedPivotId,
-        url: '',
-        ordre: 0,
-        is_active: true
-      })
-      toast.success('Menu créé et rapport attaché')
-      await refreshMenuFlat()
-      setNewMenuNom('')
-      setNewMenuCode('')
-      setNewMenuParentId('')
-    } catch (err) {
-      console.error('Erreur création menu:', err)
-      toast.error(err.response?.data?.detail || 'Erreur lors de la création du menu')
-    } finally {
-      setMenuSaving(false)
-    }
-  }
-
-  const attachToExistingMenu = async () => {
-    if (!selectedPivotId || !attachExistingId) return
-    const menu = menuFlat.find(m => m.id === parseInt(attachExistingId, 10))
-    if (!menu) return
-    setMenuSaving(true)
-    try {
-      await updateMenu(menu.id, {
-        parent_id: menu.parent_id,
-        nom: menu.nom,
-        code: menu.code,
-        icon: menu.icon || 'Sigma',
-        type: 'pivot-v2',
-        target_id: selectedPivotId,
-        url: menu.url || '',
-        ordre: menu.ordre,
-        is_active: menu.is_active
-      })
-      toast.success(`"${menu.nom}" pointe maintenant vers ce rapport`)
-      await refreshMenuFlat()
-      setAttachExistingId('')
-    } catch (err) {
-      console.error('Erreur attachement menu:', err)
-      toast.error(err.response?.data?.detail || 'Erreur lors de l\'attachement')
-    } finally {
-      setMenuSaving(false)
-    }
-  }
-
-  const detachMenu = async (menu) => {
-    if (!confirm(`Détacher "${menu.nom}" du menu ?`)) return
-    try {
-      await deleteMenu(menu.id)
-      toast.success('Menu détaché')
-      await refreshMenuFlat()
-    } catch (err) {
-      console.error('Erreur détachement menu:', err)
-      toast.error('Erreur lors du détachement')
-    }
   }
 
   // Drag-drop handlers
@@ -1148,10 +1025,17 @@ export default function PivotBuilderV2() {
 
           {/* ONGLET AXES & VALEURS */}
           {activeTab === 'config' && (
-            <div className="flex gap-6" style={{ height: 'calc(100vh - 240px)' }}>
+            <div className="flex gap-5" style={{ height: 'calc(100vh - 240px)' }}>
               {/* Liste des champs */}
-              <div className="w-64 flex-shrink-0 min-w-0 flex flex-col" style={{ maxHeight: '100%' }}>
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex-shrink-0">Champs disponibles</h3>
+              <div className="w-64 flex-shrink-0 min-w-0 flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden" style={{ maxHeight: '100%' }}>
+                <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                  <h3 className="text-[13px] font-semibold text-gray-800 dark:text-gray-100">Champs disponibles</h3>
+                  {availableFields.length > 0 && (
+                    <span className="ml-auto px-2 py-0.5 rounded-full bg-primary-50 dark:bg-primary-900/30 text-[11px] font-semibold text-primary-600 dark:text-primary-300">
+                      {availableFields.length}
+                    </span>
+                  )}
+                </div>
                 {fieldsLoading ? (
                   <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
                 ) : (
@@ -1164,7 +1048,8 @@ export default function PivotBuilderV2() {
               </div>
 
               {/* Zones de drop + Valeurs */}
-              <div className="flex-1 space-y-4 overflow-y-auto pr-2">
+              <div className="flex-1 min-w-0 overflow-y-auto pr-1 pb-4 space-y-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <DropZone
                   zone="rows"
                   title="Lignes"
@@ -1174,7 +1059,7 @@ export default function PivotBuilderV2() {
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('rows', from, to)}
                   onFieldChange={handleFieldChange}
-                  placeholder="Glisser les champs pour les lignes"
+                  placeholder="Glisser les champs de regroupement"
                 />
 
                 <DropZone
@@ -1186,7 +1071,7 @@ export default function PivotBuilderV2() {
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('columns', from, to)}
                   onFieldChange={handleFieldChange}
-                  placeholder="Glisser le champ pour les colonnes (1 max)"
+                  placeholder="Glisser un champ (1 max)"
                   maxFields={1}
                 />
 
@@ -1197,7 +1082,7 @@ export default function PivotBuilderV2() {
                   onDrop={handleFieldDrop}
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('filters', from, to)}
-                  placeholder="Glisser les champs filtres"
+                  placeholder="Glisser les champs de filtre"
                 />
 
                 {/* Section Valeurs / Mesures - DropZone */}
@@ -1210,36 +1095,56 @@ export default function PivotBuilderV2() {
                   onRemove={handleFieldRemove}
                   onReorder={(from, to) => handleFieldReorder('values', from, to)}
                   onFieldChange={handleFieldChange}
-                  placeholder="Glisser les champs numeriques pour les mesures"
+                  placeholder="Glisser les champs numériques"
                 />
+                </div>
 
                 {/* Options */}
-                <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Options</h4>
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4 space-y-4">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      <Settings2 size={15} />
+                    </span>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-gray-800 dark:text-gray-100 leading-tight">Options d'affichage</h4>
+                      <p className="text-[11px] text-gray-400 leading-tight">Totaux, pourcentages et statistiques</p>
+                    </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
                   {[
-                    { key: 'show_grand_totals', label: 'Afficher totaux generaux' },
-                    { key: 'show_subtotals', label: 'Afficher sous-totaux (si multi-lignes)' },
-                    { key: 'show_row_percent', label: 'Calculer % du total ligne' },
-                    { key: 'show_col_percent', label: 'Calculer % du total colonne' },
-                    { key: 'show_total_percent', label: 'Calculer % du total general' },
-                    { key: 'show_summary_row', label: 'Afficher ligne de resume (statistiques)' },
-                  ].map(opt => (
-                    <label key={opt.key} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!!config[opt.key]}
-                        onChange={(e) => updateConfig(opt.key, e.target.checked)}
-                        className="w-4 h-4 text-blue-500 rounded border-primary-300 dark:border-primary-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
-                    </label>
-                  ))}
+                    { key: 'show_grand_totals', label: 'Totaux généraux' },
+                    { key: 'show_subtotals', label: 'Sous-totaux', hint: 'si plusieurs lignes' },
+                    { key: 'show_row_percent', label: '% du total ligne' },
+                    { key: 'show_col_percent', label: '% du total colonne' },
+                    { key: 'show_total_percent', label: '% du total général' },
+                    { key: 'show_summary_row', label: 'Ligne de résumé', hint: 'statistiques' },
+                  ].map(opt => {
+                    const on = !!config[opt.key]
+                    return (
+                      <label key={opt.key} className="flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                        <span className="text-[13px] text-gray-700 dark:text-gray-300">
+                          {opt.label}
+                          {opt.hint && <span className="ml-1.5 text-[11px] text-gray-400">({opt.hint})</span>}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) => updateConfig(opt.key, e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40 ${on ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                          <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+                        </span>
+                      </label>
+                    )
+                  })}
+                  </div>
 
                   {/* Fonctions de resume si ligne resume activee */}
                   {config.show_summary_row && (
-                    <div className="ml-6 space-y-1">
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Fonctions de resume</label>
+                    <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/30 space-y-2">
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Fonctions de résumé</label>
                       <div className="flex flex-wrap gap-2">
                         {[
                           { value: 'SUM', label: 'Somme' },
@@ -1275,24 +1180,24 @@ export default function PivotBuilderV2() {
                   )}
 
                   {/* Position des totaux */}
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position totaux generaux</label>
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position des totaux généraux</label>
                       <select
                         value={config.grand_total_position || 'bottom'}
                         onChange={(e) => updateConfig('grand_total_position', e.target.value)}
-                        className="w-full text-sm px-2 py-1.5 bg-white dark:bg-gray-800 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full h-9 text-sm px-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none"
                       >
                         <option value="bottom">En bas</option>
                         <option value="top">En haut</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position sous-totaux</label>
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Position des sous-totaux</label>
                       <select
                         value={config.subtotal_position || 'bottom'}
                         onChange={(e) => updateConfig('subtotal_position', e.target.value)}
-                        className="w-full text-sm px-2 py-1.5 bg-white dark:bg-gray-800 border border-primary-300 dark:border-primary-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        className="w-full h-9 text-sm px-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none"
                       >
                         <option value="bottom">En bas du groupe</option>
                         <option value="top">En haut du groupe</option>
@@ -1309,7 +1214,7 @@ export default function PivotBuilderV2() {
                     >
                       <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-gray-300">
                         <ChevronDown size={14} className={`text-gray-400 transition-transform ${showAdvancedCalcs ? '' : '-rotate-90'}`} />
-                        Calculs avances
+                        Calculs avancés
                         {safeArray(config.window_calculations).length > 0 && (
                           <span className="text-[10px] font-bold px-1.5 rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
                             {safeArray(config.window_calculations).length}
@@ -1564,231 +1469,15 @@ export default function PivotBuilderV2() {
       initialSourceId={editingSourceId}
     />
 
-    {/* Modal Attacher au menu dynamique */}
-    {showMenuModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/50" onClick={() => setShowMenuModal(false)} />
-        <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Link className="w-5 h-5 text-primary-500" />
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Attacher au menu dynamique</h2>
-            </div>
-            <button onClick={() => setShowMenuModal(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {menuLoading ? (
-            <div className="py-10 text-center text-gray-400">
-              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
-              Chargement des menus...
-            </div>
-          ) : (() => {
-            const linkedMenus = menuFlat.filter(m => m.type === 'pivot-v2' && m.target_id === selectedPivotId)
-            const attachableMenus = menuFlat.filter(m => m.type === 'pivot-v2' && m.target_id !== selectedPivotId && m.is_custom === true)
-            return (
-              <div className="space-y-5">
-                {/* Menus actuellement liés */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                    Menus liés à ce rapport
-                  </label>
-                  {linkedMenus.length === 0 ? (
-                    <p className="text-sm text-gray-400">Ce rapport n'est encore attaché à aucun menu.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {linkedMenus.map(m => (
-                        <div key={m.id} className="flex items-center justify-between px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm">
-                          <span className="flex items-center gap-2 text-gray-700 dark:text-gray-200 min-w-0 truncate">
-                            <Rows3 className="w-3.5 h-3.5 text-primary-500 flex-shrink-0" />
-                            <span className="truncate">{m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}</span>
-                            {!m.is_active && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">masqué</span>}
-                          </span>
-                          {m.is_custom === true ? (
-                            <button onClick={() => detachMenu(m)} className="text-red-500 hover:text-red-700 text-xs font-medium flex-shrink-0 ml-2">
-                              Détacher
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">standard</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Créer un nouveau menu */}
-                <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                    Créer un nouveau menu pour ce rapport
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Nom</label>
-                      <input
-                        value={newMenuNom}
-                        onChange={e => setNewMenuNom(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Code</label>
-                      <input
-                        value={newMenuCode}
-                        onChange={e => setNewMenuCode(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
-                        className="w-full px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 relative">
-                    <label className="block text-xs text-gray-600 dark:text-gray-300 mb-1">Emplacement (parent)</label>
-                    <button
-                      type="button"
-                      onClick={() => setParentPickerOpen(o => !o)}
-                      className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
-                    >
-                      <span className="truncate">
-                        {newMenuParentId ? (() => {
-                          const m = menuFlat.find(x => String(x.id) === String(newMenuParentId))
-                          return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Racine --'
-                        })() : '-- Racine --'}
-                      </span>
-                      <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${parentPickerOpen ? 'rotate-90' : ''}`} />
-                    </button>
-                    {parentPickerOpen && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setParentPickerOpen(false)} />
-                        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
-                          <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-                            <div className="relative">
-                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                              <input
-                                autoFocus
-                                value={parentSearch}
-                                onChange={e => setParentSearch(e.target.value)}
-                                placeholder="Rechercher un dossier..."
-                                className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
-                              />
-                            </div>
-                          </div>
-                          <div className="flex-1 overflow-y-auto py-1">
-                            <button
-                              type="button"
-                              onClick={() => { setNewMenuParentId(''); setParentPickerOpen(false); setParentSearch('') }}
-                              className={`w-full text-left px-3 py-1.5 text-sm ${!newMenuParentId ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                            >
-                              -- Racine --
-                            </button>
-                            {menuFlat
-                              .filter(m => {
-                                const q = parentSearch.trim().toLowerCase()
-                                if (!q) return true
-                                return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
-                              })
-                              .map(m => (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => { setNewMenuParentId(String(m.id)); setParentPickerOpen(false); setParentSearch('') }}
-                                  className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(newMenuParentId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                                >
-                                  {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
-                                </button>
-                              ))}
-                            {parentSearch.trim() && menuFlat.filter(m => m.nom.toLowerCase().includes(parentSearch.trim().toLowerCase())).length === 0 && (
-                              <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
-                            )}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <button
-                    onClick={createAndAttachMenu}
-                    disabled={menuSaving || !newMenuNom.trim() || !newMenuCode.trim()}
-                    className="btn-primary mt-3 flex items-center gap-2"
-                  >
-                    {menuSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    Créer et attacher
-                  </button>
-                </div>
-
-                {/* Attacher à un menu existant */}
-                {attachableMenus.length > 0 && (
-                  <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                      Ou réattacher un menu existant
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => setExistingPickerOpen(o => !o)}
-                          className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700 dark:text-white text-left"
-                        >
-                          <span className="truncate">
-                            {attachExistingId ? (() => {
-                              const m = attachableMenus.find(x => String(x.id) === String(attachExistingId))
-                              return m ? `${m.parent_name ? m.parent_name + ' > ' : ''}${m.nom}` : '-- Sélectionner un menu Pivot --'
-                            })() : '-- Sélectionner un menu Pivot --'}
-                          </span>
-                          <ChevronRight className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${existingPickerOpen ? 'rotate-90' : ''}`} />
-                        </button>
-                        {existingPickerOpen && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setExistingPickerOpen(false)} />
-                            <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-64 flex flex-col">
-                              <div className="p-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-                                <div className="relative">
-                                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                                  <input
-                                    autoFocus
-                                    value={existingSearch}
-                                    onChange={e => setExistingSearch(e.target.value)}
-                                    placeholder="Rechercher un menu..."
-                                    className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none dark:text-white"
-                                  />
-                                </div>
-                              </div>
-                              <div className="flex-1 overflow-y-auto py-1">
-                                {attachableMenus
-                                  .filter(m => {
-                                    const q = existingSearch.trim().toLowerCase()
-                                    if (!q) return true
-                                    return m.nom.toLowerCase().includes(q) || (m.parent_name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q)
-                                  })
-                                  .map(m => (
-                                    <button
-                                      key={m.id}
-                                      type="button"
-                                      onClick={() => { setAttachExistingId(String(m.id)); setExistingPickerOpen(false); setExistingSearch('') }}
-                                      className={`w-full text-left px-3 py-1.5 text-sm truncate ${String(attachExistingId) === String(m.id) ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                                    >
-                                      {m.parent_name ? `${m.parent_name} > ` : ''}{m.nom}
-                                    </button>
-                                  ))}
-                                {existingSearch.trim() && attachableMenus.filter(m => m.nom.toLowerCase().includes(existingSearch.trim().toLowerCase())).length === 0 && (
-                                  <p className="px-3 py-2 text-xs text-gray-400">Aucun résultat</p>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      <button onClick={attachToExistingMenu} disabled={menuSaving || !attachExistingId} className="btn-primary whitespace-nowrap flex-shrink-0">
-                        Attacher
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1.5">Le menu sélectionné pointera désormais vers ce rapport à la place du sien.</p>
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-        </div>
-      </div>
-    )}
+    {/* Modal Attacher au menu dynamique (composant partage) */}
+    <AttachMenuModal
+      open={showMenuModal}
+      onClose={() => setShowMenuModal(false)}
+      menuType="pivot-v2"
+      reportId={selectedPivotId}
+      reportName={config.nom}
+      icon="Sigma"
+    />
 
     {showAIGenerator && (
       <AIBuilderGenerator

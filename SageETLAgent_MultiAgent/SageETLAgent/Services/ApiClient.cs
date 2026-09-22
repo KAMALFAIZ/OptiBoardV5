@@ -58,6 +58,56 @@ namespace SageETLAgent.Services
         }
 
         /// <summary>
+        /// Enrolement : echange un jeton a usage unique contre les identifiants
+        /// definitifs de l'agent (AgentId + ApiKey).
+        /// Route <c>POST /api/agents/enroll</c> — non authentifiee par session :
+        /// le jeton EST l'authentification, et la cle n'est renvoyee qu'ici.
+        /// </summary>
+        public async Task<(bool Success, string AgentId, string ApiKey, string DwhCode, string Message)> EnrollAsync(string enrollToken)
+        {
+            try
+            {
+                var body = new StringContent(
+                    JsonConvert.SerializeObject(new { token = enrollToken }),
+                    Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync($"{_baseUrl}/api/agents/enroll", body);
+                var content = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    // Le backend renvoie un detail explicite (401 invalide, 409 deja
+                    // utilise, 410 expire, 404 agent introuvable) : le remonter tel quel.
+                    string detail = $"HTTP {(int)response.StatusCode}";
+                    try
+                    {
+                        var err = JsonConvert.DeserializeObject<dynamic>(content);
+                        if (err?.detail != null) detail = err.detail.ToString();
+                    }
+                    catch { }
+                    _logger.Warn(LogCategory.COMMUNICATION, $"Enrolement refuse: {detail}");
+                    return (false, "", "", "", detail);
+                }
+
+                var result = JsonConvert.DeserializeObject<dynamic>(content);
+                string agentId = result?.agent_id?.ToString() ?? "";
+                string apiKey  = result?.api_key?.ToString()  ?? "";
+                string dwhCode = result?.dwh_code?.ToString() ?? "";
+
+                if (string.IsNullOrWhiteSpace(agentId) || string.IsNullOrWhiteSpace(apiKey))
+                    return (false, "", "", "", "Reponse d'enrolement incomplete (agent_id/api_key manquants)");
+
+                _logger.Info(LogCategory.COMMUNICATION, $"Agent enrole (dwh={dwhCode})");
+                return (true, agentId, apiKey, dwhCode, "Enrolement reussi");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(LogCategory.COMMUNICATION, $"Enrolement echoue: {ex.Message}", ex);
+                return (false, "", "", "", ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Charge la liste des agents depuis le serveur
         /// </summary>
         public async Task<List<AgentProfile>> GetAgentsAsync(string? agentId = null, string? apiKey = null)

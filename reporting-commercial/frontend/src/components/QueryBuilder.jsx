@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   X, Database, Table2, Columns, Plus, Trash2, Play, Save, Search,
-  Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout, Maximize2, Minimize2, AlertTriangle, Shield
+  Link2, Filter, SortAsc, SortDesc, ChevronRight, ChevronDown, Eye, Code, RefreshCw, Settings2, Layout, Maximize2, Minimize2, AlertTriangle, Shield, Check
 } from 'lucide-react'
 import {
   getQueryBuilderTables, getTableColumns, previewBuilderQuery, createDataSource, getDataSource,
@@ -1171,13 +1171,17 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            <Database className="w-5 h-5 text-primary-500" />
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              Query Builder
-            </h2>
-            <span className="text-sm text-gray-500">
-              → {targetType === 'pivot' ? 'Pivot Table' : targetType === 'template' ? 'Template SQL' : 'GridView'}
+            <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+              <Database className="w-5 h-5" />
             </span>
+            <div>
+              <h2 className="text-[15px] font-semibold text-gray-900 dark:text-white leading-tight">
+                Query Builder
+              </h2>
+              <p className="text-[11px] text-gray-400 leading-tight">
+                Source de données pour {targetType === 'pivot' ? 'Pivot Table' : targetType === 'template' ? 'Template SQL' : targetType === 'dashboard' ? 'Dashboard' : 'GridView'}
+              </p>
+            </div>
             {initializing && (
               <span className="flex items-center gap-1 text-sm text-primary-500">
                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1213,7 +1217,8 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                 Créer Source
               </button>
             )}
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+            <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
+            <button onClick={onClose} title="Fermer" className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -1222,38 +1227,48 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
         {/* Contenu principal */}
         <div className="flex-1 flex overflow-hidden">
           {/* Panneau gauche - Tables */}
-          <div className={`${sqlFullscreen ? 'hidden' : 'w-64'} border-r border-gray-200 dark:border-gray-700 flex flex-col`}>
-            <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+          <div className={`${sqlFullscreen ? 'hidden' : 'w-64'} border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50/60 dark:bg-gray-900/20`}>
+            <div className="px-3 pt-3 pb-2 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[13px] font-semibold text-gray-800 dark:text-gray-100">Tables</span>
+                <span className="ml-auto px-2 py-0.5 rounded-full bg-primary-50 dark:bg-primary-900/30 text-[11px] font-semibold text-primary-600 dark:text-primary-300">
+                  {selectedTables.length}/{tables.length}
+                </span>
+              </div>
               <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Rechercher table..."
-                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded-md dark:bg-gray-700"
+                  placeholder="Rechercher une table…"
+                  className="w-full h-8 pl-8 pr-3 text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                 />
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {loading ? (
-                <p className="text-sm text-gray-500 text-center py-4">Chargement...</p>
+                <p className="flex items-center justify-center gap-2 text-xs text-gray-400 py-6"><RefreshCw className="w-3.5 h-3.5 animate-spin" />Chargement…</p>
               ) : (
                 <div className="space-y-1">
                   {filteredTables.map(table => (
                     <div
                       key={table.name}
                       onClick={() => addTable(table.name)}
+                      title={table.name}
                       className={`
-                        flex items-center gap-2 p-2 rounded-lg cursor-pointer text-sm
+                        group flex items-center gap-2 h-8 px-1.5 rounded-md cursor-pointer text-xs border transition-all
                         ${selectedTables.find(t => t.name === table.name)
-                          ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-700'
-                          : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                          ? 'bg-white dark:bg-gray-800 border-primary-300 dark:border-primary-600 text-gray-800 dark:text-gray-100 shadow-sm'
+                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600 text-gray-700 dark:text-gray-300'
                         }
                       `}
                     >
-                      <Table2 className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate">{table.name}</span>
+                      <span className="flex items-center justify-center w-5 h-5 rounded flex-shrink-0 bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                        <Table2 className="w-3 h-3" />
+                      </span>
+                      <span className="truncate font-medium">{table.name}</span>
+                      {selectedTables.find(t => t.name === table.name) && <Check className="w-3.5 h-3.5 ml-auto flex-shrink-0 text-primary-500" />}
                     </div>
                   ))}
                 </div>
@@ -1264,7 +1279,8 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
           {/* Zone centrale - Configuration */}
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Tabs */}
-            <div className={`${sqlFullscreen ? 'hidden' : 'flex'} border-b border-gray-200 dark:border-gray-700 px-4`}>
+            <div className={`${sqlFullscreen ? 'hidden' : 'flex'} px-4 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto`}>
+              <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-gray-900/40">
               {[
                 { id: 'tables', label: 'Tables', icon: Table2 },
                 { id: 'visual', label: 'Visuel', icon: Layout },
@@ -1278,22 +1294,23 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`
-                    flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px
+                    flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all
                     ${activeTab === tab.id
-                      ? 'border-primary-500 text-primary-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                      ? 'bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
                     }
                   `}
                 >
-                  <tab.icon className="w-4 h-4" />
+                  <tab.icon className="w-3.5 h-3.5" />
                   {tab.label}
                   {tab.badge > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-primary-100 text-primary-600 rounded-full">
+                    <span className="px-1.5 text-[10px] font-semibold bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-300 rounded-full">
                       {tab.badge}
                     </span>
                   )}
                 </button>
               ))}
+              </div>
             </div>
 
             {/* Bandeau : requete non editable visuellement */}
@@ -1319,7 +1336,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               {/* Tab Tables */}
               {activeTab === 'tables' && (
                 <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  <h3 className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100"><span className="w-1 h-4 rounded-full bg-primary-500" />
                     Tables sélectionnées ({selectedTables.length})
                   </h3>
                   {selectedTables.length === 0 ? (
@@ -1347,13 +1364,14 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                           </div>
                         )
                       }
-                      return <p className="text-sm text-gray-500">Cliquez sur une table à gauche pour l'ajouter</p>
+                      return <p className="text-xs text-gray-400 text-center px-4 py-8 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20">Cliquez sur une table à gauche pour l'ajouter</p>
                     })()
                   ) : (
                     <div className="space-y-2">
                       {selectedTables.map(table => (
-                        <div key={table.name} className="border border-gray-200 dark:border-gray-700 rounded-lg">
-                          <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50">
+                        <div key={table.name} className="relative overflow-hidden border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 shadow-sm">
+                          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-sky-500" />
+                          <div className="flex items-center justify-between px-3 py-2.5 pl-4 border-b border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => setSelectedTables(selectedTables.map(t =>
@@ -1362,36 +1380,42 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                               >
                                 {table.expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                               </button>
-                              <Table2 className="w-4 h-4 text-primary-500" />
-                              <span className="font-medium">{table.name}</span>
-                              <span className="text-xs text-gray-500">({table.columns.length} colonnes)</span>
+                              <span className="flex items-center justify-center w-6 h-6 rounded-md bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                                <Table2 className="w-3.5 h-3.5" />
+                              </span>
+                              <span className="text-[13px] font-semibold text-gray-800 dark:text-gray-100">{table.name}</span>
+                              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-[11px] font-semibold text-gray-500 dark:text-gray-300">
+                                {selectedColumns.filter(c => c.table === table.name).length}/{table.columns.length}
+                              </span>
                             </div>
                             <button
                               onClick={() => removeTable(table.name)}
-                              className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-red-500"
+                              title="Retirer la table"
+                              className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                           {table.expanded && (
-                            <div className="p-2 grid grid-cols-3 gap-1 max-h-48 overflow-y-auto">
+                            <div className="p-2 pl-3 grid grid-cols-3 gap-1 max-h-48 overflow-y-auto">
                               {table.columns.map(col => {
                                 const isSelected = selectedColumns.find(c => c.key === `${table.name}.${col.name}`)
                                 return (
                                   <div
                                     key={col.name}
                                     onClick={() => toggleColumn(table.name, col)}
+                                    title={`${col.name} (${col.type})`}
                                     className={`
-                                      flex items-center gap-1.5 p-1.5 rounded text-xs cursor-pointer
+                                      flex items-center gap-1.5 h-7 px-1.5 rounded-md text-xs cursor-pointer border transition-colors
                                       ${isSelected
-                                        ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-700'
-                                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                                        ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-300 dark:border-primary-600 text-gray-800 dark:text-gray-100'
+                                        : 'border-transparent hover:border-gray-200 dark:hover:border-gray-600 text-gray-600 dark:text-gray-300'
                                       }
                                     `}
                                   >
-                                    <span className={`w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold
+                                    <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0
                                       ${['int', 'bigint', 'decimal', 'float', 'money', 'numeric'].includes(col.type)
-                                        ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300'}`}>
                                       {['int', 'bigint', 'decimal', 'float', 'money', 'numeric'].includes(col.type) ? '#' : 'T'}
                                     </span>
                                     <span className="truncate">{col.name}</span>
@@ -1461,7 +1485,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               {/* Tab Colonnes */}
               {activeTab === 'columns' && (
                 <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  <h3 className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100"><span className="w-1 h-4 rounded-full bg-primary-500" />
                     Colonnes de sortie ({selectedColumns.length}{skippedColumns.length > 0 ? ` + ${skippedColumns.length} calculée${skippedColumns.length > 1 ? 's' : ''}` : ''})
                   </h3>
                   {skippedColumns.length > 0 && (
@@ -1476,11 +1500,12 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                     </div>
                   )}
                   {selectedColumns.length === 0 && skippedColumns.length === 0 ? (
-                    <p className="text-sm text-gray-500">Sélectionnez des colonnes dans l'onglet Tables</p>
+                    <p className="text-xs text-gray-400 text-center px-4 py-8 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20">Sélectionnez des colonnes dans l'onglet Tables</p>
                   ) : (
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800 shadow-sm">
                     <table className="w-full text-sm">
-                      <thead className="bg-gray-50 dark:bg-gray-700">
-                        <tr>
+                      <thead className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                        <tr className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
                           <th className="px-3 py-2 text-left">Colonne</th>
                           <th className="px-3 py-2 text-left">Alias</th>
                           <th className="px-3 py-2 text-left">Agrégation</th>
@@ -1490,9 +1515,9 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                       </thead>
                       <tbody>
                         {selectedColumns.map(col => (
-                          <tr key={col.key} className="border-b border-gray-100 dark:border-gray-700">
+                          <tr key={col.key} className="border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                             <td className="px-3 py-2">
-                              <span className="font-mono text-xs">{col.table}.{col.name}</span>
+                              <span className="font-mono text-xs"><span className="text-gray-400">{col.table}.</span><span className="text-gray-800 dark:text-gray-100">{col.name}</span></span>
                             </td>
                             <td className="px-3 py-2">
                               <input
@@ -1500,14 +1525,14 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                                 value={col.alias}
                                 onChange={(e) => updateColumn(col.key, 'alias', e.target.value)}
                                 placeholder="Alias..."
-                                className="w-full px-2 py-1 text-xs border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               />
                             </td>
                             <td className="px-3 py-2">
                               <select
                                 value={col.aggregate}
                                 onChange={(e) => updateColumn(col.key, 'aggregate', e.target.value)}
-                                className="px-2 py-1 text-xs border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               >
                                 {AGGREGATES.map(agg => (
                                   <option key={agg} value={agg}>{agg || '(aucune)'}</option>
@@ -1519,14 +1544,14 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                                 <button
                                   onClick={() => toggleOrderBy(col.name, 'ASC')}
                                   className={`p-1 rounded ${orderByColumns.find(o => o.column === col.name && o.direction === 'ASC')
-                                    ? 'bg-primary-100 text-primary-600' : 'hover:bg-gray-100'}`}
+                                    ? 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                                 >
                                   <SortAsc className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => toggleOrderBy(col.name, 'DESC')}
                                   className={`p-1 rounded ${orderByColumns.find(o => o.column === col.name && o.direction === 'DESC')
-                                    ? 'bg-primary-100 text-primary-600' : 'hover:bg-gray-100'}`}
+                                    ? 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                                 >
                                   <SortDesc className="w-4 h-4" />
                                 </button>
@@ -1535,7 +1560,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                             <td className="px-3 py-2">
                               <button
                                 onClick={() => setSelectedColumns(selectedColumns.filter(c => c.key !== col.key))}
-                                className="p-1 hover:bg-red-100 rounded text-red-500"
+                                className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1565,6 +1590,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   )}
                 </div>
               )}
@@ -1573,7 +1599,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               {activeTab === 'joins' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    <h3 className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100"><span className="w-1 h-4 rounded-full bg-primary-500" />
                       Jointures ({joins.length})
                     </h3>
                     <button
@@ -1586,7 +1612,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                     </button>
                   </div>
                   {joins.length === 0 ? (
-                    <p className="text-sm text-gray-500">
+                    <p className="text-xs text-gray-400 text-center px-4 py-8 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20">
                       {selectedTables.length < 2
                         ? 'Sélectionnez au moins 2 tables pour créer une jointure'
                         : 'Cliquez sur "Ajouter jointure" pour lier les tables'}
@@ -1594,12 +1620,13 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                   ) : (
                     <div className="space-y-3">
                       {joins.map((join, i) => (
-                        <div key={i} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg space-y-2">
+                        <div key={i} className="relative overflow-hidden p-3 pl-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm space-y-2">
+                          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-violet-500" />
                           <div className="flex items-center gap-2">
                             <select
                               value={join.table1}
                               onChange={(e) => updateJoin(i, 'table1', e.target.value)}
-                              className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                              className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                             >
                               {selectedTables.map(t => (
                                 <option key={t.name} value={t.name}>{t.name}</option>
@@ -1608,7 +1635,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                             <select
                               value={join.column1}
                               onChange={(e) => updateJoin(i, 'column1', e.target.value)}
-                              className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                              className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                             >
                               <option value="">-- Colonne --</option>
                               {selectedTables.find(t => t.name === join.table1)?.columns.map(c => (
@@ -1618,7 +1645,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                             <select
                               value={join.type}
                               onChange={(e) => updateJoin(i, 'type', e.target.value)}
-                              className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700 font-mono"
+                              className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md font-mono"
                             >
                               {JOIN_TYPES.map(jt => (
                                 <option key={jt} value={jt}>{jt}</option>
@@ -1627,7 +1654,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                             <select
                               value={join.table2}
                               onChange={(e) => updateJoin(i, 'table2', e.target.value)}
-                              className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                              className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                             >
                               {selectedTables.filter(t => t.name !== join.table1).map(t => (
                                 <option key={t.name} value={t.name}>{t.name}</option>
@@ -1636,7 +1663,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                             <select
                               value={join.column2}
                               onChange={(e) => updateJoin(i, 'column2', e.target.value)}
-                              className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                              className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                             >
                               <option value="">-- Colonne --</option>
                               {selectedTables.find(t => t.name === join.table2)?.columns.map(c => (
@@ -1659,7 +1686,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                               <select
                                 value={cond.column1}
                                 onChange={(e) => updateJoinCondition(i, ci, 'column1', e.target.value)}
-                                className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               >
                                 <option value="">-- {join.table1} --</option>
                                 {selectedTables.find(t => t.name === join.table1)?.columns.map(c => (
@@ -1670,7 +1697,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                               <select
                                 value={cond.column2}
                                 onChange={(e) => updateJoinCondition(i, ci, 'column2', e.target.value)}
-                                className="px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               >
                                 <option value="">-- {join.table2} --</option>
                                 {selectedTables.find(t => t.name === join.table2)?.columns.map(c => (
@@ -1705,7 +1732,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               {activeTab === 'where' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    <h3 className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100"><span className="w-1 h-4 rounded-full bg-primary-500" />
                       Conditions WHERE ({whereConditions.length})
                     </h3>
                     <button onClick={addWhereCondition} className="btn-secondary text-xs flex items-center gap-1">
@@ -1714,16 +1741,17 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                     </button>
                   </div>
                   {whereConditions.length === 0 ? (
-                    <p className="text-sm text-gray-500">Aucun filtre défini</p>
+                    <p className="text-xs text-gray-400 text-center px-4 py-8 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20">Aucun filtre défini</p>
                   ) : (
                     <div className="space-y-2">
                       {whereConditions.map((cond, i) => (
-                        <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                        <div key={i} className="relative overflow-hidden flex items-center gap-2 p-2 pl-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
                           {i > 0 && (
                             <select
                               value={cond.connector}
                               onChange={(e) => updateWhere(i, 'connector', e.target.value)}
-                              className="px-2 py-1 text-xs border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                              className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                             >
                               <option value="AND">AND</option>
                               <option value="OR">OR</option>
@@ -1732,7 +1760,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                           <select
                             value={cond.column}
                             onChange={(e) => updateWhere(i, 'column', e.target.value)}
-                            className="flex-1 px-2 py-1 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                            className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                           >
                             <option value="">-- Colonne --</option>
                             {allColumns.map(c => (
@@ -1742,7 +1770,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                           <select
                             value={cond.operator}
                             onChange={(e) => updateWhere(i, 'operator', e.target.value)}
-                            className="px-2 py-1 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                            className="px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                           >
                             {OPERATORS.map(op => (
                               <option key={op} value={op}>{op}</option>
@@ -1754,10 +1782,10 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                               value={cond.value}
                               onChange={(e) => updateWhere(i, 'value', e.target.value)}
                               placeholder="Valeur..."
-                              className="flex-1 px-2 py-1 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                              className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                             />
                           )}
-                          <button onClick={() => removeWhere(i)} className="p-1 hover:bg-red-100 rounded text-red-500">
+                          <button onClick={() => removeWhere(i)} title="Supprimer" className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -1771,7 +1799,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
               {activeTab === 'params' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    <h3 className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100"><span className="w-1 h-4 rounded-full bg-primary-500" />
                       Paramètres de la requête ({parameters.length})
                     </h3>
                     <button onClick={addParameter} className="btn-secondary text-xs flex items-center gap-1">
@@ -1786,38 +1814,39 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                   </div>
 
                   {parameters.length === 0 ? (
-                    <p className="text-sm text-gray-500">Aucun paramètre défini. Ajoutez des valeurs @param dans vos filtres WHERE.</p>
+                    <p className="text-xs text-gray-400 text-center px-4 py-8 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20">Aucun paramètre défini. Ajoutez des valeurs @param dans vos filtres WHERE.</p>
                   ) : (
                     <div className="space-y-3">
                       {parameters.map((param, i) => (
-                        <div key={i} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-primary-600">
+                        <div key={i} className="relative overflow-hidden p-3 pl-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary-500" />
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                             <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Nom du paramètre</label>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Nom du paramètre</label>
                               <input
                                 type="text"
                                 value={param.name}
                                 onChange={(e) => updateParameter(i, 'name', e.target.value)}
                                 placeholder="@param"
-                                className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700 font-mono"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md font-mono"
                               />
                             </div>
                             <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Libellé affiché</label>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Libellé affiché</label>
                               <input
                                 type="text"
                                 value={param.label}
                                 onChange={(e) => updateParameter(i, 'label', e.target.value)}
                                 placeholder="Label..."
-                                className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               />
                             </div>
                             <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
                               <select
                                 value={param.type}
                                 onChange={(e) => updateParameter(i, 'type', e.target.value)}
-                                className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               >
                                 {PARAM_TYPES.map(t => (
                                   <option key={t} value={t}>
@@ -1827,11 +1856,11 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                               </select>
                             </div>
                             <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Source</label>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source</label>
                               <select
                                 value={param.source}
                                 onChange={(e) => updateParameter(i, 'source', e.target.value)}
-                                className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                               >
                                 {PARAM_SOURCES.map(s => (
                                   <option key={s} value={s}>
@@ -1843,7 +1872,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                           </div>
                           <div className="flex items-center gap-4 mt-3">
                             <div className="flex-1">
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                                 {(param.type === 'select' || param.type === 'multiselect') ? 'Requête SQL pour les options' : 'Valeur par défaut'}
                               </label>
                               {(param.type === 'select' || param.type === 'multiselect') ? (
@@ -1852,7 +1881,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                                   onChange={(e) => updateParameter(i, 'defaultValue', e.target.value)}
                                   placeholder="SELECT code AS value, libelle AS label FROM MaTable ORDER BY libelle"
                                   rows={2}
-                                  className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700 font-mono"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md font-mono"
                                 />
                               ) : (
                                 <input
@@ -1860,22 +1889,26 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                                   value={param.defaultValue}
                                   onChange={(e) => updateParameter(i, 'defaultValue', e.target.value)}
                                   placeholder="Valeur par défaut..."
-                                  className="w-full px-2 py-1.5 text-sm border border-primary-300 dark:border-primary-600 rounded dark:bg-gray-700"
+                                  className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-md"
                                 />
                               )}
                             </div>
-                            <label className="flex items-center gap-2 mt-4">
+                            <label className="flex items-center gap-2 mt-4 cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={param.required}
+                                checked={!!param.required}
                                 onChange={(e) => updateParameter(i, 'required', e.target.checked)}
-                                className="rounded border-primary-300"
+                                className="sr-only peer"
                               />
-                              <span className="text-sm text-gray-600">Requis</span>
+                              <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40 ${param.required ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                                <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${param.required ? 'translate-x-4' : ''}`} />
+                              </span>
+                              <span className="text-[13px] text-gray-700 dark:text-gray-300">Requis</span>
                             </label>
                             <button
                               onClick={() => removeParameter(i)}
-                              className="mt-4 p-1.5 hover:bg-red-100 rounded text-red-500"
+                              title="Supprimer"
+                              className="mt-4 p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 justify-self-start"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1975,8 +2008,11 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
             {/* Aperçu */}
             {!sqlFullscreen && showPreview && previewData.length > 0 && (
               <div className="border-t border-gray-200 dark:border-gray-700 max-h-64 overflow-auto">
-                <div className="sticky top-0 bg-gray-100 dark:bg-gray-700 px-4 py-2 flex items-center justify-between">
-                  <span className="text-sm font-medium">Aperçu ({previewData.length} lignes)</span>
+                <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100">
+                    <Eye className="w-4 h-4 text-primary-500" /> Aperçu
+                    <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-[11px] font-semibold text-gray-500 dark:text-gray-300">{previewData.length} lignes</span>
+                  </span>
                   <button onClick={() => setShowPreview(false)} className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">
                     <X className="w-4 h-4" />
                   </button>
@@ -1985,7 +2021,7 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
                   <thead className="bg-gray-50 dark:bg-gray-700 sticky top-8">
                     <tr>
                       {previewColumns.map(col => (
-                        <th key={col} className="px-2 py-1.5 text-left font-medium border-b">{col}</th>
+                        <th key={col} className="px-2 py-1.5 text-left text-[11px] font-semibold text-gray-500 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">{col}</th>
                       ))}
                     </tr>
                   </thead>
@@ -2012,27 +2048,35 @@ export default function QueryBuilder({ isOpen, onClose, onSave, onUseQuery = nul
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowSaveModal(false)} />
           <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-96">
-            <h3 className="text-lg font-semibold mb-4">Créer une source de données</h3>
+            <div className="flex items-center gap-2.5 mb-5">
+              <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+                <Save className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white leading-tight">Créer une source de données</h3>
+                <p className="text-[11px] text-gray-400 leading-tight">Elle sera réutilisable dans tous les builders</p>
+              </div>
+            </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Nom de la source *</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Nom de la source *</label>
                 <input
                   type="text"
                   value={sourceName}
                   onChange={(e) => setSourceName(e.target.value)}
                   placeholder="Ex: Ventes par commercial"
-                  className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-lg"
                   autoFocus
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
                 <textarea
                   value={sourceDescription}
                   onChange={(e) => setSourceDescription(e.target.value)}
                   placeholder="Description optionnelle..."
                   rows={2}
-                  className="w-full px-3 py-2 border border-primary-300 dark:border-primary-600 rounded-lg dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors rounded-lg"
                 />
               </div>
               {error && (

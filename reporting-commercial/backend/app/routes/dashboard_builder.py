@@ -360,19 +360,72 @@ def update_dashboard(dashboard_id: int, dashboard: DashboardUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _delete_client_dashboard(dwh_code: Optional[str], central_row: tuple, dashboard_id: int) -> dict:
+    """
+    Supprime la copie CLIENTE d'un dashboard, appariee par code (ou nom).
+    Les ids different entre centrale et base client : sans appariement, la copie
+    cliente survivait a la suppression et restait visible cote utilisateur.
+    """
+    code, nom = central_row
+    if not dwh_code:
+        return {"deleted": 0, "reason": "no-dwh"}
+    if code:
+        clause, value = "code = ?", code
+    elif nom:
+        clause, value = "nom = ?", nom
+    else:
+        logger.warning(f"Delete client DWH {dwh_code} dashboard {dashboard_id}: aucune cle d'appariement")
+        return {"deleted": 0, "reason": "no-match"}
+
+    try:
+        if not client_manager.has_client_db(dwh_code):
+            return {"deleted": 0, "reason": "no-client-db"}
+        rows = execute_client(
+            f"SELECT id FROM APP_Dashboards WHERE {clause}",
+            (value,), dwh_code=dwh_code, use_cache=False
+        ) or []
+        if len(rows) != 1:
+            logger.warning(
+                f"Delete client DWH {dwh_code} dashboard {dashboard_id}: {len(rows)} ligne(s) "
+                f"client pour {clause[:4]}={value!r} — copie cliente NON supprimee"
+            )
+            return {"deleted": 0, "reason": "ambiguous", "matches": len(rows)}
+        from ..database_unified import client_cursor
+        with client_cursor(dwh_code) as c:
+            c.execute("DELETE FROM APP_Dashboards WHERE id = ?", (rows[0]["id"],))
+        return {"deleted": 1, "client_id": rows[0]["id"]}
+    except Exception as e:
+        logger.warning(f"Delete client DWH {dwh_code} dashboard {dashboard_id}: {e}")
+        return {"deleted": 0, "reason": str(e)}
+
+
 @router.delete("/dashboards/{dashboard_id}")
-def delete_dashboard(dashboard_id: int):
-    """Supprime un dashboard (interdit pour les dashboards publics/accueil)"""
+def delete_dashboard(
+    dashboard_id: int,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Supprime un dashboard : centrale + copie cliente + menus (sauf dashboard d'accueil)"""
     try:
         with get_db_cursor() as cursor:
-            cursor.execute("SELECT is_public FROM APP_Dashboards WHERE id = ?", (dashboard_id,))
+            # code/nom lus AVANT suppression : cle d'appariement de la copie cliente
+            cursor.execute(
+                "SELECT is_public, code, nom FROM APP_Dashboards WHERE id = ?", (dashboard_id,)
+            )
             row = cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Dashboard non trouvé")
             if row[0]:
                 raise HTTPException(status_code=403, detail="Impossible de supprimer le dashboard d'accueil")
+            central_key = (row[1], row[2])
             cursor.execute("DELETE FROM APP_Dashboards WHERE id = ?", (dashboard_id,))
-        return {"success": True, "message": "Dashboard supprime"}
+
+        client = _delete_client_dashboard(dwh_code, central_key, dashboard_id)
+
+        # Sans ce nettoyage, les menus restaient et ouvraient un ecran vide
+        from .menus import cleanup_menus_for_report
+        menus = cleanup_menus_for_report('dashboard', dashboard_id)
+
+        return {"success": True, "client": client, "menus": menus, "message": "Dashboard supprime"}
     except HTTPException:
         raise
     except Exception as e:

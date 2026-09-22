@@ -349,7 +349,7 @@ export default function SpreadsheetBuilder() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input type="text" value={sidebarSearch} onChange={(e) => setSidebarSearch(e.target.value)}
               placeholder="Rechercher..."
-              className="w-full pl-8 pr-7 py-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white placeholder-gray-400 outline-none transition-all" />
+              className="w-full pl-8 pr-7 py-2 text-xs bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-md focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 dark:text-white placeholder-gray-400 outline-none transition-all" />
             {sidebarSearch && (
               <button onClick={() => setSidebarSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                 <X className="w-3.5 h-3.5" />
@@ -357,7 +357,7 @@ export default function SpreadsheetBuilder() {
             )}
           </div>
           <select value={sidebarAppFilter} onChange={(e) => setSidebarAppFilter(e.target.value)}
-            className="w-full px-2.5 py-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl dark:text-white focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none transition-all">
+            className="w-full px-2.5 py-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-all">
             <option value="">Toutes les applications</option>
             {APPLICATION_OPTIONS.filter(a => a.value).map(a => (
               <option key={a.value} value={a.value}>{a.label}</option>
@@ -402,11 +402,11 @@ export default function SpreadsheetBuilder() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
         <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center gap-2">
-          <div className="flex gap-1">
+          <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-gray-900/40">
             {TABS.map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
-                  ${activeTab === tab.id ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all
+                  ${activeTab === tab.id ? 'bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-300 shadow-sm' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'}`}>
                 <tab.icon size={14} />
                 {tab.label}
               </button>
@@ -418,17 +418,17 @@ export default function SpreadsheetBuilder() {
           )}
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleImportExcel} className="hidden" />
           <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:text-gray-600 transition-colors">
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             Importer Excel
           </button>
           <button onClick={handlePreview} disabled={previewLoading || !selectedId}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:border-primary-400 hover:text-primary-600 disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:text-gray-600 transition-colors">
             {previewLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
             Apercu
           </button>
           <button onClick={handleSave} disabled={saving || !config.nom.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 shadow-sm disabled:opacity-40 transition-colors">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {selectedId ? 'Sauvegarder' : 'Creer'}
           </button>
@@ -439,40 +439,51 @@ export default function SpreadsheetBuilder() {
           {/* ── TAB: General ── */}
           {activeTab === 'general' && (
             <div className="max-w-2xl mx-auto space-y-4">
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700">
-                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2">
-                  <FileSpreadsheet size={16} className="text-primary-500" /> Identite du classeur
-                </h3>
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+                    <FileSpreadsheet size={16} />
+                  </span>
+                  <div>
+                    <h3 className="text-[13px] font-semibold text-gray-900 dark:text-white leading-tight">Identité du classeur</h3>
+                    <p className="text-[11px] text-gray-400 leading-tight">Nom, description, application et visibilité</p>
+                  </div>
+                </div>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Nom *</label>
                     <input type="text" value={config.nom} onChange={(e) => updateConfig('nom', e.target.value)}
                       placeholder="Ex: Analyse des ventes par mois"
-                      className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white outline-none" />
+                      className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
                     <textarea value={config.description} onChange={(e) => updateConfig('description', e.target.value)}
                       placeholder="Description optionnelle..."
                       rows={2}
-                      className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white outline-none resize-none" />
+                      className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors resize-none" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Application</label>
                       <select value={config.application} onChange={(e) => updateConfig('application', e.target.value)}
-                        className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl dark:text-white focus:ring-2 focus:ring-primary-400 focus:border-transparent outline-none">
+                        className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors">
                         {APPLICATION_OPTIONS.map(a => (
                           <option key={a.value} value={a.value}>{a.label}</option>
                         ))}
                       </select>
                     </div>
-                    <div className="flex items-end">
-                      <button onClick={() => updateConfig('is_public', !config.is_public)}
-                        className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        {config.is_public ? <Globe size={14} className="text-green-500" /> : <Lock size={14} className="text-gray-400" />}
-                        <span className="text-xs text-gray-600 dark:text-gray-400">
-                          {config.is_public ? 'Public' : 'Prive'}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Visibilité</label>
+                      <button type="button" role="switch" aria-checked={!!config.is_public}
+                        onClick={() => updateConfig('is_public', !config.is_public)}
+                        className="w-full flex items-center gap-2 h-[38px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-primary-300 transition-colors">
+                        {config.is_public ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-gray-400" />}
+                        <span className="text-xs text-gray-700 dark:text-gray-300">
+                          {config.is_public ? 'Public — visible par tous' : 'Privé — visible par vous'}
+                        </span>
+                        <span className={`ml-auto relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${config.is_public ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                          <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${config.is_public ? 'translate-x-4' : ''}`} />
                         </span>
                       </button>
                     </div>
@@ -489,8 +500,8 @@ export default function SpreadsheetBuilder() {
               <div className="flex items-center gap-2 flex-wrap">
                 {config.sheets.map((sheet, i) => (
                   <button key={i} onClick={() => setActiveSheetIdx(i)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border
-                      ${activeSheetIdx === i ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border-primary-300 dark:border-primary-600' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium transition-all border
+                      ${activeSheetIdx === i ? 'bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-300 border-primary-400 dark:border-primary-600 shadow-sm' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-primary-300'}`}>
                     <Layers size={12} />
                     {sheet.name || `Feuille ${i + 1}`}
                     {config.sheets.length > 1 && (
@@ -499,21 +510,22 @@ export default function SpreadsheetBuilder() {
                   </button>
                 ))}
                 <button onClick={addSheet}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-dashed border-gray-300 dark:border-gray-600">
+                  className="flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-medium text-gray-500 hover:text-primary-600 hover:border-primary-400 transition-colors border border-dashed border-gray-300 dark:border-gray-600">
                   <Plus size={12} /> Ajouter
                 </button>
               </div>
 
               {/* Active sheet config */}
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-700 space-y-4">
+              <div className="relative overflow-hidden bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary-500" />
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Nom de la feuille</label>
                   <input type="text" value={currentSheet.name || ''} onChange={(e) => updateSheet(activeSheetIdx, 'name', e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary-400 focus:border-transparent dark:text-white outline-none" />
+                    className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 outline-none transition-colors" />
                 </div>
 
                 {currentSheet.imported_celldata?.length > 0 ? (
-                  <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg">
                     <FileSpreadsheet size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Donnees importees depuis Excel</p>
@@ -545,16 +557,19 @@ export default function SpreadsheetBuilder() {
                 {/* Column mapping */}
                 {currentFields.length > 0 && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-                      Colonnes a afficher ({currentFields.length} champs disponibles)
-                    </label>
-                    <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Colonnes à afficher</label>
+                      <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-[11px] font-semibold text-gray-500 dark:text-gray-300">
+                        {(currentSheet.column_mapping || []).length || currentFields.length}/{currentFields.length} incluses
+                      </span>
+                    </div>
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="bg-gray-50 dark:bg-gray-900">
-                            <th className="px-3 py-2 text-left font-medium text-gray-500">Inclure</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-500">Champ source</th>
-                            <th className="px-3 py-2 text-left font-medium text-gray-500">Label affiche</th>
+                          <tr className="bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                            <th className="w-16 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Inclure</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Champ source</th>
+                            <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Libellé affiché</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -564,8 +579,9 @@ export default function SpreadsheetBuilder() {
                             const isIncluded = !mapping.length || !!mapped
 
                             return (
-                              <tr key={fi} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                              <tr key={fi} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 ${isIncluded ? '' : 'opacity-50'}`}>
                                 <td className="px-3 py-1.5">
+                                  <label className="inline-flex cursor-pointer">
                                   <input type="checkbox" checked={isIncluded}
                                     onChange={(e) => {
                                       let newMapping = [...(currentSheet.column_mapping || [])]
@@ -581,7 +597,11 @@ export default function SpreadsheetBuilder() {
                                       }
                                       updateSheet(activeSheetIdx, 'column_mapping', newMapping)
                                     }}
-                                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                    className="sr-only peer" />
+                                  <span className={`relative inline-flex h-5 w-9 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/40 ${isIncluded ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                                    <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${isIncluded ? 'translate-x-4' : ''}`} />
+                                  </span>
+                                  </label>
                                 </td>
                                 <td className="px-3 py-1.5 font-mono text-gray-700 dark:text-gray-300">{field.name}</td>
                                 <td className="px-3 py-1.5">
@@ -600,7 +620,7 @@ export default function SpreadsheetBuilder() {
                                       }
                                       updateSheet(activeSheetIdx, 'column_mapping', newMapping)
                                     }}
-                                    className="w-full px-2 py-1 text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded focus:ring-1 focus:ring-primary-400 dark:text-white outline-none" />
+                                    className="w-full h-7 px-2 text-xs bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-600 rounded-md focus:bg-white dark:focus:bg-gray-700 focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 dark:text-white outline-none transition-colors" />
                                 </td>
                               </tr>
                             )
@@ -625,15 +645,17 @@ export default function SpreadsheetBuilder() {
                   </div>
                 </div>
               ) : previewData && previewData.length > 0 ? (
-                <div className="flex-1 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden bg-white">
+                <div className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white shadow-sm">
                   <Workbook data={previewData} onChange={() => {}} />
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center">
-                  <div className="text-center">
-                    <FileSpreadsheet className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-sm text-gray-500 mb-2">Aucun apercu disponible</p>
-                    <p className="text-xs text-gray-400">Cliquez sur "Apercu" pour charger les donnees</p>
+                  <div className="flex flex-col items-center text-center px-10 py-8 rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/30">
+                    <span className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-50 text-primary-500 dark:bg-primary-900/30 mb-3">
+                      <FileSpreadsheet className="w-6 h-6" />
+                    </span>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Aucun aperçu</p>
+                    <p className="text-xs text-gray-400 mt-1">Cliquez sur « Aperçu » pour charger les données</p>
                   </div>
                 </div>
               )}

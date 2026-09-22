@@ -267,6 +267,7 @@ export const resetClientUserPassword = (id) => api.post(`/auth/client-users/${id
 
 // Client Portal : DWH & Licence (admin_client — gestion de leur propre DWH)
 export const getClientDwhInfo = () => api.get('/client/dwh-info')
+export const getClientLastSync = () => api.get('/client/last-sync')
 export const getClientDwhSources = () => api.get('/client/dwh-sources')
 export const createClientDwhSource = (data) => api.post('/client/dwh-sources', data)
 export const updateClientDwhSource = (code, data) => api.put(`/client/dwh-sources/${code}`, data)
@@ -408,7 +409,8 @@ export const generateGridViewFromAI = (description, dwh_code) =>
 
 // Menu APIs
 export const getAllMenus = () => api.get('/menus/')
-export const getMenusFlat = () => api.get('/menus/flat')
+export const getMenusFlat = (includeCentral = false) =>
+  api.get('/menus/flat', { params: includeCentral ? { include_central: true } : {} })
 export const getUserMenus = (userId, dwhCode = null) => {
   const headers = {}
   const dwh = dwhCode || getDwhCode()
@@ -424,6 +426,15 @@ export const setBulkUserMenuAccess = (data) => api.post('/menus/access/bulk', da
 export const removeUserMenuAccess = (userId, menuId) => api.delete(`/menus/access/${userId}/${menuId}`)
 export const getMenuTargets = (type) => api.get(`/menus/targets/${type}`)
 export const initSampleMenus = () => api.post('/menus/init-sample')
+// Detache un rapport de son menu (conserve le menu s'il a des sous-menus)
+export const detachMenu = (menuId) => api.post(`/menus/${menuId}/detach`)
+// Menus pointant vers un rapport supprime
+export const getOrphanMenus = () => api.get('/menus/orphans')
+export const cleanupOrphanMenus = () => api.post('/menus/orphans/cleanup')
+// Visibilite d'un rapport (roles + utilisateurs sans role)
+export const getReportAccess = (reportType, reportId) =>
+  api.get(`/menus/report-access/${reportType}/${reportId}`)
+export const setReportAccess = (data) => api.post('/menus/report-access', data)
 
 // Master Menu APIs (base centrale)
 export const getMasterMenus = () => api.get('/menus/master')

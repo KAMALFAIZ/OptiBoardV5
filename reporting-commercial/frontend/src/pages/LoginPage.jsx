@@ -3,6 +3,7 @@ import { Eye, EyeOff, LogIn, AlertCircle, XCircle, KeyRound, ShieldCheck, Smartp
 import { login, getClientInfo, getDwhList, extractErrorMessage, setFirstPassword } from '../services/api'
 import api from '../services/api'
 import { getClientCode } from '../utils/clientCode'
+import { MOBILE_BREAKPOINT } from '../hooks/useIsMobile'
 
 // ── Écran d'erreur pleine page (code invalide ou base absente) ──────────────
 function EcranErreurClient({ code, message }) {
@@ -344,7 +345,7 @@ export default function LoginPage({ onLogin, appName }) {
       if (clientCode) credentials.dwh_code = clientCode
       // Signaler au backend que la connexion vient d'un viewport mobile
       // → gate mobile_access (403 si le compte n'a pas l'accès mobile).
-      if (typeof window !== 'undefined' && window.innerWidth < 768) credentials.client_type = 'mobile'
+      if (typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT) credentials.client_type = 'mobile'
 
       const response = await login(credentials)
       if (response.data.success) {

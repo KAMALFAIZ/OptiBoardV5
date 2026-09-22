@@ -397,9 +397,10 @@ export default function MenuManagement() {
   const filterMenus = useCallback((menuList, query, type, showInactiveMenus) => {
     const filterMenu = (menu) => {
       // Vérifier le menu actuel
-      const matchesSearch = !query ||
-        menu.nom.toLowerCase().includes(query.toLowerCase()) ||
-        menu.code.toLowerCase().includes(query.toLowerCase())
+      const q = (query || '').toLowerCase()
+      const matchesSearch = !q ||
+        (menu.nom || '').toLowerCase().includes(q) ||
+        (menu.code || '').toLowerCase().includes(q)
       const matchesType = type === 'all' || menu.type === type || (type === 'pivot-v2' && menu.type === 'pivot')
       const matchesActive = showInactiveMenus || menu.is_active
 
@@ -548,14 +549,20 @@ export default function MenuManagement() {
       let newMenuId = null
       const parentId = formData.parent_id
 
+      // Les routes /menus repondent 200 + {success:false} sur erreur SQL :
+      // sans ce controle, la modale se fermait comme si tout allait bien.
       if (editingMenu) {
-        await updateMenu(editingMenu.id, formData)
+        const response = await updateMenu(editingMenu.id, formData)
+        if (response.data?.success === false) {
+          throw new Error(response.data.error || 'Enregistrement refuse')
+        }
         newMenuId = editingMenu.id
       } else {
         const response = await createMenu(formData)
-        if (response.data.success) {
-          newMenuId = response.data.id
+        if (response.data?.success === false) {
+          throw new Error(response.data.error || 'Creation refusee')
         }
+        newMenuId = response.data.id
       }
 
       setShowModal(false)
@@ -575,7 +582,7 @@ export default function MenuManagement() {
       }
     } catch (err) {
       console.error('Erreur sauvegarde:', err)
-      alert('Erreur lors de la sauvegarde')
+      alert(err?.response?.data?.detail || err?.message || 'Erreur lors de la sauvegarde')
     } finally {
       setSaving(false)
     }

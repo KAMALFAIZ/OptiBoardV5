@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import FieldPill from './FieldPill'
-import { Calendar } from 'lucide-react'
+import { Filter, Plus } from 'lucide-react'
 
 const DATE_GROUPINGS = [
   { value: '', label: 'Brut' },
@@ -42,28 +42,28 @@ const FORMATS = [
 
 const zoneStyles = {
   rows: {
-    border: 'border-blue-300 dark:border-blue-700',
-    bg: 'bg-blue-50/50 dark:bg-blue-900/10',
-    activeBg: 'bg-blue-100 dark:bg-blue-900/30',
-    label: 'text-blue-700 dark:text-blue-400',
+    accent: 'bg-sky-500',
+    iconBg: 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300',
+    activeBg: 'bg-sky-50 dark:bg-sky-900/20 border-sky-400 dark:border-sky-600',
+    hint: 'Axe vertical du tableau',
   },
   columns: {
-    border: 'border-green-300 dark:border-green-700',
-    bg: 'bg-green-50/50 dark:bg-green-900/10',
-    activeBg: 'bg-green-100 dark:bg-green-900/30',
-    label: 'text-green-700 dark:text-green-400',
+    accent: 'bg-emerald-500',
+    iconBg: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300',
+    activeBg: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600',
+    hint: 'Axe horizontal du tableau',
   },
   values: {
-    border: 'border-purple-300 dark:border-purple-700',
-    bg: 'bg-purple-50/50 dark:bg-purple-900/10',
-    activeBg: 'bg-purple-100 dark:bg-purple-900/30',
-    label: 'text-purple-700 dark:text-purple-400',
+    accent: 'bg-violet-500',
+    iconBg: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300',
+    activeBg: 'bg-violet-50 dark:bg-violet-900/20 border-violet-400 dark:border-violet-600',
+    hint: 'Indicateurs agrégés',
   },
   filters: {
-    border: 'border-amber-300 dark:border-amber-700',
-    bg: 'bg-amber-50/50 dark:bg-amber-900/10',
-    activeBg: 'bg-amber-100 dark:bg-amber-900/30',
-    label: 'text-amber-700 dark:text-amber-400',
+    accent: 'bg-amber-500',
+    iconBg: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300',
+    activeBg: 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-600',
+    hint: "Restreignent les données à l'affichage",
   },
 }
 
@@ -167,15 +167,29 @@ export default function DropZone({
     onFieldChange?.(contextMenu.field._uid, zone, { [key]: value })
   }
 
+  const overLimit = maxFields && fields.length > maxFields
+  const ZoneIcon = Icon || Filter
+
   return (
-    <div className={`${className}`}>
+    <div className={`relative flex flex-col rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden ${className}`}>
+      <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${style.accent}`} />
       {title && (
-        <div className={`flex items-center gap-1.5 mb-1.5 text-xs font-semibold uppercase tracking-wide ${style.label}`}>
-          {Icon && <Icon size={14} />}
-          <span>{title}</span>
-          {maxFields && (
-            <span className="text-gray-400 font-normal">({fields.length}/{maxFields})</span>
-          )}
+        <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+          <span className={`flex items-center justify-center w-7 h-7 rounded-lg ${style.iconBg}`}>
+            <ZoneIcon size={15} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-gray-800 dark:text-gray-100 leading-tight">{title}</div>
+            <div className="text-[11px] text-gray-400 leading-tight truncate">{style.hint}</div>
+          </div>
+          <span
+            className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-semibold ${overLimit
+              ? 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300'
+              : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}
+            title={overLimit ? `Maximum ${maxFields} champ(s) — le surplus est ignoré` : undefined}
+          >
+            {maxFields ? `${fields.length}/${maxFields}` : fields.length}
+          </span>
         </div>
       )}
       <div
@@ -183,62 +197,53 @@ export default function DropZone({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          min-h-[48px] rounded-lg border-2 border-dashed p-2
-          transition-all duration-200
-          ${dragOver ? `${style.activeBg} ${style.border} scale-[1.01]` : `${style.bg} ${style.border} border-opacity-50`}
+          flex-1 min-h-[76px] m-2 rounded-lg border border-dashed p-2
+          transition-colors duration-150
+          ${dragOver ? style.activeBg : 'border-transparent'}
+          ${fields.length === 0 && !dragOver ? 'border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/20' : ''}
           ${fields.length === 0 ? 'flex items-center justify-center' : ''}
         `}
       >
         {fields.length === 0 ? (
-          <span className="text-xs text-gray-400 dark:text-gray-500 italic">{placeholder}</span>
+          <span className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+            <Plus size={13} />
+            {placeholder}
+          </span>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {fields.map((f, i) => (
-              <div
-                key={f._uid || `${f.field}_${i}`}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
-                onDrop={(e) => handleInternalDrop(e, i)}
-                onContextMenu={(e) => handleContextMenu(e, f, i)}
-                className={`flex items-center gap-1 ${dragIndex === i ? 'opacity-30' : ''} transition-opacity`}
-              >
-                <FieldPill
-                  field={f.field}
-                  type={f.type}
-                  label={zone === 'values' ? `${f.label || f.field} (${(AGGREGATIONS.find(a => a.value === f.aggregation) || AGGREGATIONS[0]).label})` : (f.label || f.field)}
-                  removable
-                  onRemove={() => onRemove?.(f._uid, zone)}
-                  onDragStart={(e) => handleInternalDragStart(e, i)}
-                  compact
-                />
-                {/* Indicateur de regroupement temporel pour les champs date */}
-                {f.type === 'date' && f.date_grouping && (
-                  <span
-                    className="text-[10px] px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 cursor-pointer"
-                    title="Regroupement temporel (clic droit pour modifier)"
-                  >
-                    {(DATE_GROUPINGS.find(dg => dg.value === f.date_grouping) || {}).label || f.date_grouping}
-                  </span>
-                )}
-                {/* Indicateur regroupement numerique */}
-                {f.numeric_grouping?.type && (
-                  <span
-                    className="text-[10px] px-1 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-300 cursor-pointer"
-                    title="Regroupement numerique (clic droit pour modifier)"
-                  >
-                    {f.numeric_grouping.type === 'interval' ? `Pas: ${f.numeric_grouping.step}` : 'Plages'}
-                  </span>
-                )}
-                {/* Indicateur regroupement texte */}
-                {f.text_grouping?.type && (
-                  <span
-                    className="text-[10px] px-1 py-0.5 rounded bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-300 cursor-pointer"
-                    title="Regroupement texte (clic droit pour modifier)"
-                  >
-                    {f.text_grouping.type === 'first_letter' ? '1re lettre' : 'Groupes'}
-                  </span>
-                )}
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-1.5 content-start">
+            {fields.map((f, i) => {
+              const agg = zone === 'values' ? (AGGREGATIONS.find(a => a.value === f.aggregation) || AGGREGATIONS[0]).label : null
+              const dateGrp = f.type === 'date' && f.date_grouping
+                ? ((DATE_GROUPINGS.find(dg => dg.value === f.date_grouping) || {}).label || f.date_grouping) : null
+              const numGrp = f.numeric_grouping?.type
+                ? (f.numeric_grouping.type === 'interval' ? `Pas ${f.numeric_grouping.step}` : 'Plages') : null
+              const txtGrp = f.text_grouping?.type
+                ? (f.text_grouping.type === 'first_letter' ? '1re lettre' : 'Groupes') : null
+              return (
+                <div
+                  key={f._uid || `${f.field}_${i}`}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
+                  onDrop={(e) => handleInternalDrop(e, i)}
+                  onContextMenu={(e) => handleContextMenu(e, f, i)}
+                  className={`max-w-full ${dragIndex === i ? 'opacity-30' : ''} transition-opacity`}
+                >
+                  <FieldPill
+                    field={f.field}
+                    type={f.type}
+                    label={f.label || f.field}
+                    badge={agg || dateGrp || numGrp || txtGrp}
+                    removable
+                    onRemove={() => onRemove?.(f._uid, zone)}
+                    onSettings={onFieldChange ? (e) => {
+                      const r = e.currentTarget.getBoundingClientRect()
+                      setContextMenu({ x: Math.min(r.left, window.innerWidth - 240), y: r.bottom + 4, field: f, index: i })
+                    } : undefined}
+                    onDragStart={(e) => handleInternalDragStart(e, i)}
+                    compact
+                  />
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

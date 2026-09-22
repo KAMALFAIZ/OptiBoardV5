@@ -100,6 +100,119 @@ async def get_client_dwh_info(
 
 
 # ============================================================
+# Dernière synchronisation (affichée au démarrage de l'application)
+# ============================================================
+
+@router.get("/last-sync")
+async def get_client_last_sync(
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Dernière synchronisation ETL connue pour le DWH courant.
+
+    Lecture seule, accessible à tout utilisateur authentifié du tenant
+    (le middleware d'auth impose déjà une session valide et le tenant).
+    Source primaire : APP_ETL_Agents (base client). Repli : APP_ETL_Agent_Tables
+    (base client), puis APP_DWH_Sources (base centrale) si l'agent n'a jamais
+    remonté de heartbeat. Ne renvoie AUCUN credential.
+    """
+    code = _require_dwh(dwh_code)
+
+    def _fetch():
+        data = {
+            "last_sync": None,
+            "status": None,
+            "agent_name": None,
+            "tables_synced": 0,
+            "rows_synced": 0,
+            "source": None,
+            "last_heartbeat": None,
+            "agent_status": None,
+        }
+
+        # 1) Agent ETL (base client)
+        try:
+            rows = execute_client(
+                "SELECT TOP 1 nom, last_sync, last_sync_statut, total_lignes_sync, "
+                "last_heartbeat, statut "
+                "FROM APP_ETL_Agents "
+                "ORDER BY CASE WHEN last_sync IS NULL THEN 1 ELSE 0 END, "
+                "last_sync DESC, last_heartbeat DESC",
+                dwh_code=code, use_cache=False,
+            )
+            if rows:
+                r = rows[0]
+                data.update({
+                    "last_sync": r.get("last_sync"),
+                    "status": r.get("last_sync_statut"),
+                    "agent_name": r.get("nom"),
+                    "rows_synced": r.get("total_lignes_sync") or 0,
+                    "last_heartbeat": r.get("last_heartbeat"),
+                    "agent_status": r.get("statut"),
+                    "source": "agent" if r.get("last_sync") else None,
+                })
+        except Exception as e:
+            logger.debug(f"[CLIENT PORTAL] last-sync agents ({code}): {e}")
+
+        # 2) Détail par table (base client) — complète/prend le relais
+        try:
+            rows = execute_client(
+                "SELECT MAX(last_sync) AS max_sync, COUNT(*) AS nb, "
+                "SUM(CASE WHEN last_sync_status = 'error' THEN 1 ELSE 0 END) AS nb_err "
+                "FROM APP_ETL_Agent_Tables WHERE last_sync IS NOT NULL",
+                dwh_code=code, use_cache=False,
+            )
+            if rows and rows[0].get("max_sync"):
+                r = rows[0]
+                data["tables_synced"] = r.get("nb") or 0
+                if not data["last_sync"] or r["max_sync"] > data["last_sync"]:
+                    data["last_sync"] = r["max_sync"]
+                    data["source"] = "tables"
+                if not data["status"]:
+                    data["status"] = "error" if (r.get("nb_err") or 0) > 0 else "success"
+        except Exception as e:
+            logger.debug(f"[CLIENT PORTAL] last-sync tables ({code}): {e}")
+
+        # 3) Repli base centrale (sources déclarées)
+        if not data["last_sync"]:
+            try:
+                rows = execute_central(
+                    "SELECT TOP 1 nom_societe, last_sync, last_sync_status "
+                    "FROM APP_DWH_Sources WHERE dwh_code = ? AND last_sync IS NOT NULL "
+                    "ORDER BY last_sync DESC",
+                    (code,), use_cache=False,
+                )
+                if rows:
+                    r = rows[0]
+                    data.update({
+                        "last_sync": r.get("last_sync"),
+                        "status": r.get("last_sync_status"),
+                        "agent_name": r.get("nom_societe"),
+                        "source": "source",
+                    })
+            except Exception as e:
+                logger.debug(f"[CLIENT PORTAL] last-sync sources ({code}): {e}")
+
+        return data
+
+    try:
+        data = await asyncio.to_thread(_fetch)
+        from datetime import datetime, date
+        for key in ("last_sync", "last_heartbeat"):
+            v = data.get(key)
+            if isinstance(v, (datetime, date)):
+                data[key] = v.isoformat()
+                if isinstance(v, datetime):
+                    age = max(0, int((datetime.now() - v).total_seconds()))
+                    data["age_seconds" if key == "last_sync" else "heartbeat_age_seconds"] = age
+        return {"success": True, "data": data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CLIENT PORTAL] get_client_last_sync error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
 # Sources Sage (APP_DWH_Sources — base centrale)
 # ============================================================
 

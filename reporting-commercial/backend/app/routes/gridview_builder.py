@@ -462,13 +462,70 @@ def update_gridview(grid_id: int, grid: GridViewUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/grids/{grid_id}")
-def delete_gridview(grid_id: int):
-    """Supprime une grille"""
+def _delete_client_gridview(dwh_code: Optional[str], central_row: dict, grid_id: int) -> dict:
+    """
+    Supprime la copie CLIENTE d'une grille, appariee par code (ou nom).
+    Les ids different entre centrale et base client : sans appariement, la copie
+    cliente survivait a la suppression et restait visible cote utilisateur.
+    """
+    if not dwh_code or not central_row:
+        return {"deleted": 0, "reason": "no-dwh" if not dwh_code else "not-found"}
+
+    if central_row.get("code"):
+        clause, value = "code = ?", central_row["code"]
+    elif central_row.get("nom"):
+        clause, value = "nom = ?", central_row["nom"]
+    else:
+        logger.warning(f"Delete client DWH {dwh_code} grille {grid_id}: aucune cle d'appariement")
+        return {"deleted": 0, "reason": "no-match"}
+
     try:
+        if not client_manager.has_client_db(dwh_code):
+            return {"deleted": 0, "reason": "no-client-db"}
+        rows = execute_client(
+            f"SELECT id FROM APP_GridViews WHERE {clause}",
+            (value,), dwh_code=dwh_code, use_cache=False
+        ) or []
+        if len(rows) != 1:
+            logger.warning(
+                f"Delete client DWH {dwh_code} grille {grid_id}: {len(rows)} ligne(s) client "
+                f"pour {clause[:4]}={value!r} — copie cliente NON supprimee"
+            )
+            return {"deleted": 0, "reason": "ambiguous", "matches": len(rows)}
+        with _gv_cursor(dwh_code) as c:
+            c.execute("DELETE FROM APP_GridViews WHERE id = ?", (rows[0]["id"],))
+        return {"deleted": 1, "client_id": rows[0]["id"]}
+    except Exception as e:
+        logger.warning(f"Delete client DWH {dwh_code} grille {grid_id}: {e}")
+        return {"deleted": 0, "reason": str(e)}
+
+
+@router.delete("/grids/{grid_id}")
+def delete_gridview(
+    grid_id: int,
+    dwh_code: Optional[str] = Header(None, alias="X-DWH-Code")
+):
+    """Supprime une grille : base centrale + copie cliente + menus associes"""
+    try:
+        # Cle d'appariement lue AVANT la suppression centrale
+        central = execute_query(
+            "SELECT code, nom FROM APP_GridViews WHERE id = ?", (grid_id,), use_cache=False
+        )
+        if not central:
+            raise HTTPException(status_code=404, detail=f"Grille {grid_id} non trouvee")
+
         with get_db_cursor() as cursor:
             cursor.execute("DELETE FROM APP_GridViews WHERE id = ?", (grid_id,))
-        return {"success": True, "message": "Grille supprimee"}
+
+        client = _delete_client_gridview(dwh_code, central[0], grid_id)
+
+        # Sans ce nettoyage, les menus restaient et ouvraient un ecran vide
+        from .menus import cleanup_menus_for_report
+        menus = cleanup_menus_for_report('gridview', grid_id)
+
+        return {"success": True, "client": client, "menus": menus, "message": "Grille supprimee"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
